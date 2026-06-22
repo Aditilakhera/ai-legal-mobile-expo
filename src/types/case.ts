@@ -36,11 +36,57 @@ export interface CaseDocument {
 
 export interface CaseEvidence {
   _id?: string;
+  id?: string;
   name: string;
   type: string;
   description: string;
-  admissibility?: 'Admissible' | 'Inadmissible' | 'Contested' | 'Pending';
   notes?: string;
+  exhibitNumber?: string;
+  status?: 'Verified' | 'Pending' | 'Rejected' | 'Disputed';
+  tags?: string[];
+  url?: string;
+  fileSize?: string;
+  uploadedBy?: string;
+  uploadedDate?: string;
+  ocrData?: {
+    text?: string;
+    datesDetected?: string[];
+    namesDetected?: string[];
+    addressesDetected?: string[];
+    signaturesDetected?: string[];
+    amountsDetected?: string[];
+    registrationNumbers?: string[];
+    caseNumbers?: string[];
+    courtNames?: string[];
+    judges?: string[];
+  };
+  aiAnalysis?: {
+    summary?: string;
+    relevance?: string;
+    extractedText?: string;
+    entities?: {
+      people?: string[];
+      dates?: string[];
+      addresses?: string[];
+      amounts?: string[];
+    };
+    caseRelevance?: string;
+    suggestedTimelineEvents?: string[];
+    suggestedHearingLinks?: string[];
+    suggestedArguments?: string[];
+    applicableLaws?: string[];
+    possibleWeaknesses?: string[];
+    confidenceScore?: number;
+  };
+  relatedLinks?: {
+    timelineEvents?: string[];
+    hearings?: string[];
+    research?: string[];
+    arguments?: string[];
+    drafts?: string[];
+    contracts?: string[];
+  };
+  hash?: string;
 }
 
 export interface CasePrecedent {
@@ -67,7 +113,19 @@ export interface CaseTask {
   description: string;
   status: 'Pending' | 'In Progress' | 'Completed';
   deadline?: string;
-  priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+  priority: 'Low' | 'Medium' | 'High' | 'Urgent' | 'Critical';
+  checklist?: { title: string; checked: boolean }[];
+  reminder?: string;
+  assignTo?: string;
+  relatedHearing?: string;
+  linkedHearing?: string;
+  relatedTimelineEvent?: string;
+  relatedEvidence?: string;
+  relatedDocument?: string;
+  notes?: string;
+  attachments?: string[];
+  source?: string;
+  createdAt?: string;
 }
 
 export interface CaseCommunicationLog {
@@ -146,8 +204,34 @@ export interface CaseWorkspace {
   missingDocuments?: Array<{ title: string; description: string; date?: string }>;
   isLegalCase?: boolean;
   accused?: string;
+  drafts?: CaseDraft[];
+  notes?: CaseNote[];
+  contracts?: any[];
+  courtOrders?: CourtOrder[];
+  opposingLawyer?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CaseDraftVersion {
+  version: number;
+  content: string;
+  createdAt: string;
+  changes: string;
+}
+
+export interface CaseDraft {
+  id: string;
+  name: string;
+  type: string;
+  content: string;
+  versions: CaseDraftVersion[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  status: 'Draft' | 'In Progress' | 'Completed' | 'Reviewed';
+  aiSuggestions: string[];
+  exportHistory: string[];
 }
 
 export interface CaseSummary {
@@ -162,4 +246,132 @@ export interface CaseSummary {
   taskCount: number;
   hearingCount: number;
   updatedAt: string;
+}
+
+export interface CaseNote {
+  _id?: string;
+  id?: string;
+  title: string;
+  content: string;
+  category: string;
+  tags?: string[];
+  priority: 'Low' | 'Medium' | 'High' | 'Critical';
+  attachments?: Array<{ name: string; url: string; type: string }>;
+  voiceRecordingUrl?: string;
+  relatedHearing?: string;
+  relatedTimelineEvent?: string;
+  relatedEvidence?: string;
+  relatedArgument?: string;
+  relatedResearch?: string;
+  favorite?: boolean;
+  pinned?: boolean;
+  archived?: boolean;
+  aiSummary?: {
+    shortSummary?: string;
+    keyPoints?: string[];
+    importantFacts?: string[];
+    actionItems?: string[];
+  };
+  aiEntities?: Array<{ text: string; type: string }>;
+  aiSuggestedLinks?: Array<{ type: string; targetId: string; targetName: string; confirmed?: boolean }>;
+  aiSuggestedActions?: Array<{ type: string; description: string; accepted?: boolean }>;
+  versions?: Array<{ version: number; content: string; createdAt: string }>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CourtOrder {
+  _id?: string;
+  id?: string;
+  name: string;
+  url?: string;
+  fileSize?: string;
+  ocrText?: string;
+  status: 'Pending' | 'Completed' | 'Compliance Pending' | 'AI Analyzed';
+  uploadedBy?: string;
+  metadata?: {
+    courtName?: string;
+    judgeName?: string;
+    bench?: string;
+    courtNumber?: string;
+    caseNumber?: string;
+    orderDate?: string;
+    nextHearingDate?: string;
+    orderType?: string;
+    stageOfCase?: string;
+    petitioner?: string;
+    respondent?: string;
+    advocates?: string;
+    caseStatus?: string;
+  };
+  aiSummary?: {
+    shortSummary?: string;
+    keyPoints?: string[];
+  };
+  complianceItems?: Array<{
+    _id?: string;
+    description: string;
+    status: 'Pending' | 'Completed' | 'Overdue';
+    dueDate?: string;
+    priority: 'Low' | 'Medium' | 'High' | 'Critical';
+    responsiblePerson?: string;
+  }>;
+  suggestedTasks?: Array<{
+    _id?: string;
+    title: string;
+    description: string;
+    priority?: string;
+    accepted?: boolean;
+  }>;
+  suggestedTimeline?: Array<{
+    _id?: string;
+    title: string;
+    description: string;
+    date: string;
+    accepted?: boolean;
+  }>;
+  suggestedHearings?: Array<{
+    _id?: string;
+    title: string;
+    date: string;
+    courtroom?: string;
+    judge?: string;
+    purpose?: string;
+    accepted?: boolean;
+  }>;
+  suggestedArguments?: Array<{
+    _id?: string;
+    title: string;
+    logic: string;
+    precedents?: string;
+    accepted?: boolean;
+  }>;
+  suggestedResearch?: Array<{
+    _id?: string;
+    act: string;
+    section: string;
+    description: string;
+    accepted?: boolean;
+  }>;
+  suggestedEvidence?: Array<{
+    _id?: string;
+    title: string;
+    description: string;
+    status?: string;
+    accepted?: boolean;
+  }>;
+  riskAnalysis?: {
+    proceduralDefects?: string[];
+    weaknessDetails?: string[];
+    limitationRisk?: string;
+    jurisdictionIssue?: boolean;
+    objectionsProbability?: number;
+  };
+  linkedRecords?: {
+    hearingsCount?: number;
+    tasksCount?: number;
+    evidenceCount?: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
 }

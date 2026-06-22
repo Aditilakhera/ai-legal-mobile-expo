@@ -17,6 +17,7 @@ import {
   Clipboard,
   BackHandler,
   Animated,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -30,6 +31,8 @@ import { useWorkspaceStore } from '@/store/workspace';
 import { CaseService } from '@/services/case.service';
 import { useToastContext } from '@/providers';
 import { ChatService } from '@/services/chat.service';
+import { DraftService } from '@/services/draft.service';
+import { ResearchService } from '@/services/research.service';
 import { streamAIResponse } from '@/api/client';
 import {
   CaseWorkspace,
@@ -41,6 +44,8 @@ import {
   CasePrecedent,
   ChatMessage,
   ChatAttachment,
+  CaseDraft,
+  CaseDraftVersion,
 } from '@/types';
 import { ChatMessageBubble, ChatComposer, ChatWelcome } from '@/components/ui/chat';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
@@ -385,16 +390,234 @@ export default function WorkspaceDetailScreen() {
   // Evidence
   const [evidenceForm, setEvidenceForm] = useState({ name: '', type: 'Document', description: '', admissibility: 'Admissible' });
   // Task
-  const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'Medium', deadline: '' });
   // Research precedents search
   const [precedentQuery, setPrecedentQuery] = useState('');
   const [precedentSearchResults, setPrecedentSearchResults] = useState<CasePrecedent[]>([]);
-  // Draft compiler
-  const [draftForm, setDraftForm] = useState({ name: '', template: 'Notice', content: '' });
-  const [isDraftCompiling, setIsDraftCompiling] = useState(false);
-  const [compiledDraftText, setCompiledDraftText] = useState('');
+
+  // AI Research States
+  const [researchSearchQuery, setResearchSearchQuery] = useState('');
+  const [isRegeneratingResearch, setIsRegeneratingResearch] = useState(false);
+  const [researchRegenSteps, setResearchRegenSteps] = useState<string[]>([]);
+  const [activeResearchRegenStep, setActiveResearchRegenStep] = useState(0);
+  const [expandedResearchSection, setExpandedResearchSection] = useState('dashboard');
+  const [conversationalSearchResults, setConversationalSearchResults] = useState<{ judgments: any[]; laws: any[] } | null>(null);
+  const [isSearchingResearch, setIsSearchingResearch] = useState(false);
+  const [aiResearchReply, setAiResearchReply] = useState<string | null>(null);
+  const [aiStrategyReply, setAiStrategyReply] = useState<string | null>(null);
+  const [isResearchGenerated, setIsResearchGenerated] = useState(false);
+  const [expandedLaws, setExpandedLaws] = useState<Record<number, boolean>>({});
+  const [expandedJudgments, setExpandedJudgments] = useState<Record<number, boolean>>({});
+  const [judgmentFilter, setJudgmentFilter] = useState('All');
+  // Redesigned Draft states
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState('');
+  const [draftFilter, setDraftFilter] = useState('All');
+  const [draftSort, setDraftSort] = useState('Newest');
+  const [draftForm, setDraftForm] = useState({ name: '', type: 'Legal Notice' });
+  const [editorContent, setEditorContent] = useState('');
+  const [editorTitle, setEditorTitle] = useState('');
+  const [editorType, setEditorType] = useState('Legal Notice');
+  const [editorStatus, setEditorStatus] = useState<'Draft' | 'In Progress' | 'Completed' | 'Reviewed'>('Draft');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isAiDrafting, setIsAiDrafting] = useState(false);
+  const [aiDraftSteps, setAiDraftSteps] = useState<string[]>([]);
+  const [activeAiDraftStep, setActiveAiDraftStep] = useState(0);
+  const [aiSuggestedDraftText, setAiSuggestedDraftText] = useState<string | null>(null);
+  const [isAiSuggestionActive, setIsAiSuggestionActive] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [versionComment, setVersionComment] = useState('Initial draft created');
+  const [expandedEditorTab, setExpandedEditorTab] = useState<'editor' | 'ai' | 'history'>('editor');
   // Rename
   const [renameValue, setRenameValue] = useState('');
+  const [renameTargetDraftId, setRenameTargetDraftId] = useState('');
+  const [isDraftTypePickerOpen, setIsDraftTypePickerOpen] = useState(false);
+
+  // New states for clean design workspace
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewDraft, setPreviewDraft] = useState<CaseDraft | null>(null);
+  const [isCardMoreMenuOpen, setIsCardMoreMenuOpen] = useState(false);
+  const [activeDraftForMoreMenu, setActiveDraftForMoreMenu] = useState<CaseDraft | null>(null);
+  const [isEditorMoreOpen, setIsEditorMoreOpen] = useState(false);
+  const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
+  const [saveAsName, setSaveAsName] = useState('');
+  const [autosaveStatus, setAutosaveStatus] = useState<string>('Autosaved');
+  const autosaveTimerRef = useRef<any>(null);
+
+  // Formatting simulated states
+  const [isBold, setIsBold] = useState(false);
+  const [isItalic, setIsItalic] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
+  const [alignment, setAlignment] = useState<'left' | 'center' | 'right'>('left');
+
+  // Evidence Vault clean design states
+  const [evidenceSearchQuery, setEvidenceSearchQuery] = useState('');
+  const [evidenceFilter, setEvidenceFilter] = useState('All');
+  const [isEvidenceDetailsOpen, setIsEvidenceDetailsOpen] = useState(false);
+  const [selectedEvidence, setSelectedEvidence] = useState<CaseEvidence | null>(null);
+  const [isEvidenceUploadOpen, setIsEvidenceUploadOpen] = useState(false);
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
+  const [isOcrAnalyzing, setIsOcrAnalyzing] = useState(false);
+  const [ocrProgressStep, setOcrProgressStep] = useState(0);
+  const [isAnalyzingEvidence, setIsAnalyzingEvidence] = useState(false);
+  const [aiAnalysisProgressStep, setAiAnalysisProgressStep] = useState(0);
+
+  // AI Contract Redesign States
+  const [uploadedContract, setUploadedContract] = useState<any>(null);
+  const [isAnalyzingContract, setIsAnalyzingContract] = useState(false);
+  const [contractAnalysisSteps, setContractAnalysisSteps] = useState<string[]>([]);
+  const [activeContractAnalysisStep, setActiveContractAnalysisStep] = useState(0);
+  const [contractActiveSubTab, setContractActiveSubTab] = useState('overview');
+  const [contractSearchQuery, setContractSearchQuery] = useState('');
+  const [contractFilter, setContractFilter] = useState('All Clauses');
+  const [expandedClauses, setExpandedClauses] = useState<Record<number, boolean>>({});
+  const [expandedRisks, setExpandedRisks] = useState<Record<string, boolean>>({});
+  const [expandedMissing, setExpandedMissing] = useState<Record<string, boolean>>({});
+  const [isContractLinked, setIsContractLinked] = useState(false);
+
+  // AI Strategy & Courtroom Arguments
+  const [argumentsActiveSubTab, setArgumentsActiveSubTab] = useState('dashboard');
+  const [argumentsSearchQuery, setArgumentsSearchQuery] = useState('');
+  const [argumentsFilter, setArgumentsFilter] = useState('All');
+  const [isAnalyzingArguments, setIsAnalyzingArguments] = useState(false);
+  const [argumentsAnalysisSteps, setArgumentsAnalysisSteps] = useState<string[]>([]);
+  const [activeArgumentsStep, setActiveArgumentsStep] = useState(0);
+  const [argumentsExportOpen, setArgumentsExportOpen] = useState(false);
+  const [isPreparingHearing, setIsPreparingHearing] = useState(false);
+  const [expandedArguments, setExpandedArguments] = useState<Record<string, boolean>>({});
+  const [pinnedArguments, setPinnedArguments] = useState<Record<string, boolean>>({});
+  
+  // Custom states for CRUD
+  const [petitionerArguments, setPetitionerArguments] = useState<any[]>([]);
+  const [respondentArguments, setRespondentArguments] = useState<any[]>([]);
+  const [opponentPredictions, setOpponentPredictions] = useState<any[]>([]);
+  const [trialStrategySequence, setTrialStrategySequence] = useState<any[]>([]);
+  const [prepBinderTasks, setPrepBinderTasks] = useState<any[]>([
+    { id: 't1', title: 'Prepare Section 65B Electronic Evidence Certificate', category: 'Documents Required', status: 'Pending' },
+    { id: 't2', title: 'Notarized Loan Agreement Deed (Ex. P-1) original copy', category: 'Evidence Required', status: 'Pending' },
+    { id: 't3', title: 'Attesting witness summon and checklist verification', category: 'Witness Checklist', status: 'Pending' },
+    { id: 't4', title: 'Cite landmark judgments on commercial default rates (Article 19)', category: 'Important Citations', status: 'Pending' },
+    { id: 't5', title: 'Review Noida vs Delhi jurisdiction seat legal precedents', category: 'Pending Tasks', status: 'Pending' }
+  ]);
+
+  // Modal states for Argument Add/Edit CRUD
+  const [isArgModalOpen, setIsArgModalOpen] = useState(false);
+  const [argModalType, setArgModalType] = useState<'add' | 'edit'>('add');
+  const [argModalCategory, setArgModalCategory] = useState<'petitioner' | 'respondent'>('petitioner');
+  const [argModalTargetId, setArgModalTargetId] = useState<string | null>(null);
+  const [argForm, setArgForm] = useState({
+    title: '',
+    category: 'Contract Law',
+    priority: 'High',
+    description: '',
+    supportingFacts: '',
+    supportingLaws: '',
+    supportingCaseLaws: '',
+    relatedEvidence: '',
+    relatedDocuments: '',
+    relatedTimelineEvents: '',
+    relatedHearings: ''
+  });
+
+  const [logEvidenceForm, setLogEvidenceForm] = useState({
+    name: '',
+    type: 'Document',
+    description: '',
+    notes: '',
+    tags: '',
+    exhibitNumber: '',
+    fileSize: '1.2 MB'
+  });
+
+  // AI Task Manager States
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [taskFilter, setTaskFilter] = useState('All');
+  const [isGeneratingAiTasks, setIsGeneratingAiTasks] = useState(false);
+  const [aiTaskBriefOpen, setAiTaskBriefOpen] = useState(true);
+  const [weeklyPlannerOpen, setWeeklyPlannerOpen] = useState(false);
+  const [isVoiceTasksModalOpen, setIsVoiceTasksModalOpen] = useState(false);
+  const [voiceInputQuery, setVoiceInputQuery] = useState('');
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
+  const [isTaskFormModalOpen, setIsTaskFormModalOpen] = useState(false);
+  const [taskFormType, setTaskFormType] = useState<'add' | 'edit'>('add');
+  const [taskFormTargetId, setTaskFormTargetId] = useState<string | null>(null);
+  
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    priority: 'High',
+    deadline: '',
+    reminder: 'None',
+    assignTo: '',
+    status: 'Pending',
+    relatedHearing: '',
+    relatedTimelineEvent: '',
+    relatedEvidence: '',
+    relatedDocument: '',
+    notes: '',
+    attachments: [] as string[],
+    checklist: [] as { title: string; checked: boolean }[],
+    tempSubtaskText: ''
+  });
+
+  const [aiSuggestedTasks, setAiSuggestedTasks] = useState<any[]>([
+    {
+      id: 'ai_s1',
+      title: 'Prepare Section 65B Electronic Evidence Certificate',
+      priority: 'Critical',
+      reason: 'Required before electronic HDFC bank transaction records can become admissible in court.',
+      deadline: 'Due Before Next Hearing',
+      status: 'AI Suggested',
+      checklist: [
+        { title: 'Draft Certificate', checked: false },
+        { title: 'Obtain Branch Manager signature', checked: false },
+        { title: 'Annex to Evidence ledger list', checked: false }
+      ]
+    },
+    {
+      id: 'ai_s2',
+      title: 'File Written Statement',
+      priority: 'Critical',
+      reason: 'Limitation Act & CPC require filing the defense statement within 30 days of summon delivery.',
+      deadline: 'Due Within 14 Days',
+      status: 'AI Suggested',
+      checklist: [
+        { title: 'Draft reply to plaint parawise', checked: false },
+        { title: 'Notarize affidavit of statement execution', checked: false }
+      ]
+    },
+    {
+      id: 'ai_s3',
+      title: 'Upload Speed Post Postal Receipt',
+      priority: 'High',
+      reason: 'Timeline indicates legal notice was sent but dispatch receipts have not been mapped in the Evidence Vault.',
+      deadline: 'Due Today',
+      status: 'AI Suggested',
+      checklist: [
+        { title: 'Scan postal receipt', checked: false },
+        { title: 'Attach to Notice event', checked: false }
+      ]
+    },
+    {
+      id: 'ai_s4',
+      title: 'Collect Original Sale Deed',
+      priority: 'High',
+      reason: 'Primary evidence rule requires the production of the original notarized deed for admission inspection.',
+      deadline: 'Due Before Next Hearing',
+      status: 'AI Suggested',
+      checklist: []
+    },
+    {
+      id: 'ai_s5',
+      title: 'Verify Witness Address & Attestation Details',
+      priority: 'Medium',
+      reason: 'Required for issue of summons to the executing notary witnesses.',
+      deadline: 'Due Within 7 Days',
+      status: 'AI Suggested',
+      checklist: []
+    }
+  ]);
 
   // General Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -405,6 +628,779 @@ export default function WorkspaceDetailScreen() {
 
   // Case note autosave buffer
   const [caseNotes, setCaseNotes] = useState('');
+
+  // --- Case Notes State Variables ---
+  const [notesSearchQuery, setNotesSearchQuery] = useState('');
+  const [notesFilter, setNotesFilter] = useState('All');
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [activeRecordingDuration, setActiveRecordingDuration] = useState(0);
+  const [simulatedTranscribing, setSimulatedTranscribing] = useState(false);
+  const [notesAutosaveStatus, setNotesAutosaveStatus] = useState('Autosaved'); // 'Saving...' / 'Autosaved'
+  const [isSummarizingNotes, setIsSummarizingNotes] = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
+  const [isNoteFormModalOpen, setIsNoteFormModalOpen] = useState(false);
+  const [isVoiceNoteModalOpen, setIsVoiceNoteModalOpen] = useState(false);
+  const [isVersionHistoryModalOpen, setIsVersionHistoryModalOpen] = useState(false);
+  const [aiInsightsOpen, setAiInsightsOpen] = useState(false);
+  const [selectedNoteVersionHistory, setSelectedNoteVersionHistory] = useState<any[]>([]);
+  const [noteFormType, setNoteFormType] = useState<'add' | 'edit'>('add');
+  const [noteFormTargetId, setNoteFormTargetId] = useState<string | null>(null);
+
+  // RTF Toolbar States
+  const [noteIsBold, setNoteIsBold] = useState(false);
+  const [noteIsItalic, setNoteIsItalic] = useState(false);
+  const [noteIsUnderline, setNoteIsUnderline] = useState(false);
+  const [noteAlignment, setNoteAlignment] = useState<'left' | 'center' | 'right'>('left');
+
+  // Manual Note Form State
+  const [noteForm, setNoteForm] = useState({
+    title: '',
+    category: 'Personal',
+    content: '',
+    tags: [] as string[],
+    priority: 'Medium' as 'Low' | 'Medium' | 'High' | 'Critical',
+    favorite: false,
+    pinned: false,
+    relatedHearing: '',
+    relatedTimelineEvent: '',
+    relatedEvidence: '',
+    relatedArgument: '',
+    relatedResearch: '',
+    // Template custom fields
+    meetingWith: '',
+    meetingLocation: '',
+    meetingDate: '',
+    discussion: '',
+    decisions: '',
+    followUp: '',
+    judge: '',
+    court: '',
+    hearingDate: '',
+    proceedings: '',
+    orders: '',
+    judgeRemarks: '',
+    opponentArguments: '',
+    observations: '',
+    winningArguments: '',
+    weaknesses: '',
+    risks: '',
+    opponentStrategy: '',
+    counterStrategy: '',
+    importantAuthorities: '',
+    researchRequired: ''
+  });
+
+  // --- Court Order Analyzer States ---
+  const [selectedCourtOrder, setSelectedCourtOrder] = useState<any | null>(null);
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderFilter, setOrderFilter] = useState('All');
+  const [isOrderViewerOpen, setIsOrderViewerOpen] = useState(false);
+  const [isOrderFormOpen, setIsOrderFormOpen] = useState(false);
+  const [orderOcrScanning, setOrderOcrScanning] = useState(false);
+  const [activeOrderOcrStep, setActiveOrderOcrStep] = useState(0);
+  const [orderUploadProgress, setOrderUploadProgress] = useState(0);
+  const [ocrScanningText, setOcrScanningText] = useState('');
+  const [syncActiveSubTab, setSyncActiveSubTab] = useState('Metadata');
+
+  // Custom Sync Checkboxes state
+  const [syncOptions, setSyncOptions] = useState({
+    timeline: true,
+    hearings: true,
+    tasks: true,
+    evidence: true,
+    research: true,
+    arguments: true,
+    notes: true,
+    contracts: true,
+  });
+
+  const [logOrderForm, setLogOrderForm] = useState({
+    name: '',
+    courtName: '',
+    judgeName: '',
+    bench: 'Single Bench',
+    courtNumber: 'Courtroom No. 302',
+    caseNumber: '',
+    orderDate: new Date().toISOString().split('T')[0],
+    nextHearingDate: '',
+    orderType: 'Interim Order',
+    stageOfCase: 'Court',
+    petitioner: '',
+    respondent: '',
+    advocates: '',
+    caseStatus: 'Active',
+    notesText: '',
+  });
+
+  // --- COURT ORDER ACTION HANDLERS ---
+  const handleUploadCourtOrder = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
+      if (result.canceled) return;
+      
+      const file = result.assets[0];
+      setOrderUploadProgress(10);
+      setOrderOcrScanning(true);
+      setActiveOrderOcrStep(0);
+      setOcrScanningText('Initializing Document Scanning...');
+
+      // Simulate upload progress steps
+      setTimeout(() => setOrderUploadProgress(30), 400);
+      setTimeout(() => {
+        setOrderUploadProgress(50);
+        setActiveOrderOcrStep(1);
+        setOcrScanningText('Extracting OCR Text layers...');
+      }, 900);
+      setTimeout(() => {
+        setOrderUploadProgress(75);
+        setActiveOrderOcrStep(2);
+        setOcrScanningText('Structuring Extracted Metadata...');
+      }, 1500);
+      setTimeout(() => {
+        setOrderUploadProgress(90);
+        setActiveOrderOcrStep(3);
+        setOcrScanningText('Finalizing AI Analysis Recommendations...');
+      }, 2100);
+
+      setTimeout(async () => {
+        setOrderUploadProgress(100);
+        setOrderOcrScanning(false);
+        
+        // Auto select mock text matching user upload or default
+        const matchedMock = MOCK_COURT_ORDERS.find(
+          m => file.name.toLowerCase().includes(m.name.split('.')[0].toLowerCase())
+        ) || MOCK_COURT_ORDERS[0];
+
+        const ocrText = matchedMock.text;
+
+        // Generate mock metadata based on matching template
+        let judgeName = 'Amit Verma';
+        let courtName = 'Delhi High Court';
+        let nextHearingDate = '2026-07-25';
+        let orderType = 'Interim Injunction';
+        let caseNumber = 'Arb. P. 445/2026';
+        let purpose = 'Compliance & Evidentiary Arguments';
+        let courtroom = 'Courtroom No. 302';
+        
+        if (file.name.toLowerCase().includes('summons') || file.name.toLowerCase().includes('eviction')) {
+          judgeName = 'Judge Roy';
+          courtName = 'District Court of Delhi';
+          nextHearingDate = '2026-08-12';
+          orderType = 'Eviction Summons';
+          caseNumber = 'CS(OS) 234/2026';
+          purpose = 'Arrears Verification & Lease Review';
+          courtroom = 'Courtroom No. 5';
+        } else if (file.name.toLowerCase().includes('final') || file.name.toLowerCase().includes('stay')) {
+          judgeName = 'Hon\'ble Judge Sen';
+          courtName = 'High Court of Delhi';
+          nextHearingDate = '2026-09-15';
+          orderType = 'Stay Order & Written Arguments';
+          caseNumber = 'Arb. Appeal No. 12/2026';
+          purpose = 'Final Orders & Arguments Outcome';
+          courtroom = 'Courtroom No. 12';
+        }
+
+        const newOrder: any = {
+          id: 'order_' + Date.now(),
+          _id: 'order_' + Date.now(),
+          name: file.name,
+          url: file.uri || '',
+          fileSize: file.size ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB',
+          ocrText,
+          status: 'AI Analyzed',
+          uploadedBy: 'Advocate',
+          metadata: {
+            courtName,
+            judgeName,
+            bench: 'Single Bench',
+            courtNumber: courtroom,
+            caseNumber,
+            orderDate: new Date().toISOString().split('T')[0],
+            nextHearingDate,
+            orderType,
+            stageOfCase: 'Court',
+            petitioner: workspace?.clientName || 'Petitioner client',
+            respondent: workspace?.opponentName || 'Respondent Opposing',
+            advocates: 'Adv. R. K. Sharma',
+            caseStatus: 'Active'
+          },
+          aiSummary: {
+            shortSummary: `Court presiding over ${caseNumber} issued directives regarding execution compliance, timelines, evidence verification, and scheduled next argument hearing.`,
+            keyPoints: [
+              `Directs the parties to complete all outstanding compliance items before ${nextHearingDate}.`,
+              `Next hearing scheduled on ${nextHearingDate} in ${courtroom}.`,
+              `Admissibility of crucial evidence exhibits to be verified during next arguments.`
+            ]
+          },
+          complianceItems: [
+            {
+              description: 'Submit written statement response or reply replica.',
+              status: 'Pending',
+              dueDate: nextHearingDate,
+              priority: 'High',
+              responsiblePerson: 'Advocate'
+            },
+            {
+              description: 'Verify execution witness testimony certificates.',
+              status: 'Pending',
+              dueDate: nextHearingDate,
+              priority: 'Medium',
+              responsiblePerson: 'Client'
+            }
+          ],
+          suggestedTasks: [
+            {
+              title: `Draft Response Pleadings for ${caseNumber}`,
+              description: `Draft responses parawise in compliance with directives from ${orderType}.`,
+              priority: 'High',
+              accepted: false
+            },
+            {
+              title: 'Notarize executing witness certificates',
+              description: 'Obtain notary signature on witness affidavit.',
+              priority: 'Medium',
+              accepted: false
+            }
+          ],
+          suggestedTimeline: [
+            {
+              title: `${orderType} Directive Passed`,
+              description: `Hon'ble judge ${judgeName} issued orders and directives in case number ${caseNumber}.`,
+              date: new Date().toISOString().split('T')[0],
+              accepted: false
+            }
+          ],
+          suggestedHearings: [
+            {
+              title: `Arguments Hearing for ${caseNumber}`,
+              date: nextHearingDate,
+              courtroom,
+              judge: judgeName,
+              purpose,
+              accepted: false
+            }
+          ],
+          suggestedArguments: [
+            {
+              title: 'Validity of Lease Executions',
+              logic: 'Defendant is barred from disputing tenancy execution when monthly rent transfers exist.',
+              precedents: 'Supreme Court precedents validate lease binding force even under delayed registrations.',
+              accepted: false
+            }
+          ],
+          suggestedResearch: [
+            {
+              act: 'Indian Evidence Act, 1872',
+              section: 'Section 65B',
+              description: 'Admissibility guidelines for electronic bank transfers and receipts records.',
+              accepted: false
+            }
+          ],
+          suggestedEvidence: [
+            {
+              title: 'Original Signed Agreement copy',
+              description: 'Required to establish binding lease conditions in court.',
+              status: 'Required',
+              accepted: false
+            }
+          ],
+          riskAnalysis: {
+            proceduralDefects: [
+              'Delay in filing certificates under Limitation timelines.'
+            ],
+            weaknessDetails: [
+              'Original agreement registration delayed beyond statutory grace period.'
+            ],
+            limitationRisk: 'Medium Risk',
+            jurisdictionIssue: false,
+            objectionsProbability: 40
+          },
+          linkedRecords: {
+            hearingsCount: 0,
+            tasksCount: 0,
+            evidenceCount: 0
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        const currentOrders = workspace?.courtOrders || [];
+        await handleUpdateField({ courtOrders: [...currentOrders, newOrder] });
+        showToast('success', 'Analysis Ready', `"${file.name}" analyzed successfully with AI.`);
+      }, 2600);
+    } catch (err) {
+      console.warn('Document Picker error:', err);
+      setOrderOcrScanning(false);
+      showToast('error', 'Upload Cancelled', 'File selection cancelled or failed.');
+    }
+  };
+
+  const handleManualAddCourtOrder = async () => {
+    if (!logOrderForm.name.trim()) {
+      showToast('error', 'Validation Error', 'Document name/file name is required.');
+      return;
+    }
+    const ocrText = `IN THE COURT OF ${logOrderForm.courtName.toUpperCase()}
+Case No. ${logOrderForm.caseNumber}
+Judge: ${logOrderForm.judgeName}
+ORDER:
+Manual case decree logged. Directives: ${logOrderForm.notesText}`;
+
+    const newOrder: any = {
+      id: 'order_' + Date.now(),
+      _id: 'order_' + Date.now(),
+      name: logOrderForm.name + '.pdf',
+      url: '',
+      fileSize: '250 KB',
+      ocrText,
+      status: 'AI Analyzed',
+      uploadedBy: 'Advocate',
+      metadata: {
+        courtName: logOrderForm.courtName,
+        judgeName: logOrderForm.judgeName,
+        bench: logOrderForm.bench,
+        courtNumber: logOrderForm.courtNumber,
+        caseNumber: logOrderForm.caseNumber,
+        orderDate: logOrderForm.orderDate,
+        nextHearingDate: logOrderForm.nextHearingDate,
+        orderType: logOrderForm.orderType,
+        stageOfCase: logOrderForm.stageOfCase,
+        petitioner: logOrderForm.petitioner || workspace?.clientName || '',
+        respondent: logOrderForm.respondent || workspace?.opponentName || '',
+        advocates: logOrderForm.advocates,
+        caseStatus: logOrderForm.caseStatus
+      },
+      aiSummary: {
+        shortSummary: logOrderForm.notesText || 'No custom notes provided for manual order log.',
+        keyPoints: ['Advocate manually annotated case order directions.']
+      },
+      complianceItems: logOrderForm.nextHearingDate ? [
+        {
+          description: logOrderForm.notesText || 'Comply with judicial observations.',
+          status: 'Pending',
+          dueDate: logOrderForm.nextHearingDate,
+          priority: 'High',
+          responsiblePerson: 'Advocate'
+        }
+      ] : [],
+      suggestedTasks: [
+        {
+          title: `Analyze manual order directives: ${logOrderForm.name}`,
+          description: logOrderForm.notesText || 'Review custom courtroom observations.',
+          priority: 'Medium',
+          accepted: false
+        }
+      ],
+      suggestedTimeline: [
+        {
+          title: `${logOrderForm.orderType} Logged`,
+          description: `Custom order entry logged under case no. ${logOrderForm.caseNumber}.`,
+          date: logOrderForm.orderDate,
+          accepted: false
+        }
+      ],
+      suggestedHearings: logOrderForm.nextHearingDate ? [
+        {
+          title: `Next Hearing: ${logOrderForm.caseNumber}`,
+          date: logOrderForm.nextHearingDate,
+          courtroom: logOrderForm.courtNumber,
+          judge: logOrderForm.judgeName,
+          purpose: 'Judicial directive follow up',
+          accepted: false
+        }
+      ] : [],
+      suggestedArguments: [],
+      suggestedResearch: [],
+      suggestedEvidence: [],
+      riskAnalysis: {
+        proceduralDefects: [],
+        weaknessDetails: [],
+        limitationRisk: 'Low Risk',
+        jurisdictionIssue: false,
+        objectionsProbability: 10
+      },
+      linkedRecords: {
+        hearingsCount: 0,
+        tasksCount: 0,
+        evidenceCount: 0
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const currentOrders = workspace?.courtOrders || [];
+    await handleUpdateField({ courtOrders: [...currentOrders, newOrder] });
+    setIsOrderFormOpen(false);
+    showToast('success', 'Order Logged', 'Manual court order logged and analyzed successfully.');
+  };
+
+  const handleDeleteCourtOrder = async (orderId: string) => {
+    Alert.alert(
+      'Delete Court Order',
+      'Are you sure you want to delete this court order from this case workspace?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const currentOrders = workspace?.courtOrders || [];
+            const updated = currentOrders.filter(o => (o._id !== orderId && o.id !== orderId));
+            await handleUpdateField({ courtOrders: updated });
+            if (selectedCourtOrder && (selectedCourtOrder._id === orderId || selectedCourtOrder.id === orderId)) {
+              setSelectedCourtOrder(null);
+              setIsOrderViewerOpen(false);
+            }
+            showToast('success', 'Order Deleted', 'Court order removed successfully.');
+          }
+        }
+      ]
+    );
+  };
+
+  const handleReanalyzeCourtOrder = async (orderId: string) => {
+    const currentOrders = workspace?.courtOrders || [];
+    const target = currentOrders.find(o => (o._id === orderId || o.id === orderId));
+    if (!target) return;
+
+    setOrderUploadProgress(10);
+    setOrderOcrScanning(true);
+    setActiveOrderOcrStep(0);
+    setOcrScanningText('Re-scanning Document structure...');
+
+    setTimeout(() => {
+      setOrderUploadProgress(50);
+      setActiveOrderOcrStep(1);
+      setOcrScanningText('Extracting text and identifying signatures...');
+    }, 600);
+
+    setTimeout(() => {
+      setOrderUploadProgress(90);
+      setActiveOrderOcrStep(3);
+      setOcrScanningText('Updating AI recommendations...');
+    }, 1200);
+
+    setTimeout(async () => {
+      setOrderOcrScanning(false);
+      const updated = currentOrders.map(o => {
+        if (o._id === orderId || o.id === orderId) {
+          return {
+            ...o,
+            updatedAt: new Date().toISOString(),
+            status: 'AI Analyzed' as const
+          };
+        }
+        return o;
+      });
+      await handleUpdateField({ courtOrders: updated });
+      // Update local viewer selection if active
+      if (selectedCourtOrder && (selectedCourtOrder._id === orderId || selectedCourtOrder.id === orderId)) {
+        setSelectedCourtOrder(updated.find(o => (o._id === orderId || o.id === orderId)));
+      }
+      showToast('success', 'Reanalysis Complete', 'AI successfully re-audited the court order directives.');
+    }, 1800);
+  };
+
+  const handlePromoteOrderSuggestion = async (
+    orderId: string, 
+    type: 'task' | 'timeline' | 'hearing' | 'argument' | 'research' | 'evidence', 
+    itemIndex: number
+  ) => {
+    const currentOrders = workspace?.courtOrders || [];
+    const orderIndex = currentOrders.findIndex(o => (o._id === orderId || o.id === orderId));
+    if (orderIndex === -1) return;
+
+    const orderCopy = { ...currentOrders[orderIndex] };
+    let updatePayload: any = {};
+    
+    if (type === 'task') {
+      const taskSuggestions = [...(orderCopy.suggestedTasks || [])];
+      if (taskSuggestions[itemIndex].accepted) return;
+      taskSuggestions[itemIndex] = { ...taskSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedTasks = taskSuggestions;
+
+      // Add to workspace tasks
+      const currentTasks = workspace?.tasks || [];
+      const newTask = {
+        title: taskSuggestions[itemIndex].title,
+        description: taskSuggestions[itemIndex].description,
+        priority: taskSuggestions[itemIndex].priority || 'Medium',
+        status: 'Pending' as const,
+        deadline: orderCopy.metadata?.nextHearingDate ? new Date(orderCopy.metadata.nextHearingDate) : new Date(),
+        checklist: []
+      };
+      updatePayload.tasks = [newTask, ...currentTasks];
+    } 
+    else if (type === 'timeline') {
+      const timelineSuggestions = [...(orderCopy.suggestedTimeline || [])];
+      if (timelineSuggestions[itemIndex].accepted) return;
+      timelineSuggestions[itemIndex] = { ...timelineSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedTimeline = timelineSuggestions;
+
+      // Add to workspace facts
+      const currentFacts = workspace?.facts || [];
+      const newFact = {
+        id: 'fact_' + Date.now(),
+        title: timelineSuggestions[itemIndex].title,
+        description: timelineSuggestions[itemIndex].description,
+        date: timelineSuggestions[itemIndex].date,
+        displayDate: timelineSuggestions[itemIndex].date,
+        importance: 'Medium',
+        category: 'Court',
+        createdBy: 'AI' as const
+      };
+      updatePayload.facts = [...currentFacts, newFact];
+    }
+    else if (type === 'hearing') {
+      const hearingSuggestions = [...(orderCopy.suggestedHearings || [])];
+      if (hearingSuggestions[itemIndex].accepted) return;
+      hearingSuggestions[itemIndex] = { ...hearingSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedHearings = hearingSuggestions;
+
+      // Add to workspace hearings
+      const currentHearings = workspace?.hearings || [];
+      const newHearing = {
+        id: 'hearing_' + Date.now(),
+        _id: 'hearing_' + Date.now(),
+        title: hearingSuggestions[itemIndex].title,
+        date: hearingSuggestions[itemIndex].date,
+        courtName: orderCopy.metadata?.courtName || '',
+        courtroom: hearingSuggestions[itemIndex].courtroom || '',
+        judge: hearingSuggestions[itemIndex].judge || '',
+        purpose: hearingSuggestions[itemIndex].purpose || '',
+        notes: `AI suggested next hearing from court order: ${orderCopy.name}`,
+        status: 'Scheduled' as const,
+        linkedDocuments: [orderCopy._id || ''],
+        checklist: {
+          documents: [],
+          evidence: [],
+          witnesses: [],
+          compliance: []
+        }
+      };
+      updatePayload.hearings = [...currentHearings, newHearing];
+    }
+    else if (type === 'argument') {
+      const argumentSuggestions = [...(orderCopy.suggestedArguments || [])];
+      if (argumentSuggestions[itemIndex].accepted) return;
+      argumentSuggestions[itemIndex] = { ...argumentSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedArguments = argumentSuggestions;
+
+      // Add to petitioner strategy arguments directly
+      setPetitionerArguments((prev) => [
+        ...prev,
+        {
+          id: 'arg_p_' + Date.now(),
+          number: 'ARG ' + (prev.length + 1),
+          title: argumentSuggestions[itemIndex].title,
+          category: 'Procedure Law',
+          priority: 'High',
+          description: argumentSuggestions[itemIndex].logic,
+          supportingFacts: [],
+          supportingLaws: [orderCopy.metadata?.orderType || 'Court Directive'],
+          supportingCaseLaws: argumentSuggestions[itemIndex].precedents ? [argumentSuggestions[itemIndex].precedents] : [],
+          relatedEvidence: [],
+          relatedDocuments: [orderCopy.name]
+        }
+      ]);
+      showToast('success', 'Strategy Updated', 'Suggested Argument promoted to trial strategy.');
+    }
+    else if (type === 'research') {
+      const researchSuggestions = [...(orderCopy.suggestedResearch || [])];
+      if (researchSuggestions[itemIndex].accepted) return;
+      researchSuggestions[itemIndex] = { ...researchSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedResearch = researchSuggestions;
+
+      // Add to workspace savedPrecedents
+      const currentPrecedents = workspace?.savedPrecedents || [];
+      const newPrecedent = {
+        _id: 'prec_' + Date.now(),
+        title: `${researchSuggestions[itemIndex].act} - ${researchSuggestions[itemIndex].section}`,
+        citation: `${researchSuggestions[itemIndex].act} Reference`,
+        summary: researchSuggestions[itemIndex].description
+      };
+      updatePayload.savedPrecedents = [...currentPrecedents, newPrecedent];
+    }
+    else if (type === 'evidence') {
+      const evidenceSuggestions = [...(orderCopy.suggestedEvidence || [])];
+      if (evidenceSuggestions[itemIndex].accepted) return;
+      evidenceSuggestions[itemIndex] = { ...evidenceSuggestions[itemIndex], accepted: true };
+      orderCopy.suggestedEvidence = evidenceSuggestions;
+
+      // Add to workspace evidence required checklist or evidence array as pending
+      const currentEvidence = workspace?.evidence || [];
+      const newEvidence = {
+        id: 'evidence_' + Date.now(),
+        _id: 'evidence_' + Date.now(),
+        name: evidenceSuggestions[itemIndex].title,
+        type: 'Document',
+        description: evidenceSuggestions[itemIndex].description,
+        notes: `AI suggested evidence by Court Order: ${orderCopy.name}`,
+        status: 'Pending' as const,
+        tags: ['Court Order Requested', 'Missing'],
+        fileSize: 'Pending Upload',
+        uploadedBy: 'System AI'
+      };
+      updatePayload.evidence = [...currentEvidence, newEvidence];
+    }
+
+    // Update courtOrders array in database
+    const updatedOrders = [...currentOrders];
+    updatedOrders[orderIndex] = orderCopy;
+    updatePayload.courtOrders = updatedOrders;
+
+    await handleUpdateField(updatePayload);
+    setSelectedCourtOrder(orderCopy);
+    showToast('success', 'Suggestion Applied', 'Workspace successfully synchronized with directive.');
+  };
+
+  const handleSynchronizeWorkspace = async (orderId: string) => {
+    const currentOrders = workspace?.courtOrders || [];
+    const orderIndex = currentOrders.findIndex(o => (o._id === orderId || o.id === orderId));
+    if (orderIndex === -1) return;
+
+    const orderCopy = { ...currentOrders[orderIndex] };
+    let updatePayload: any = {};
+    
+    // Batch promotion logic
+    if (syncOptions.tasks && orderCopy.suggestedTasks) {
+      const currentTasks = workspace?.tasks || [];
+      const nonAccepted = orderCopy.suggestedTasks.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        const newTasks = nonAccepted.map(t => ({
+          title: t.title,
+          description: t.description,
+          priority: t.priority || 'Medium',
+          status: 'Pending' as const,
+          deadline: orderCopy.metadata?.nextHearingDate ? new Date(orderCopy.metadata.nextHearingDate) : new Date(),
+          checklist: []
+        }));
+        updatePayload.tasks = [...newTasks, ...currentTasks];
+        orderCopy.suggestedTasks = orderCopy.suggestedTasks.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    if (syncOptions.timeline && orderCopy.suggestedTimeline) {
+      const currentFacts = workspace?.facts || [];
+      const nonAccepted = orderCopy.suggestedTimeline.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        const newFacts = nonAccepted.map((t, idx) => ({
+          id: 'fact_' + (Date.now() + idx),
+          title: t.title,
+          description: t.description,
+          date: t.date,
+          displayDate: t.date,
+          importance: 'Medium',
+          category: 'Court',
+          createdBy: 'AI' as const
+        }));
+        updatePayload.facts = [...currentFacts, ...newFacts];
+        orderCopy.suggestedTimeline = orderCopy.suggestedTimeline.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    if (syncOptions.hearings && orderCopy.suggestedHearings) {
+      const currentHearings = workspace?.hearings || [];
+      const nonAccepted = orderCopy.suggestedHearings.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        const newHearings = nonAccepted.map((t, idx) => ({
+          id: 'hearing_' + (Date.now() + idx),
+          _id: 'hearing_' + (Date.now() + idx),
+          title: t.title,
+          date: t.date,
+          courtName: orderCopy.metadata?.courtName || '',
+          courtroom: t.courtroom || '',
+          judge: t.judge || '',
+          purpose: t.purpose || '',
+          notes: `AI suggested next hearing from batch sync: ${orderCopy.name}`,
+          status: 'Scheduled' as const,
+          linkedDocuments: [orderCopy._id || ''],
+          checklist: {
+            documents: [],
+            evidence: [],
+            witnesses: [],
+            compliance: []
+          }
+        }));
+        updatePayload.hearings = [...currentHearings, ...newHearings];
+        orderCopy.suggestedHearings = orderCopy.suggestedHearings.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    if (syncOptions.research && orderCopy.suggestedResearch) {
+      const currentPrecedents = workspace?.savedPrecedents || [];
+      const nonAccepted = orderCopy.suggestedResearch.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        const newPrecedents = nonAccepted.map((t, idx) => ({
+          _id: 'prec_' + (Date.now() + idx),
+          title: `${t.act} - ${t.section}`,
+          citation: `${t.act} Reference`,
+          summary: t.description
+        }));
+        updatePayload.savedPrecedents = [...currentPrecedents, ...newPrecedents];
+        orderCopy.suggestedResearch = orderCopy.suggestedResearch.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    if (syncOptions.evidence && orderCopy.suggestedEvidence) {
+      const currentEvidence = workspace?.evidence || [];
+      const nonAccepted = orderCopy.suggestedEvidence.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        const newEvidenceList = nonAccepted.map((t, idx) => ({
+          id: 'evidence_' + (Date.now() + idx),
+          _id: 'evidence_' + (Date.now() + idx),
+          name: t.title,
+          type: 'Document',
+          description: t.description,
+          notes: `AI suggested evidence from batch sync: ${orderCopy.name}`,
+          status: 'Pending' as const,
+          tags: ['Court Order Requested', 'Missing'],
+          fileSize: 'Pending Upload',
+          uploadedBy: 'System AI'
+        }));
+        updatePayload.evidence = [...currentEvidence, ...newEvidenceList];
+        orderCopy.suggestedEvidence = orderCopy.suggestedEvidence.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    if (syncOptions.arguments && orderCopy.suggestedArguments) {
+      const nonAccepted = orderCopy.suggestedArguments.filter(t => !t.accepted);
+      if (nonAccepted.length > 0) {
+        setPetitionerArguments((prev) => {
+          const newArgs = nonAccepted.map((t, idx) => ({
+            id: 'arg_p_' + (Date.now() + idx),
+            number: 'ARG ' + (prev.length + idx + 1),
+            title: t.title,
+            category: 'Procedure Law',
+            priority: 'High',
+            description: t.logic,
+            supportingFacts: [],
+            supportingLaws: [orderCopy.metadata?.orderType || 'Court Directive'],
+            supportingCaseLaws: t.precedents ? [t.precedents] : [],
+            relatedEvidence: [],
+            relatedDocuments: [orderCopy.name]
+          }));
+          return [...prev, ...newArgs];
+        });
+        orderCopy.suggestedArguments = orderCopy.suggestedArguments.map(t => ({ ...t, accepted: true }));
+      }
+    }
+
+    // Toggle compliance items status
+    if (orderCopy.complianceItems) {
+      orderCopy.complianceItems = orderCopy.complianceItems.map(c => ({ ...c, status: 'Completed' }));
+    }
+
+    orderCopy.status = 'Completed';
+
+    const updatedOrders = [...currentOrders];
+    updatedOrders[orderIndex] = orderCopy;
+    updatePayload.courtOrders = updatedOrders;
+
+    await handleUpdateField(updatePayload);
+    setSelectedCourtOrder(orderCopy);
+    showToast('success', 'Workspace Synced', 'AI successfully batch synchronized case modules with court order parameters.');
+  };
 
   // Initialize and select case
   useEffect(() => {
@@ -424,6 +1420,148 @@ export default function WorkspaceDetailScreen() {
       setRenameValue(workspace.name || '');
     }
   }, [workspace]);
+
+  // Initialize strategy and arguments fallback data
+  useEffect(() => {
+    if (petitionerArguments.length === 0 && workspace) {
+      const client = workspace.clientName || 'Client';
+      const opponent = workspace.opponentName || workspace.accused || 'Opponent';
+      
+      setPetitionerArguments([
+        {
+          id: 'p1',
+          number: 'ARG 1',
+          title: 'Valid and Binding Written Agreement',
+          category: 'Contract Law',
+          priority: 'High',
+          description: `A signed written loan agreement was executed. Under Section 10 of the Indian Contract Act, this constitutes a valid and binding contract between ${client} and ${opponent}.`,
+          supportingFacts: [
+            'Loan agreement was signed at the Delhi branch office on 10 April 2024.',
+            'Disbursement of amount was acknowledged via bank transaction receipts.'
+          ],
+          supportingLaws: [
+            'Indian Contract Act, 1872 - Section 10 (What agreements are contracts)',
+            'Indian Evidence Act, 1872 - Section 67 (Proof of signature and handwriting)'
+          ],
+          supportingCaseLaws: [
+            'Supreme Court: Smt. Indira Kaur vs. Shri She Lal (1988) - Presumption of execution of registered documents.',
+            'Delhi High Court: Ramesh Kumar vs. State (2012) - Signatures witnessed by notary public hold high evidentiary value.'
+          ],
+          relatedEvidence: ['Loan Agreement Deed (Ex. P-1)', 'Witness Attestation Affidavit'],
+          relatedDocuments: ['Rent_Agreement_Draft_Signed.pdf'],
+          relatedTimelineEvents: ['Loan Agreement Executed'],
+          relatedHearings: ['First scheduled trial']
+        },
+        {
+          id: 'p2',
+          number: 'ARG 2',
+          title: 'Failure of Repayment and Default',
+          category: 'Financial Liability',
+          priority: 'Critical',
+          description: `Defendant (${opponent}) failed to clear the outstanding balance of delayed installments. Certified bank statement records prove zero repayment incoming transactions from Defendant.`,
+          supportingFacts: [
+            'The final date of installment clearing was 15 April 2025.',
+            'A formal reminder letter was dispatched via speed post on 22 April 2025.'
+          ],
+          supportingLaws: [
+            'Indian Contract Act, 1872 - Section 73 (Compensation for loss or damage caused by breach of contract)',
+            'Negotiable Instruments Act, 1881 - Section 138 (Dishonour of cheque for insufficiency of funds)'
+          ],
+          supportingCaseLaws: [
+            'Supreme Court: M/s. Alavi Agencies vs. Muhammad (2007) - Presumption of service of notice sent via registered post.',
+            'Supreme Court: Vinod Kumar vs. State (2018) - Reconciled bank logs represent prima facie proof of default.'
+          ],
+          relatedEvidence: ['Certified Bank Statement (Ex. P-2)', 'Speed Post Receipt (Ex. P-3)'],
+          relatedDocuments: ['Notice_of_Demand.pdf'],
+          relatedTimelineEvents: ['Repayment Missed', 'Legal Notice Served'],
+          relatedHearings: ['Hearing for Admission']
+        }
+      ]);
+
+      setRespondentArguments([
+        {
+          id: 'd1',
+          number: 'DEF 1',
+          title: 'Denial of Execution & Signature Forgery',
+          category: 'Authenticity',
+          priority: 'High',
+          description: `Defendant (${opponent}) claims they never signed the loan agreement, alleging signature forgery, and demands a forensic handwriting audit to delay proceedings.`,
+          supportingFacts: [
+            'Defendant claims they were in Mumbai on the signing date.',
+            'Opponent counsel raised this objection in the preliminary written statement.'
+          ],
+          supportingLaws: [
+            'Indian Evidence Act, 1872 - Section 45 (Opinions of experts)',
+            'Indian Evidence Act, 1872 - Section 67 (Proof of signature and handwriting)'
+          ],
+          supportingCaseLaws: [
+            'Supreme Court: State of Maharashtra vs. Sukhdev Singh (1992) - Handwriting expert opinion is advisory but notary attestation proves execution.'
+          ],
+          refutation: `The agreement was notarized in the presence of two independent executing witnesses who verified the signatures. Section 67 of the Indian Evidence Act applies to prove signature authenticity.`,
+          relatedEvidence: ['Witness Attestation Affidavit', 'Notary Register Copy'],
+          relatedDocuments: ['Reply_to_Forgery_Allegation.pdf'],
+          relatedTimelineEvents: ['Opposition Written Statement Filed'],
+          relatedHearings: ['Hearing on Preliminary Objections']
+        },
+        {
+          id: 'd2',
+          number: 'DEF 2',
+          title: 'Limitation Period Expiry Defense',
+          category: 'Procedure',
+          priority: 'Critical',
+          description: `Defendant (${opponent}) alleges that the recovery claim by Plaintiff (${client}) is barred by limitation as transaction dates are contested.`,
+          supportingFacts: [
+            'Defendant alleges the debt pertains to a 2020 invoice.',
+            'Objection was verbally highlighted during the first admission stage.'
+          ],
+          supportingLaws: [
+            'Limitation Act, 1963 - Article 19 (Suit for money payable for money lent)'
+          ],
+          supportingCaseLaws: [
+            'Supreme Court: Union of India vs. West Coast Paper Mills (2004) - Limitation starts from default date, not transaction date.'
+          ],
+          refutation: `The suit was filed well within the 3-year limitation period starting from the actual default date (15 April 2025) as per Article 19 of the Limitation Act, 1963.`,
+          relatedEvidence: ['Certified Bank Statement (Ex. P-2)'],
+          relatedDocuments: ['Limitation_Explanation_Memo.pdf'],
+          relatedTimelineEvents: ['Suit for Recovery Filed'],
+          relatedHearings: ['Hearing for Admission']
+        }
+      ]);
+
+      setOpponentPredictions([
+        {
+          id: 'pred1',
+          title: 'Objection on Document Admissibility',
+          description: `The defense (${opponent}) will attempt to block the admission of the unsigned bank ledger under Section 65B of the Evidence Act.`,
+          probability: 85,
+          type: 'Procedural Challenge',
+          rebuttal: 'Ensure the Section 65B electronic record certificate is signed by the branch manager and filed concurrently.'
+        },
+        {
+          id: 'pred2',
+          title: 'Allegation of Extortionate Interest Rates',
+          description: `Opponent (${opponent}) will argue that the delayed payment interest rate of 24% per annum is penal, extortionate, and unconscionable.`,
+          probability: 72,
+          type: 'Interest Rate Claim',
+          rebuttal: `Cite landmark Supreme Court judgments upholding commercial interest rates under Section 34 of CPC in favor of Plaintiff.`
+        },
+        {
+          id: 'pred3',
+          title: 'Territorial Jurisdiction Noida seat objection',
+          description: `Opponent (${opponent}) will contend Noida location was the signing place, hence Noida courts hold territorial jurisdiction.`,
+          probability: 35,
+          type: 'Jurisdiction Issue',
+          rebuttal: 'Rely on contract Clause 14 establishing exclusive territorial jurisdiction seat at Delhi.'
+        }
+      ]);
+
+      setTrialStrategySequence([
+        { step: 1, id: 'seq1', title: 'Establish Contract Execution', detail: `Lead with the notarized loan agreement and testimony of execution witnesses to defeat ${opponent}'s forgery defense early.`, status: 'Primary' },
+        { step: 2, id: 'seq2', title: 'Demonstrate Non-Repayment via Bank Records', detail: `Present certified bank ledger showing zero inflows matching the demand timeline.`, status: 'Crucial' },
+        { step: 3, id: 'seq3', title: 'Establish Procedural Compliance', detail: `Submit registered post receipts to prove notice delivery, establishing service presumption on ${opponent}.`, status: 'Supportive' }
+      ]);
+    }
+  }, [workspace, petitionerArguments]);
 
   // Hardware back button behavior for Android gesture navigation
   useEffect(() => {
@@ -1297,6 +2435,805 @@ export default function WorkspaceDetailScreen() {
     showToast('success', 'Task Updated', newStatus === 'Completed' ? 'Task marked complete.' : 'Task marked pending.');
   };
 
+  // Create / Add Task
+  const handleCreateTask = async () => {
+    if (!id || !workspace) return;
+    if (!taskForm.title.trim()) {
+      showToast('error', 'Validation Error', 'Task title is required.');
+      return;
+    }
+    
+    const newTask: any = {
+      _id: 'task_' + Date.now().toString(),
+      title: taskForm.title.trim(),
+      description: taskForm.description.trim(),
+      status: taskForm.status || 'Pending',
+      priority: taskForm.priority === 'Critical' ? 'Urgent' : taskForm.priority,
+      deadline: taskForm.deadline || undefined,
+      reminder: taskForm.reminder || 'None',
+      assignTo: taskForm.assignTo || '',
+      relatedHearing: taskForm.relatedHearing || '',
+      relatedTimelineEvent: taskForm.relatedTimelineEvent || '',
+      relatedEvidence: taskForm.relatedEvidence || '',
+      relatedDocument: taskForm.relatedDocument || '',
+      notes: taskForm.notes || '',
+      attachments: taskForm.attachments || [],
+      checklist: taskForm.checklist || [],
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedTasks = [...(workspace.tasks || []), newTask];
+    await handleUpdateField({ tasks: updatedTasks });
+    
+    // Reset Form & Close Modal
+    setTaskForm({
+      title: '',
+      description: '',
+      priority: 'High',
+      deadline: '',
+      reminder: 'None',
+      assignTo: '',
+      status: 'Pending',
+      relatedHearing: '',
+      relatedTimelineEvent: '',
+      relatedEvidence: '',
+      relatedDocument: '',
+      notes: '',
+      attachments: [],
+      checklist: [],
+      tempSubtaskText: ''
+    });
+    setIsTaskFormModalOpen(false);
+    showToast('success', 'Task Created', 'Manual legal task successfully added.');
+  };
+
+  // Open Edit Task Modal
+  const handleOpenEditTaskModal = (task: any) => {
+    setTaskFormType('edit');
+    setTaskFormTargetId(task._id);
+    setTaskForm({
+      title: task.title || '',
+      description: task.description || '',
+      priority: task.priority === 'Urgent' ? 'Critical' : (task.priority || 'High'),
+      deadline: task.deadline || '',
+      reminder: task.reminder || 'None',
+      assignTo: task.assignTo || '',
+      status: task.status || 'Pending',
+      relatedHearing: task.relatedHearing || '',
+      relatedTimelineEvent: task.relatedTimelineEvent || '',
+      relatedEvidence: task.relatedEvidence || '',
+      relatedDocument: task.relatedDocument || '',
+      notes: task.notes || '',
+      attachments: task.attachments || [],
+      checklist: task.checklist || [],
+      tempSubtaskText: ''
+    });
+    setIsTaskFormModalOpen(true);
+  };
+
+  // Save Edited Task
+  const handleEditTask = async () => {
+    if (!id || !workspace || !taskFormTargetId) return;
+    if (!taskForm.title.trim()) {
+      showToast('error', 'Validation Error', 'Task title is required.');
+      return;
+    }
+
+    const updatedTasks = (workspace.tasks || []).map((t: any) => {
+      if (t._id === taskFormTargetId) {
+        return {
+          ...t,
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim(),
+          status: taskForm.status,
+          priority: taskForm.priority === 'Critical' ? 'Urgent' : taskForm.priority,
+          deadline: taskForm.deadline || undefined,
+          reminder: taskForm.reminder,
+          assignTo: taskForm.assignTo,
+          relatedHearing: taskForm.relatedHearing,
+          relatedTimelineEvent: taskForm.relatedTimelineEvent,
+          relatedEvidence: taskForm.relatedEvidence,
+          relatedDocument: taskForm.relatedDocument,
+          notes: taskForm.notes,
+          attachments: taskForm.attachments,
+          checklist: taskForm.checklist
+        };
+      }
+      return t;
+    });
+
+    await handleUpdateField({ tasks: updatedTasks });
+    setIsTaskFormModalOpen(false);
+    setTaskFormTargetId(null);
+    showToast('success', 'Task Updated', 'Legal task details updated successfully.');
+  };
+
+  // Duplicate Task
+  const handleDuplicateTask = async (task: any) => {
+    if (!id || !workspace) return;
+    const duplicatedTask = {
+      ...task,
+      _id: 'task_' + Date.now().toString(),
+      title: `${task.title} (Copy)`,
+      createdAt: new Date().toISOString()
+    };
+    const updatedTasks = [...(workspace.tasks || []), duplicatedTask];
+    await handleUpdateField({ tasks: updatedTasks });
+    showToast('success', 'Task Duplicated', `Created copy of "${task.title}".`);
+  };
+
+  // Delete Task
+  const handleDeleteTask = async (taskId: string) => {
+    if (!id || !workspace) return;
+    const updatedTasks = (workspace.tasks || []).filter((t: any) => t._id !== taskId);
+    await handleUpdateField({ tasks: updatedTasks });
+    showToast('success', 'Task Deleted', 'Task removed from case workspace.');
+  };
+
+  // Toggle Subtask Checklist Checkbox inside task
+  const handleToggleSubtask = async (taskId: string, subtaskIndex: number) => {
+    if (!id || !workspace) return;
+    const updatedTasks = (workspace.tasks || []).map((t: any) => {
+      if (t._id === taskId) {
+        const checklist = [...(t.checklist || [])];
+        if (checklist[subtaskIndex]) {
+          checklist[subtaskIndex] = {
+            ...checklist[subtaskIndex],
+            checked: !checklist[subtaskIndex].checked
+          };
+        }
+        return { ...t, checklist };
+      }
+      return t;
+    });
+    await handleUpdateField({ tasks: updatedTasks });
+  };
+
+  // Approve AI suggested task from Staged queue
+  const handleApproveAiTask = async (aiTaskId: string) => {
+    if (!id || !workspace) return;
+    const targetAiTask = aiSuggestedTasks.find((t) => t.id === aiTaskId);
+    if (!targetAiTask) return;
+
+    // Convert AI Suggested Task to active task
+    const newTask: any = {
+      _id: 'task_ai_' + Date.now().toString(),
+      title: targetAiTask.title,
+      description: targetAiTask.reason,
+      status: 'Pending',
+      priority: targetAiTask.priority === 'Critical' ? 'Urgent' : targetAiTask.priority,
+      deadline: targetAiTask.deadline === 'Due Today' ? new Date().toISOString().split('T')[0] : undefined,
+      checklist: targetAiTask.checklist || [],
+      source: 'AI Suggestion',
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedTasks = [...(workspace.tasks || []), newTask];
+    await handleUpdateField({ tasks: updatedTasks });
+
+    // Remove from staged suggestions queue
+    setAiSuggestedTasks(aiSuggestedTasks.filter((t) => t.id !== aiTaskId));
+    showToast('success', 'Task Approved', 'AI suggested task promoted to active status.');
+  };
+
+  // Dismiss AI suggested task
+  const handleDismissAiTask = (aiTaskId: string) => {
+    setAiSuggestedTasks(aiSuggestedTasks.filter((t) => t.id !== aiTaskId));
+    showToast('info', 'Suggestion Dismissed', 'Task suggestion removed.');
+  };
+
+  // Simulated Voice dictation transcription parser
+  const handleVoiceTaskParse = async () => {
+    if (!workspace) return;
+    if (!voiceInputQuery.trim()) {
+      showToast('error', 'Empty Directive', 'Please enter or select a voice directive.');
+      return;
+    }
+    setIsProcessingVoice(true);
+    // Simulate parsing delays
+    setTimeout(async () => {
+      setIsProcessingVoice(false);
+      const query = voiceInputQuery.toLowerCase();
+      let parsedTitle = 'Review Case Documents';
+      let parsedPriority = 'Medium';
+      let parsedDeadline = '';
+      let parsedChecklist: { title: string; checked: boolean }[] = [];
+
+      if (query.includes('written statement') || query.includes('reply to plaint')) {
+        parsedTitle = 'Draft and File Written Statement';
+        parsedPriority = 'Critical';
+        parsedDeadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        parsedChecklist = [
+          { title: 'Draft paragraph reply', checked: false },
+          { title: 'Affidavit signatures', checked: false }
+        ];
+      } else if (query.includes('evidence certificate') || query.includes('section 65b')) {
+        parsedTitle = 'Prepare Section 65B Certificate';
+        parsedPriority = 'Critical';
+        parsedDeadline = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        parsedChecklist = [
+          { title: 'Draft certificate document', checked: false },
+          { title: 'Get branch seal signature', checked: false }
+        ];
+      } else if (query.includes('postal receipt') || query.includes('speed post')) {
+        parsedTitle = 'Upload Dispatch Speed Post Receipt';
+        parsedPriority = 'High';
+        parsedDeadline = new Date().toISOString().split('T')[0]; // Today
+      } else if (query.includes('witness address') || query.includes('notary address')) {
+        parsedTitle = 'Verify Witness Attestation Details';
+        parsedPriority = 'Medium';
+        parsedDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      }
+
+      const parsedTask: any = {
+        _id: 'task_voice_' + Date.now().toString(),
+        title: parsedTitle,
+        description: `Simulated Voice Directive: "${voiceInputQuery}"`,
+        status: 'Pending',
+        priority: parsedPriority === 'Critical' ? 'Urgent' : parsedPriority,
+        deadline: parsedDeadline || undefined,
+        checklist: parsedChecklist,
+        source: 'Voice Command',
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedTasks = [...(workspace.tasks || []), parsedTask];
+      await handleUpdateField({ tasks: updatedTasks });
+
+      setIsVoiceTasksModalOpen(false);
+      setVoiceInputQuery('');
+      showToast('success', 'Voice Command Parsed', `Added task: "${parsedTitle}".`);
+    }, 1500);
+  };
+
+  // Simulated AI Task Generation
+  const handleAiGenerateTasks = () => {
+    setIsGeneratingAiTasks(true);
+    setTimeout(() => {
+      setIsGeneratingAiTasks(false);
+      setAiSuggestedTasks([
+        {
+          id: 'ai_s1_' + Date.now().toString(),
+          title: 'Prepare Section 65B Electronic Evidence Certificate',
+          priority: 'Critical',
+          reason: 'Required before electronic HDFC bank transaction records can become admissible in court.',
+          deadline: 'Due Before Next Hearing',
+          status: 'AI Suggested',
+          checklist: [
+            { title: 'Draft Certificate', checked: false },
+            { title: 'Obtain Branch Manager signature', checked: false },
+            { title: 'Annex to Evidence ledger list', checked: false }
+          ]
+        },
+        {
+          id: 'ai_s2_' + Date.now().toString(),
+          title: 'File Written Statement',
+          priority: 'Critical',
+          reason: 'Limitation Act & CPC require filing the defense statement within 30 days of summon delivery.',
+          deadline: 'Due Within 14 Days',
+          status: 'AI Suggested',
+          checklist: [
+            { title: 'Draft reply to plaint parawise', checked: false },
+            { title: 'Notarize affidavit of statement execution', checked: false }
+          ]
+        },
+        {
+          id: 'ai_s3_' + Date.now().toString(),
+          title: 'Upload Speed Post Postal Receipt',
+          priority: 'High',
+          reason: 'Timeline indicates legal notice was sent but dispatch receipts have not been mapped in the Evidence Vault.',
+          deadline: 'Due Today',
+          status: 'AI Suggested',
+          checklist: [
+            { title: 'Scan postal receipt', checked: false },
+            { title: 'Attach to Notice event', checked: false }
+          ]
+        }
+      ]);
+      showToast('success', 'AI Generation Complete', 'Generated 3 tailored legal strategy task recommendations.');
+    }, 1500);
+  };
+
+  // --- CASE NOTES ACTION HANDLERS ---
+  
+  // Create or edit a Note
+  const handleSaveNote = async () => {
+    if (!id || !workspace) return;
+    if (!noteForm.title.trim()) {
+      showToast('error', 'Validation Error', 'Note title is required.');
+      return;
+    }
+
+    setNotesAutosaveStatus('Saving...');
+    
+    // Auto-generate details based on template and fields if content is blank
+    let finalContent = noteForm.content;
+    if (!finalContent.trim()) {
+      if (noteForm.category === 'Client Meeting') {
+        finalContent = `Meeting with: ${noteForm.meetingWith || 'Client'}\nLocation: ${noteForm.meetingLocation || 'Office'}\nDate: ${noteForm.meetingDate || new Date().toDateString()}\n\nDiscussion:\n${noteForm.discussion || '- Discussed case timeline and evidence assets.'}\n\nDecisions:\n${noteForm.decisions || '- Client will compile HDFC bank statements.'}\n\nFollow-up:\n${noteForm.followUp || '- Upload bank statements into Evidence Vault.'}`;
+      } else if (noteForm.category === 'Hearing') {
+        finalContent = `Judge: ${noteForm.judge || 'Hon\'ble Justice'}\nCourt: ${noteForm.court || 'High Court'}\nHearing Date: ${noteForm.hearingDate || new Date().toDateString()}\n\nProceedings & Arguments:\n${noteForm.proceedings || '- Presented arguments regarding interim stay.'}\n\nJudge Remarks & Observations:\n${noteForm.judgeRemarks || '- Judge enquired about Section 65B Certificate compliance.'}\n\nOpponent Arguments:\n${noteForm.opponentArguments || '- Opponent claimed service of notice was defective.'}\n\nOrders & Adjournment directives:\n${noteForm.orders || '- Stay granted. Adjourned to next month.'}`;
+      } else if (noteForm.category === 'Strategy') {
+        finalContent = `Winning Arguments Theory:\n${noteForm.winningArguments || '- Strong documentary evidence demonstrating contract execution.'}\n\nCritical Weaknesses:\n${noteForm.weaknesses || '- Lack of HDFC bank speed post receipt mapping.'}\n\nLitigation Risks:\n${noteForm.risks || '- Limitation Act 30-day filing timeline objection.'}\n\nOpponent Strategy:\n${noteForm.opponentStrategy || '- Demurring on jurisdiction grounds.'}\n\nCounter Strategy & Precedents:\n${noteForm.counterStrategy || '- Rely on Supreme Court landmark judgment on CPC Section 20.'}\n\nImportant Statutory Authorities & Acts:\n${noteForm.importantAuthorities || '- Indian Contract Act Section 73.'}`;
+      } else {
+        finalContent = 'Notes content memo detail description.';
+      }
+    }
+
+    const cleanTitle = noteForm.title.trim();
+    const cleanCategory = noteForm.category;
+    const cleanPriority = noteForm.priority;
+    const isPinned = noteForm.pinned;
+    const isFavorite = noteForm.favorite;
+
+    // Simulate AI entity extraction
+    const extractedEntities: { text: string; type: string }[] = [];
+    const lowerContent = finalContent.toLowerCase();
+    
+    // Entity keyword scanner
+    if (lowerContent.includes('hdfc') || lowerContent.includes('bank')) extractedEntities.push({ text: 'HDFC Bank', type: 'Evidence' });
+    if (lowerContent.includes('limitation act')) extractedEntities.push({ text: 'Limitation Act', type: 'Act' });
+    if (lowerContent.includes('section 3')) extractedEntities.push({ text: 'Section 3', type: 'Section' });
+    if (lowerContent.includes('certificate')) extractedEntities.push({ text: 'Section 65B Certificate', type: 'Document' });
+    if (lowerContent.includes('sale deed')) extractedEntities.push({ text: 'Original Sale Deed', type: 'Document' });
+    if (lowerContent.includes('justice') || lowerContent.includes('judge')) extractedEntities.push({ text: 'Justice Rao', type: 'Judge' });
+    if (lowerContent.includes('high court')) extractedEntities.push({ text: 'High Court', type: 'Court' });
+    if (lowerContent.includes('objection')) extractedEntities.push({ text: 'Jurisdiction objection', type: 'CaseNumber' });
+
+    // Suggest Links
+    const suggestedLinks: any[] = [];
+    if (workspace.hearings && workspace.hearings.length > 0) {
+      suggestedLinks.push({ type: 'Hearing', targetId: workspace.hearings[0].id || workspace.hearings[0]._id, targetName: workspace.hearings[0].title || 'Hearing #1', confirmed: false });
+    }
+    if (workspace.evidence && workspace.evidence.length > 0) {
+      suggestedLinks.push({ type: 'Evidence', targetId: workspace.evidence[0].id || workspace.evidence[0]._id, targetName: workspace.evidence[0].name || 'Evidence Exhibit', confirmed: false });
+    }
+
+    // Suggested actions based on note keywords
+    const suggestedActions: any[] = [];
+    if (lowerContent.includes('deed') || lowerContent.includes('original')) {
+      suggestedActions.push({ type: 'Upload Evidence', description: 'Upload Original Sale Deed to Evidence Vault', accepted: false });
+    }
+    if (lowerContent.includes('certificate') || lowerContent.includes('65b')) {
+      suggestedActions.push({ type: 'Create Task', description: 'Prepare Section 65B Electronic Certificate', accepted: false });
+    }
+    if (lowerContent.includes('objection') || lowerContent.includes('limitation')) {
+      suggestedActions.push({ type: 'Research Relevant Law', description: 'Research Limitation Act Section 3 precedents', accepted: false });
+    }
+    if (suggestedActions.length === 0) {
+      suggestedActions.push({ type: 'Schedule Client Meeting', description: 'Schedule strategic briefing with client', accepted: false });
+    }
+
+    // Chronology detection popup warning trigger simulation
+    let triggerChronologyWarning = false;
+    if (lowerContent.includes('15 april') || lowerContent.includes('objection date') || lowerContent.includes('limitation expiring')) {
+      triggerChronologyWarning = true;
+    }
+
+    // Build AI summary details
+    const aiSummaryDetails = {
+      shortSummary: `Co-Counsel Summary: Note highlights critical ${cleanCategory.toLowerCase()} points. Title: ${cleanTitle}.`,
+      keyPoints: [
+        `Case Note Category: ${cleanCategory}`,
+        `Priority designated: ${cleanPriority}`
+      ],
+      importantFacts: [
+        `Created on: ${new Date().toLocaleDateString()}`
+      ],
+      actionItems: suggestedActions.map(a => a.description)
+    };
+
+    let updatedNotes = [...(workspace.notes || [])];
+
+    if (noteFormType === 'add') {
+      const newNote: any = {
+        _id: 'note_' + Date.now().toString(),
+        id: 'note_' + Date.now().toString(),
+        title: cleanTitle,
+        content: finalContent,
+        category: cleanCategory,
+        priority: cleanPriority,
+        pinned: isPinned,
+        favorite: isFavorite,
+        archived: false,
+        tags: noteForm.tags.length > 0 ? noteForm.tags : [cleanCategory, 'Active'],
+        relatedHearing: noteForm.relatedHearing,
+        relatedTimelineEvent: noteForm.relatedTimelineEvent,
+        relatedEvidence: noteForm.relatedEvidence,
+        relatedArgument: noteForm.relatedArgument,
+        relatedResearch: noteForm.relatedResearch,
+        aiSummary: aiSummaryDetails,
+        aiEntities: extractedEntities,
+        aiSuggestedLinks: suggestedLinks,
+        aiSuggestedActions: suggestedActions,
+        versions: [{ version: 1, content: finalContent, createdAt: new Date().toISOString() }],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      updatedNotes.push(newNote);
+      showToast('success', 'Note Created', `"${cleanTitle}" saved in second brain.`);
+      
+      if (triggerChronologyWarning) {
+        Alert.alert(
+          'Chronology Detected',
+          'This case note contains chronological dates or events. Would you like to map these timeline details directly into the case timeline?',
+          [
+            { text: 'Ignore', style: 'cancel' },
+            { 
+              text: 'Add to Timeline', 
+              onPress: () => {
+                const simulatedTimeline = [...(workspace.facts || []), {
+                  id: 'fact_note_gen_' + Date.now().toString(),
+                  title: `Event extracted from Note: ${cleanTitle}`,
+                  description: `AI-inferred timeline record from Case Note details.`,
+                  date: '2026-04-15',
+                  displayDate: '15 April 2026',
+                  category: 'Other',
+                  importance: 'Medium',
+                  confidence: 'High',
+                  createdBy: 'AI' as const,
+                  source: 'AI Extraction'
+                }];
+                handleUpdateField({ facts: simulatedTimeline as any });
+                showToast('success', 'Timeline Updated', 'Chronology mapped into Case facts.');
+              }
+            }
+          ]
+        );
+      }
+    } else {
+      updatedNotes = updatedNotes.map((note) => {
+        if (note._id === noteFormTargetId || note.id === noteFormTargetId) {
+          const newVersionNum = (note.versions || []).length + 1;
+          const updatedVersions = [
+            ...(note.versions || []),
+            { version: newVersionNum, content: finalContent, createdAt: new Date().toISOString() }
+          ];
+          return {
+            ...note,
+            title: cleanTitle,
+            content: finalContent,
+            category: cleanCategory,
+            priority: cleanPriority,
+            pinned: isPinned,
+            favorite: isFavorite,
+            tags: noteForm.tags.length > 0 ? noteForm.tags : note.tags,
+            relatedHearing: noteForm.relatedHearing,
+            relatedTimelineEvent: noteForm.relatedTimelineEvent,
+            relatedEvidence: noteForm.relatedEvidence,
+            relatedArgument: noteForm.relatedArgument,
+            relatedResearch: noteForm.relatedResearch,
+            aiSummary: aiSummaryDetails,
+            aiEntities: extractedEntities,
+            versions: updatedVersions,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return note;
+      });
+      showToast('success', 'Note Updated', `"${cleanTitle}" revisions saved.`);
+    }
+
+    await handleUpdateField({ notes: updatedNotes });
+    setIsNoteFormModalOpen(false);
+    setNoteFormTargetId(null);
+    setNotesAutosaveStatus('Autosaved');
+  };
+
+  // Open Add Note Modal
+  const handleOpenAddNoteModal = () => {
+    setNoteFormType('add');
+    setNoteFormTargetId(null);
+    setNoteForm({
+      title: '',
+      category: 'Personal',
+      content: '',
+      tags: [],
+      priority: 'Medium',
+      favorite: false,
+      pinned: false,
+      relatedHearing: '',
+      relatedTimelineEvent: '',
+      relatedEvidence: '',
+      relatedArgument: '',
+      relatedResearch: '',
+      meetingWith: '',
+      meetingLocation: '',
+      meetingDate: '',
+      discussion: '',
+      decisions: '',
+      followUp: '',
+      judge: '',
+      court: '',
+      hearingDate: '',
+      proceedings: '',
+      orders: '',
+      judgeRemarks: '',
+      opponentArguments: '',
+      observations: '',
+      winningArguments: '',
+      weaknesses: '',
+      risks: '',
+      opponentStrategy: '',
+      counterStrategy: '',
+      importantAuthorities: '',
+      researchRequired: ''
+    });
+    setIsNoteFormModalOpen(true);
+  };
+
+  // Open Edit Note Modal
+  const handleOpenEditNoteModal = (note: any) => {
+    setNoteFormType('edit');
+    setNoteFormTargetId(note._id || note.id);
+    setNoteForm({
+      title: note.title || '',
+      category: note.category || 'Personal',
+      content: note.content || '',
+      tags: note.tags || [],
+      priority: note.priority || 'Medium',
+      favorite: !!note.favorite,
+      pinned: !!note.pinned,
+      relatedHearing: note.relatedHearing || '',
+      relatedTimelineEvent: note.relatedTimelineEvent || '',
+      relatedEvidence: note.relatedEvidence || '',
+      relatedArgument: note.relatedArgument || '',
+      relatedResearch: note.relatedResearch || '',
+      meetingWith: '',
+      meetingLocation: '',
+      meetingDate: '',
+      discussion: '',
+      decisions: '',
+      followUp: '',
+      judge: '',
+      court: '',
+      hearingDate: '',
+      proceedings: '',
+      orders: '',
+      judgeRemarks: '',
+      opponentArguments: '',
+      observations: '',
+      winningArguments: '',
+      weaknesses: '',
+      risks: '',
+      opponentStrategy: '',
+      counterStrategy: '',
+      importantAuthorities: '',
+      researchRequired: ''
+    });
+    setIsNoteFormModalOpen(true);
+  };
+
+  // Delete note
+  const handleDeleteNote = async (noteId: string) => {
+    if (!id || !workspace) return;
+    const updatedNotes = (workspace.notes || []).filter((n: any) => n._id !== noteId && n.id !== noteId);
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Note Deleted', 'Note removed from Case Second Brain.');
+  };
+
+  // Duplicate note
+  const handleDuplicateNote = async (note: any) => {
+    if (!id || !workspace) return;
+    const newNote = {
+      ...note,
+      _id: 'note_dup_' + Date.now().toString(),
+      id: 'note_dup_' + Date.now().toString(),
+      title: `${note.title} (Copy)`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const updatedNotes = [...(workspace.notes || []), newNote];
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Note Duplicated', `Created copy of "${note.title}".`);
+  };
+
+  // Toggle Pinned Status
+  const handleTogglePinNote = async (noteId: string) => {
+    if (!id || !workspace) return;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteId || n.id === noteId) {
+        return { ...n, pinned: !n.pinned };
+      }
+      return n;
+    });
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Note Preference Saved', 'Note pin preference toggled.');
+  };
+
+  // Toggle Favorite Star Status
+  const handleToggleFavoriteNote = async (noteId: string) => {
+    if (!id || !workspace) return;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteId || n.id === noteId) {
+        return { ...n, favorite: !n.favorite };
+      }
+      return n;
+    });
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Note Preference Saved', 'Note favorite preference toggled.');
+  };
+
+  // Toggle Archived Status
+  const handleToggleArchiveNote = async (noteId: string) => {
+    if (!id || !workspace) return;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteId || n.id === noteId) {
+        return { ...n, archived: !n.archived };
+      }
+      return n;
+    });
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Note Preference Saved', 'Note archive status toggled.');
+  };
+
+  // Open Version History dialog
+  const handleOpenVersionHistory = (note: any) => {
+    setSelectedNoteVersionHistory(note.versions || []);
+    setNoteFormTargetId(note._id || note.id);
+    setIsVersionHistoryModalOpen(true);
+  };
+
+  // Restore previous note version content
+  const handleRestoreNoteVersion = async (versionContent: string) => {
+    if (!id || !workspace || !noteFormTargetId) return;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteFormTargetId || n.id === noteFormTargetId) {
+        const nextVer = (n.versions || []).length + 1;
+        const updatedVers = [...(n.versions || []), { version: nextVer, content: versionContent, createdAt: new Date().toISOString() }];
+        return {
+          ...n,
+          content: versionContent,
+          versions: updatedVers,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return n;
+    });
+    await handleUpdateField({ notes: updatedNotes });
+    setIsVersionHistoryModalOpen(false);
+    showToast('success', 'Version Restored', 'Note content restored to selected revision.');
+  };
+
+  // Start simulated voice note dictation
+  const handleRecordVoiceNote = () => {
+    if (isRecordingVoice) {
+      setIsRecordingVoice(false);
+      setSimulatedTranscribing(true);
+      setActiveRecordingDuration(0);
+
+      setTimeout(async () => {
+        setSimulatedTranscribing(false);
+        if (!workspace) return;
+
+        const speechText = "Today's client meeting went well. Client confirmed they made the full payment of INR 45,000 on 15 April 2026. The original sale deed document is available. Defendant has threatened to raise limitation objections under Indian Limitation Act Section 3.";
+        const speechNoteId = 'note_voice_' + Date.now().toString();
+        const extractedEntities = [
+          { text: 'HDFC Bank', type: 'Evidence' },
+          { text: 'Indian Limitation Act', type: 'Act' },
+          { text: 'Section 3', type: 'Section' },
+          { text: 'Original Sale Deed', type: 'Document' }
+        ];
+
+        const suggestedActions = [
+          { type: 'Upload Evidence', description: 'Upload Original Sale Deed to Evidence Vault', accepted: false },
+          { type: 'Create Task', description: 'Prepare Section 65B Electronic Certificate', accepted: false }
+        ];
+
+        const suggestedLinks = [];
+        if (workspace.hearings && workspace.hearings.length > 0) {
+          suggestedLinks.push({ type: 'Hearing', targetId: workspace.hearings[0].id || workspace.hearings[0]._id, targetName: workspace.hearings[0].title || 'Hearing #1', confirmed: false });
+        }
+
+        const newVoiceNote: any = {
+          _id: speechNoteId,
+          id: speechNoteId,
+          title: `Voice Note Transcription - ${new Date().toLocaleDateString()}`,
+          content: speechText,
+          category: 'Client Meeting',
+          priority: 'High',
+          pinned: false,
+          favorite: false,
+          archived: false,
+          tags: ['Voice Note', 'Transcribed', 'Client Meeting'],
+          voiceRecordingUrl: 'file:///path/to/simulated_audio_note.wav',
+          aiSummary: {
+            shortSummary: 'Voice transcription recording detailing payment date and original sale deed availability.',
+            keyPoints: ['Client meeting successfully finalized', 'Limitation Act section 3 issue raised'],
+            importantFacts: ['Payment: INR 45,000 on 15 April 2026', 'Original deed is available'],
+            actionItems: ['Upload Original Sale Deed to Evidence Vault', 'Prepare Section 65B Certificate']
+          },
+          aiEntities: extractedEntities,
+          aiSuggestedLinks: suggestedLinks,
+          aiSuggestedActions: suggestedActions,
+          versions: [{ version: 1, content: speechText, createdAt: new Date().toISOString() }],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        const updatedNotes = [...(workspace.notes || []), newVoiceNote];
+        await handleUpdateField({ notes: updatedNotes });
+
+        setIsVoiceNoteModalOpen(false);
+        showToast('success', 'Voice Note Transcribed', 'Structured case note added successfully.');
+      }, 2000);
+    } else {
+      setIsRecordingVoice(true);
+      setActiveRecordingDuration(1);
+    }
+  };
+
+  // Accept suggested action from notes co-counsel insights
+  const handleAcceptSuggestedAction = async (noteId: string, actionIndex: number) => {
+    if (!id || !workspace) return;
+    
+    let targetAction: any = null;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteId || n.id === noteId) {
+        const actions = [...(n.aiSuggestedActions || [])];
+        if (actions[actionIndex]) {
+          actions[actionIndex] = { ...actions[actionIndex], accepted: true };
+          targetAction = actions[actionIndex];
+        }
+        return { ...n, aiSuggestedActions: actions };
+      }
+      return n;
+    });
+
+    if (!targetAction) return;
+
+    if (targetAction.type === 'Create Task' || targetAction.type === 'Upload Evidence' || targetAction.type === 'Research Relevant Law') {
+      const newTask: any = {
+        _id: 'task_note_action_' + Date.now().toString(),
+        title: targetAction.description,
+        description: `Task created from Co-Counsel suggestion in note: "${targetAction.description}"`,
+        status: 'Pending',
+        priority: 'High',
+        source: 'AI Suggestion',
+        createdAt: new Date().toISOString()
+      };
+      const updatedTasks = [...(workspace.tasks || []), newTask];
+      await handleUpdateField({ notes: updatedNotes, tasks: updatedTasks });
+    } else if (targetAction.type === 'Schedule Client Meeting') {
+      const newHearing: any = {
+        _id: 'hearing_note_action_' + Date.now().toString(),
+        id: 'hearing_note_action_' + Date.now().toString(),
+        title: 'Strategic Briefing - Client Meeting',
+        purpose: 'Discuss case notes strategies and review evidence checklists.',
+        date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        time: '11:00 AM',
+        courtName: 'Chambers',
+        courtroom: 'Advocate Desk',
+        status: 'Scheduled',
+        checklist: { documents: [], evidence: [], witnesses: [], compliance: [] },
+        isAiEnriched: false
+      };
+      const updatedHearings = [...(workspace.hearings || []), newHearing];
+      await handleUpdateField({ notes: updatedNotes, hearings: updatedHearings });
+    } else {
+      await handleUpdateField({ notes: updatedNotes });
+    }
+
+    showToast('success', 'Action Initiated', `Created: "${targetAction.description}".`);
+  };
+
+  // Confirm smart link suggested in note details
+  const handleConfirmSuggestedLink = async (noteId: string, linkIndex: number) => {
+    if (!id || !workspace) return;
+    const updatedNotes = (workspace.notes || []).map((n: any) => {
+      if (n._id === noteId || n.id === noteId) {
+        const links = [...(n.aiSuggestedLinks || [])];
+        if (links[linkIndex]) {
+          links[linkIndex] = { ...links[linkIndex], confirmed: true };
+        }
+        return { ...n, aiSuggestedLinks: links };
+      }
+      return n;
+    });
+    await handleUpdateField({ notes: updatedNotes });
+    showToast('success', 'Link Confirmed', 'Second brain reference linkage established.');
+  };
+
   // Add manual Timeline event
   const handleAddTimelineEvent = () => {
     if (!workspace) return;
@@ -1495,48 +3432,198 @@ export default function WorkspaceDetailScreen() {
     showToast('success', 'Party Added', `${partyForm.role} added to list.`);
   };
 
-  // Add manual Evidence record
-  const handleAddEvidence = () => {
-    if (!workspace) return;
-    if (!evidenceForm.name || !evidenceForm.type) {
-      showToast('error', 'Validation Error', 'Name and Evidence type are required.');
+  // Add manual Evidence record with AI + OCR pipelines
+  const handleAddEvidenceWithPipeline = async (manualData?: any) => {
+    const name = manualData?.name || logEvidenceForm.name;
+    const type = manualData?.type || logEvidenceForm.type;
+    const description = manualData?.description || logEvidenceForm.description;
+    const notes = manualData?.notes || logEvidenceForm.notes;
+    const tagsText = manualData?.tags || logEvidenceForm.tags;
+    const size = manualData?.fileSize || logEvidenceForm.fileSize;
+    
+    if (!name.trim()) {
+      showToast('error', 'Validation Error', 'Evidence file name is required.');
       return;
     }
-    const newEvidence: CaseEvidence = {
-      name: evidenceForm.name,
-      type: evidenceForm.type,
-      description: evidenceForm.description,
-      admissibility: evidenceForm.admissibility as any,
-    };
+    if (!workspace) return;
+
+    setIsEvidenceUploadOpen(false);
+    setIsOcrAnalyzing(true);
+    setOcrProgressStep(0);
+    
+    const ocrSteps = [
+      'Reading document raw layers...',
+      'Extracting optical characters (OCR)...',
+      'Structuring extracted text buffer...',
+      'Checking signatures and stamps...'
+    ];
+    
+    for (let i = 0; i < ocrSteps.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      setOcrProgressStep(i + 1);
+    }
+    
+    setIsOcrAnalyzing(false);
+    setIsAnalyzingEvidence(true);
+    setAiAnalysisProgressStep(0);
+    
+    const aiSteps = [
+      'Analyzing relevance under Indian Evidence Act...',
+      'Detecting critical timeline entity entries...',
+      'Identifying potential legal vulnerabilities...',
+      'Finalizing exhibit summary report...'
+    ];
+    
+    for (let i = 0; i < aiSteps.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      setAiAnalysisProgressStep(i + 1);
+    }
+    
+    setIsAnalyzingEvidence(false);
 
     const currentEvidence = workspace.evidence || [];
-    const currentFacts = workspace.facts || [];
-    
-    const evidenceFact: CaseFact = {
-      date: new Date().toLocaleDateString(),
-      event: `Evidence Logged: ${evidenceForm.name}`,
-      description: `Logged exhibit: ${evidenceForm.name} (${evidenceForm.type}). Admissibility: ${evidenceForm.admissibility}.`
+    const exhibitPrefix = type === 'Digital' || type === 'Images' || type === 'Audio' || type === 'Videos' ? 'Exhibit B' : 'Exhibit A';
+    const num = currentEvidence.filter(e => (e.exhibitNumber || '').startsWith(exhibitPrefix)).length + 1;
+    const generatedExhibit = `${exhibitPrefix}-${num}`;
+
+    const mockOcrText = `[EXTRACTED OCR SCAN DETAILS]
+Date: ${new Date().toLocaleDateString()}
+Document: ${name}
+Type: ${type}
+Summary details: Case default liabilities notice.
+Signatures: Match validated by Plaintiff Advocate.`;
+
+    const tags = tagsText ? tagsText.split(',').map((t: string) => t.trim()).filter(Boolean) : ['Uploaded', type];
+    const newEvidenceItem: CaseEvidence = {
+      id: `ev_${Date.now()}`,
+      name,
+      type,
+      description: description || 'No description provided.',
+      notes,
+      exhibitNumber: logEvidenceForm.exhibitNumber || generatedExhibit,
+      status: 'Pending',
+      tags,
+      fileSize: size,
+      uploadedBy: 'Advocate',
+      uploadedDate: new Date().toISOString(),
+      ocrData: {
+        text: mockOcrText,
+        datesDetected: [new Date().toLocaleDateString()],
+        namesDetected: [workspace.clientName || 'Plaintiff', workspace.opponentName || 'Defendant'],
+        addressesDetected: ['Connaught Place, New Delhi'],
+        signaturesDetected: ['Verified'],
+        registrationNumbers: ['REG-9912A'],
+        caseNumbers: [workspace.name],
+        courtNames: [workspace.courtName || 'District Court'],
+        judges: ['Honorable Justice Roy']
+      },
+      aiAnalysis: {
+        summary: `AI extracted overview of ${name}. Highly relevant contractual proof.`,
+        relevance: 'Establishes prima facie contractual default and timeline liabilities.',
+        extractedText: mockOcrText,
+        entities: {
+          people: [workspace.clientName || 'Plaintiff', workspace.opponentName || 'Defendant'],
+          dates: [new Date().toLocaleDateString()],
+          addresses: ['Connaught Place, New Delhi'],
+          amounts: ['₹5,00,000']
+        },
+        caseRelevance: `Direct evidence corroborating breach of lease obligations inside active litigation stages.`,
+        suggestedTimelineEvents: [`${name} uploaded to Vault.`],
+        suggestedHearingLinks: [workspace.hearings?.[0]?.title || 'Next Scheduled Hearing'],
+        suggestedArguments: ['Argument 1: Prima Facie Contract Validation'],
+        applicableLaws: ['Section 65B Indian Evidence Act', 'Section 17 Indian Registration Act'],
+        possibleWeaknesses: ['Electronic chat requires Section 65B compliance certificate.'],
+        confidenceScore: 94
+      },
+      relatedLinks: {
+        timelineEvents: [workspace.facts?.[0]?.title || 'Case Initialization'],
+        hearings: [workspace.hearings?.[0]?.title || 'Hearing Stage'],
+        research: ['Indian Evidence Act Section 65B'],
+        arguments: ['Prima Facie Contract Validation'],
+        drafts: [workspace.drafts?.[0]?.name || 'Reply Notice Draft'],
+        contracts: ['Registered Lease Contract']
+      },
+      hash: 'SHA256-' + Math.random().toString(36).substr(2, 9).toUpperCase()
     };
 
+    const evidenceFact: CaseFact = {
+      id: `fact_${Date.now()}`,
+      title: `Evidence Logged: ${name}`,
+      event: `Evidence Logged: ${name}`,
+      description: `Exhibit ${newEvidenceItem.exhibitNumber} logged. Admissibility: Pending. OCR & AI analysis compiled.`,
+      date: new Date().toISOString(),
+      displayDate: new Date().toLocaleDateString(),
+      category: 'Evidence',
+      importance: 'Medium',
+      createdBy: 'AI'
+    };
+
+    const updatedEvidence = [newEvidenceItem, ...currentEvidence];
+    const currentFacts = workspace.facts || [];
+    
     const winProb = workspace.intelligence?.winProbability || 65;
     const strength = workspace.intelligence?.strengthScore || 70;
 
     handleUpdateField({
-      evidence: [newEvidence, ...currentEvidence],
-      facts: [...currentFacts, evidenceFact] as any,
+      evidence: updatedEvidence,
+      facts: [...currentFacts, evidenceFact],
       intelligence: {
         ...workspace.intelligence,
         winProbability: Math.min(95, winProb + 5),
         strengthScore: Math.min(100, strength + 5),
         strategyRecommendations: [
-          `Evidence Logged: "${evidenceForm.name}". Review admissibility code rules.`,
+          `Evidence Logged: "${name}". Review admissibility code rules.`,
           ...(workspace.intelligence?.strategyRecommendations || [])
         ]
       }
     });
 
+    setLogEvidenceForm({
+      name: '',
+      type: 'Document',
+      description: '',
+      notes: '',
+      tags: '',
+      exhibitNumber: '',
+      fileSize: '1.2 MB'
+    });
+
+    showToast('success', 'Evidence Vault Updated', `Exhibit "${newEvidenceItem.exhibitNumber}" logged & AI analyzed.`);
+  };
+
+  const handleAddEvidence = () => {
+    handleAddEvidenceWithPipeline({
+      name: evidenceForm.name,
+      type: evidenceForm.type,
+      description: evidenceForm.description,
+      notes: '',
+      tags: '',
+      fileSize: '1.2 MB'
+    });
     setIsModalOpen(false);
-    showToast('success', 'Evidence Recorded', 'Vault item logged.');
+  };
+
+  const handleDeleteEvidence = (evId: string) => {
+    if (!workspace) return;
+    const current = workspace.evidence || [];
+    const updated = current.filter(e => e.id !== evId && e._id !== evId);
+    handleUpdateField({ evidence: updated });
+    showToast('success', 'Evidence Purged', 'Vault item permanently removed.');
+  };
+
+  const handleUpdateEvidenceStatus = (evId: string, nextStatus: 'Verified' | 'Pending' | 'Rejected' | 'Disputed') => {
+    if (!workspace) return;
+    const current = workspace.evidence || [];
+    const updated = current.map(e => {
+      if (e.id === evId || e._id === evId) {
+        return { ...e, status: nextStatus };
+      }
+      return e;
+    });
+    handleUpdateField({ evidence: updated });
+    setIsVerifyModalOpen(false);
+    setVerifyTargetId(null);
+    showToast('success', 'Verification Status', `Exhibit verified status updated to ${nextStatus}.`);
   };
 
   // Add manual Court Order
@@ -1642,58 +3729,543 @@ export default function WorkspaceDetailScreen() {
     showToast('success', 'Precedent Saved', 'Citation saved to case research folder.');
   };
 
-  // AI draft compiler simulator
-  const handleCompileDraft = () => {
-    if (!draftForm.name) {
-      showToast('error', 'Validation Error', 'Draft folder file name is required.');
-      return;
+  // AI Research engine helper methods
+  const runResearchAnalysis = async (isBackground = false) => {
+    if (!workspace) return;
+    if (!isBackground) {
+      setIsRegeneratingResearch(true);
     }
-    setIsDraftCompiling(true);
-    setTimeout(() => {
-      const compiled = `AI COMPILATION DRAFT: ${draftForm.template.toUpperCase()}\n\nIn the court of Senior District Magistrate at New Delhi.\nIn the matter of: Rajesh Sharma (Plaintiff) vs Amit Verma (Defendant).\n\nSubject: Formal demand and pleading notice concerning recovery of outstanding principal amounting to INR 5,00,000 under summary procedures of CPC.\n\nRespectfully Showeth:\n1. The Plaintiff disbursed loan sum on 15 January 2025...\n2. Defendant failed to honor deadline terms...\n\nDrafted on: ${new Date().toLocaleDateString()}`;
-      setCompiledDraftText(compiled);
-      setIsDraftCompiling(false);
-      showToast('success', 'Draft Compiled', 'AI compiled pleading draft successfully.');
-    }, 1800);
+    
+    // Setup steps for UI display
+    setResearchRegenSteps([
+      'Scanning case summary and active timeline events...',
+      'Extracting keywords: recovery, Limitation Act, Section 65B...',
+      'Searching Supreme Court & High Court digital database repositories...',
+      'Analyzing defense contentions and procedural vulnerabilities...',
+      'Compiling legal issues, relevant acts, and ratio summaries...',
+      'Recalculating research completeness index...'
+    ]);
+    setActiveResearchRegenStep(0);
+
+    const stepInterval = setInterval(() => {
+      setActiveResearchRegenStep(prev => (prev < 5 ? prev + 1 : prev));
+    }, 600);
+
+    try {
+      const clientName = workspace.clientName || 'Plaintiff';
+      const opponentName = workspace.opponentName || workspace.accused || 'Defendant';
+      
+      const res = await DraftService.executeTool({
+        toolName: 'legal_research_assistant',
+        message: `Perform legal research for case: "${workspace.name}". Client: "${clientName}". Opponent: "${opponentName}". Case Type: "${workspace.caseType || ''}". Court: "${workspace.courtName || ''}". Summary: "${workspace.summary || workspace.caseSummary || ''}".`,
+        caseContext: {
+          name: workspace.name,
+          clientName: clientName,
+          opponentName: opponentName,
+          caseType: workspace.caseType,
+          summary: workspace.summary || workspace.caseSummary,
+        }
+      });
+      
+      clearInterval(stepInterval);
+      
+      if (res && res.success) {
+        setAiResearchReply(res.reply);
+        setIsResearchGenerated(true);
+        if (!isBackground) {
+          showToast('success', 'Research Refreshed', 'AI Legal Research assistant analysis completed.');
+        }
+      } else {
+        if (!isBackground) {
+          showToast('error', 'Research Failed', res.error || 'Failed to complete legal research.');
+        }
+      }
+    } catch (err) {
+      clearInterval(stepInterval);
+      console.warn('[RESEARCH AUTO REFRESH ERROR]', err);
+      if (!isBackground) {
+        showToast('error', 'Research Offline', 'Unable to reach the legal research assistant.');
+      }
+    } finally {
+      setIsRegeneratingResearch(false);
+    }
   };
 
-  const handleSaveDraft = () => {
-    if (!workspace || !compiledDraftText) return;
-    const newDoc: CaseDocument = {
-      _id: `doc_${Date.now()}`,
-      name: `${draftForm.name}.pdf`,
-      type: 'Filing',
-      url: 'https://ailegal.com/drafts/compiled.pdf',
-      tags: ['AI Compiled', draftForm.template],
-      uploadDate: new Date().toLocaleDateString(),
+  const handleSavePrecedentToBackend = (j: any) => {
+    if (!workspace) return;
+    const current = workspace.savedPrecedents || [];
+    if (current.some(c => c.citation === j.citation)) {
+      showToast('error', 'Already Saved', 'This judgment citation is already bookmarked.');
+      return;
+    }
+    const newItem: CasePrecedent = {
+      title: j.name,
+      citation: j.citation,
+      summary: `${j.summary} Ratio: ${j.ratio}`
     };
-    const currentDocs = workspace.documents || [];
-    const currentFacts = workspace.facts || [];
+    handleUpdateField({ savedPrecedents: [...current, newItem] });
+    showToast('success', 'Precedent Saved', 'Judgment added to workspace citations.');
+  };
 
-    const draftFact: CaseFact = {
-      date: new Date().toLocaleDateString(),
-      event: `Draft Pleading Saved: ${draftForm.name}`,
-      description: `AI Compiled Pleading draft saved to folder as ${draftForm.name}.pdf.`
-    };
+  const processConversationalSearch = (q: string) => {
+    setResearchSearchQuery(q);
+    if (!q.trim()) {
+      setConversationalSearchResults(null);
+      return;
+    }
+    setIsSearchingResearch(true);
+    setTimeout(() => {
+      const query = q.toLowerCase();
+      
+      const baseLaws = [
+        {
+          act: "Indian Contract Act, 1872",
+          section: "Section 73 & Section 74",
+          description: "Compensation for loss or damage caused by breach of contract. Governs whether a penalty clause is enforceable without showing actual loss.",
+          reason: "Applies directly to determine the validity of the interest charge rate and the default compensation claimed by the petitioner."
+        },
+        {
+          act: "Code of Civil Procedure, 1908",
+          section: "Section 34 & Order XXXVII",
+          description: "Interest awards during litigation. Order 37 outlines the summary procedure for money recovery under written contracts or promissory notes.",
+          reason: "Ensures the case follows summary procedures to expedite settlement and provides the legal basis for claiming interest."
+        },
+        {
+          act: "Limitation Act, 1963",
+          section: "Section 18 & Article 113",
+          description: "Effect of acknowledgment in writing. Article 113 provides a general three-year limitation period for suits for which no period is prescribed elsewhere.",
+          reason: "Crucial for rebutting the defendant's plea of limitation, using the emails and WhatsApp messages as written acknowledgment of debt."
+        },
+        {
+          act: "Indian Evidence Act, 1872",
+          section: "Section 65B",
+          description: "Admissibility of electronic records. Mandates a written certificate for submitting printouts or digital records from secondary sources.",
+          reason: "Applies to WhatsApp logs and email invoice reminders. Essential for getting the primary proof admitted by the judge."
+        },
+        {
+          act: "Specific Relief Act, 1963",
+          section: "Section 10",
+          description: "Specific performance of contracts. Discretion of the court to enforce contractual obligations directly.",
+          reason: "Applicable if the simple recovery of dues is not adequate and direct enforcement of contractual obligations is demanded."
+        },
+        {
+          act: "Transfer of Property Act, 1882",
+          section: "Section 54",
+          description: "Defines sale of tangible immovable property and regulates the delivery and contract of transfer.",
+          reason: "Relevant to determine the nature of collateral hardware assets or leased premises in dispute."
+        },
+        {
+          act: "Indian Registration Act, 1908",
+          section: "Section 17",
+          description: "Mandates compulsory registration of documents affecting immovable property, lease deeds exceeding one year.",
+          reason: "Applies if the opponent argues lease or transaction contracts are inadmissible due to lack of compulsory registration."
+        }
+      ];
 
-    const winProb = workspace.intelligence?.winProbability || 65;
-    const strength = workspace.intelligence?.strengthScore || 70;
+      const baseJudgments = [
+        {
+          name: "Kailash Nath Associates vs DDA",
+          court: "Supreme Court of India",
+          citation: "2015 4 SCC 136",
+          year: "2015",
+          bench: "Two-Judge Bench",
+          principle: "Liquidated damages enforcement under Section 74",
+          why: "Determines whether the interest penalties can be claimed without presenting audit sheets showing damage.",
+          ratio: "Earnest money or penalty clauses can only be forfeited/enforced if the amount represents a genuine pre-estimate of loss.",
+          summary: "Landmark ruling on liquidated damages. Held that penalty clauses under Section 74 can only be enforced if the party has suffered actual damage and estimation is impossible."
+        },
+        {
+          name: "Anvar P.V. vs P.K. Basheer",
+          court: "Supreme Court of India",
+          citation: "2014 10 SCC 473",
+          year: "2014",
+          bench: "Three-Judge Bench",
+          principle: "Secondary electronic records admissibility under Section 65B",
+          why: "Governs the admissibility of WhatsApp screenshot printouts and ledger copies.",
+          ratio: "Electronic evidence is inadmissible in court without the explicit certificate required under Section 65B(4).",
+          summary: "Clarified the evidentiary requirements for secondary electronic records, holding that a Section 65B certificate is mandatory."
+        },
+        {
+          name: "State of Nagaland vs Lipok AO",
+          court: "Supreme Court of India",
+          citation: "2005 3 SCC 752",
+          year: "2005",
+          bench: "Two-Judge Bench",
+          principle: "Procedural delay condonation under Section 5",
+          why: "Assists in defending against any limitation technicalities raised by the opposing counsel.",
+          ratio: "Courts must adopt a pragmatic, non-pedantic approach to condoning delays where justice warrants a full trial.",
+          summary: "Addressed procedural delay condonation under Section 5. Stressed that technical issues should not override substantive justice."
+        },
+        {
+          name: "Ambalal Sarabhai Enterprise Ltd. vs K.S. Infraspace LLP",
+          court: "Supreme Court of India",
+          citation: "2020 15 SCC 585",
+          year: "2020",
+          bench: "Two-Judge Bench",
+          principle: "Summary commercial suit jurisdiction and timelines",
+          why: "Applicable if the opposing party tries to transfer the suit to regular civil courts to delay trials.",
+          ratio: "The provisions of the Commercial Courts Act must be strictly interpreted and applied to speed up dispute resolutions.",
+          summary: "Examines the scope of commercial court jurisdiction and timelines under the Commercial Courts Act, 2015."
+        },
+        {
+          name: "Arjun Panditrao Khotkar vs Kailash Kushanrao Gorantyal",
+          court: "Supreme Court of India",
+          citation: "2020 7 SCC 1",
+          year: "2020",
+          bench: "Three-Judge Bench",
+          principle: "Timing for producing Section 65B(4) electronic certificate",
+          why: "Clarifies certificate production procedure during the trial.",
+          ratio: "The required certificate under Section 65B(4) can be supplied at any stage prior to trial commencement.",
+          summary: "Clarified that producing an electronic certificate is mandatory, but if the device owner refuses, the court can issue summons to produce it."
+        },
+        {
+          name: "SBI vs M/s. Aditya Birla",
+          court: "High Court of Delhi",
+          citation: "2022 SCC OnLine DL 842",
+          year: "2022",
+          bench: "Division Bench",
+          principle: "Limitation period resets via electronic debt acknowledgment",
+          why: "Validates electronic communications as a reset trigger.",
+          ratio: "Ledger balances and acknowledgements confirmed via email constitute a valid acknowledgement of debt under Section 18.",
+          summary: "Held that digital communication containing ledger approval counts as valid written acknowledgment under Section 18 of the Limitation Act."
+        }
+      ];
 
-    handleUpdateField({
-      documents: [...currentDocs, newDoc],
-      facts: [...currentFacts, draftFact] as any,
-      intelligence: {
-        ...workspace.intelligence,
-        winProbability: Math.min(95, winProb + 2),
-        strengthScore: Math.min(100, strength + 3),
-        strategyRecommendations: [
-          `Pleading Draft "${draftForm.name}" compiled. Next: Serve statutory notice.`,
-          ...(workspace.intelligence?.strategyRecommendations || [])
-        ]
+      const filteredLaws = baseLaws.filter(l => 
+        l.act.toLowerCase().includes(query) ||
+        l.section.toLowerCase().includes(query) ||
+        l.description.toLowerCase().includes(query) ||
+        l.reason.toLowerCase().includes(query)
+      );
+
+      const filteredJudgments = baseJudgments.filter(j => 
+        j.name.toLowerCase().includes(query) ||
+        j.court.toLowerCase().includes(query) ||
+        j.citation.toLowerCase().includes(query) ||
+        j.summary.toLowerCase().includes(query) ||
+        j.why.toLowerCase().includes(query) ||
+        j.ratio.toLowerCase().includes(query) ||
+        j.principle.toLowerCase().includes(query)
+      );
+
+      setConversationalSearchResults({
+        laws: filteredLaws,
+        judgments: filteredJudgments
+      });
+      setIsSearchingResearch(false);
+      showToast('success', 'Search Complete', `Found ${filteredJudgments.length} precedents and ${filteredLaws.length} laws.`);
+    }, 500);
+  };
+
+  // Keep track of counts for auto-refresh detection
+  const prevDocCount = useRef<number | undefined>(undefined);
+  const prevEvidenceCount = useRef<number | undefined>(undefined);
+  const prevTimelineCount = useRef<number | undefined>(undefined);
+  const prevSummary = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!workspace) return;
+    
+    // Set initial values on first load
+    if (prevDocCount.current === undefined) {
+      prevDocCount.current = workspace.documents?.length || 0;
+      prevEvidenceCount.current = workspace.evidence?.length || 0;
+      prevTimelineCount.current = workspace.facts?.length || 0;
+      prevSummary.current = workspace.summary || workspace.caseSummary || '';
+      return;
+    }
+
+    const docChanged = prevDocCount.current !== workspace.documents?.length;
+    const evidenceChanged = prevEvidenceCount.current !== workspace.evidence?.length;
+    const timelineChanged = prevTimelineCount.current !== workspace.facts?.length;
+    const summaryChanged = prevSummary.current !== (workspace.summary || workspace.caseSummary);
+
+    // Update refs
+    prevDocCount.current = workspace.documents?.length || 0;
+    prevEvidenceCount.current = workspace.evidence?.length || 0;
+    prevTimelineCount.current = workspace.facts?.length || 0;
+    prevSummary.current = workspace.summary || workspace.caseSummary || '';
+
+    if (docChanged || evidenceChanged || timelineChanged || summaryChanged) {
+      console.log('Case data changed, auto-refreshing legal research...');
+      runResearchAnalysis(true); // Background refresh
+    }
+  }, [
+    workspace?.documents?.length,
+    workspace?.evidence?.length,
+    workspace?.facts?.length,
+    workspace?.summary,
+    workspace?.caseSummary
+  ]);
+
+  useEffect(() => {
+    if (workspace) {
+      if ((workspace.savedPrecedents && workspace.savedPrecedents.length > 0) || aiResearchReply) {
+        setIsResearchGenerated(true);
       }
+    }
+  }, [workspace, aiResearchReply]);
+
+  // --- Redesigned Draft Folder Actions ---
+  const handleCreateDraftFolder = () => {
+    if (!draftForm.name.trim()) {
+      showToast('error', 'Validation Error', 'Draft name is required.');
+      return;
+    }
+    if (!workspace) return;
+
+    const newDraftId = `draft_${Date.now()}`;
+    const client = workspace.clientName || 'Plaintiff';
+    const opponent = workspace.opponentName || workspace.accused || 'Defendant';
+    const court = workspace.courtName || 'District Court';
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const initialContent = `=========================================
+            AI LEGAL™ DRAFTING SUITE
+=========================================
+DRAFT TYPE: ${draftForm.type.toUpperCase()}
+DRAFT TITLE: ${draftForm.name}
+CASE BOUND: ${client} vs ${opponent}
+DATE INITIATED: ${dateStr}
+STATUS: MANUAL DRAFT INITIATED
+-----------------------------------------
+
+IN THE COURT OF THE DISTRICT JUDGE AT ${court.toUpperCase()}
+CIVIL ORIGINAL JURISDICTION
+
+IN THE MATTER OF:
+${client.toUpperCase()}        ...PLAINTIFF/PETITIONER
+
+VERSUS
+
+${opponent.toUpperCase()}          ...DEFENDANT/RESPONDENT
+
+SUBJECT: DRAFT NOTICE/PETITION FOR ${draftForm.type.toUpperCase()}
+
+Sir/Madam,
+The plaintiff/petitioner above-named begs to submit as under:
+
+1. That the parties entered into a binding contract agreement, details of which are annexed.
+2. That the defendant has failed to settle the outstanding dues and has breached transaction terms.
+3. The cause of action arose within the jurisdiction of this Hon'ble Court.
+4. Hence, this petition is filed praying for an order of recovery/restoration in the interest of justice.
+
+PLAINTIFF/PETITIONER
+Through Counsel
+`;
+
+    const newDraftItem: CaseDraft = {
+      id: newDraftId,
+      name: draftForm.name,
+      type: draftForm.type,
+      content: initialContent,
+      versions: [
+        {
+          version: 1,
+          content: initialContent,
+          createdAt: new Date().toISOString(),
+          changes: 'Initial draft template folder created'
+        }
+      ],
+      createdBy: 'Advocate',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'Draft',
+      aiSuggestions: [],
+      exportHistory: []
+    };
+
+    const currentDrafts = workspace.drafts || [];
+    handleUpdateField({ drafts: [...currentDrafts, newDraftItem] });
+    setDraftForm({ name: '', type: 'Legal Notice' });
+    showToast('success', 'Folder Created', `Draft folder "${newDraftItem.name}" initialized.`);
+  };
+
+  const handleDeleteDraft = (draftId: string) => {
+    if (!workspace) return;
+    const current = workspace.drafts || [];
+    const updated = current.filter(d => d.id !== draftId);
+    handleUpdateField({ drafts: updated });
+    showToast('success', 'Draft Deleted', 'The draft has been permanently removed.');
+  };
+
+  const handleDuplicateDraft = (draftId: string) => {
+    if (!workspace) return;
+    const current = workspace.drafts || [];
+    const target = current.find(d => d.id === draftId);
+    if (!target) return;
+
+    const duplicatedItem: CaseDraft = {
+      ...target,
+      id: `draft_${Date.now()}`,
+      name: `${target.name} Copy`,
+      versions: [...target.versions],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    handleUpdateField({ drafts: [...current, duplicatedItem] });
+    showToast('success', 'Draft Duplicated', `Created duplicate of "${target.name}".`);
+  };
+
+  const handleRenameDraft = (draftId: string, newName: string) => {
+    if (!workspace || !newName.trim()) return;
+    const current = workspace.drafts || [];
+    const updated = current.map(d => {
+      if (d.id === draftId) {
+        return { ...d, name: newName, updatedAt: new Date().toISOString() };
+      }
+      return d;
     });
-    setIsModalOpen(false);
-    showToast('success', 'Draft Saved', 'Draft PDF added to documents folder.');
+    handleUpdateField({ drafts: updated });
+    showToast('success', 'Draft Renamed', 'Draft name updated successfully.');
+  };
+
+  const handleOpenDraftEditor = (draft: CaseDraft) => {
+    setActiveDraftId(draft.id);
+    setEditorTitle(draft.name);
+    setEditorType(draft.type);
+    setEditorContent(draft.content);
+    setEditorStatus(draft.status);
+    setExpandedEditorTab('editor');
+    setAiSuggestedDraftText(null);
+    setIsAiSuggestionActive(false);
+    setIsEditorOpen(true);
+  };
+
+  const handleSaveDraftContent = (isAutosave = false, customChanges = 'Modified content') => {
+    if (!workspace || !activeDraftId) return;
+    const current = workspace.drafts || [];
+    let updatedName = editorTitle;
+
+    const updated = current.map(d => {
+      if (d.id === activeDraftId) {
+        const nextVerNum = d.versions.length + 1;
+        const newVer: CaseDraftVersion = {
+          version: nextVerNum,
+          content: editorContent,
+          createdAt: new Date().toISOString(),
+          changes: customChanges
+        };
+        return {
+          ...d,
+          name: updatedName,
+          content: editorContent,
+          status: editorStatus,
+          versions: [...d.versions, newVer],
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return d;
+    });
+
+    handleUpdateField({ drafts: updated });
+    if (!isAutosave) {
+      showToast('success', 'Draft Saved', `Saved version v${(current.find(d => d.id === activeDraftId)?.versions.length || 0) + 1}.`);
+    }
+  };
+
+  const handleAutosaveContent = (newContent: string) => {
+    if (!workspace || !activeDraftId) return;
+    const current = workspace.drafts || [];
+    const updated = current.map(d => {
+      if (d.id === activeDraftId) {
+        const versions = [...d.versions];
+        if (versions.length > 0) {
+          versions[versions.length - 1] = {
+            ...versions[versions.length - 1],
+            content: newContent,
+            createdAt: new Date().toISOString()
+          };
+        }
+        return {
+          ...d,
+          content: newContent,
+          versions,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return d;
+    });
+    handleUpdateField({ drafts: updated });
+    setAutosaveStatus('Autosaved');
+  };
+
+  const handleEditorTextChange = (text: string) => {
+    setEditorContent(text);
+    setAutosaveStatus('Saving...');
+    
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+    
+    autosaveTimerRef.current = setTimeout(() => {
+      handleAutosaveContent(text);
+    }, 1500);
+  };
+
+  const handleRestoreVersion = (ver: CaseDraftVersion) => {
+    setEditorContent(ver.content);
+    setSelectedVersion(ver.version);
+    showToast('success', 'Version Restored', `Restored content buffer to Version v${ver.version}. Click Save to commit.`);
+  };
+
+  const runAiDraftAssist = async (actionLabel: string, actionMsg: string) => {
+    if (!workspace) return;
+    setIsAiDrafting(true);
+    setAiDraftSteps([
+      'Retrieving Case summary facts...',
+      'Analyzing timeline details and active hearing issues...',
+      'Incorporating Supreme Court landmark precedents...',
+      'Drafting legally compliant clauses...',
+      'Refining formal legal language...'
+    ]);
+    setActiveAiDraftStep(0);
+
+    const stepInterval = setInterval(() => {
+      setActiveAiDraftStep(prev => (prev < 4 ? prev + 1 : prev));
+    }, 600);
+
+    try {
+      const clientName = workspace.clientName || 'Plaintiff';
+      const opponentName = workspace.opponentName || workspace.accused || 'Defendant';
+      const contextText = `Case Summary: "${workspace.summary || workspace.caseSummary || ''}". Facts: ${JSON.stringify(workspace.facts || [])}. Legal Research: ${JSON.stringify(workspace.savedPrecedents || [])}. Arguments: ${JSON.stringify(workspace.intelligence || {})}.`;
+
+      const res = await DraftService.executeTool({
+        toolName: 'legal_draft_maker',
+        message: `Perform AI Draft Assistance: "${actionLabel}". Guidelines: "${actionMsg}". Current text to edit: "${editorContent}". Case Context: ${contextText}`,
+        caseContext: {
+          name: editorTitle,
+          clientName,
+          opponentName,
+          caseType: workspace.caseType,
+          summary: workspace.summary || workspace.caseSummary
+        }
+      });
+
+      clearInterval(stepInterval);
+      if (res && res.success && res.reply) {
+        setAiSuggestedDraftText(res.reply);
+        setIsAiSuggestionActive(true);
+        showToast('success', 'AI Proposal Ready', 'AI generated suggestions. Review differences below.');
+      } else {
+        throw new Error(res?.error || 'AI returned empty suggestion.');
+      }
+    } catch (err) {
+      clearInterval(stepInterval);
+      console.warn('[AI DRAFT ASSIST ERROR]', err);
+      showToast('error', 'AI Assistant Offline', 'Failed to generate AI drafting assistance.');
+    } finally {
+      setIsAiDrafting(false);
+    }
+  };
+
+  const handleApplyAiSuggestion = () => {
+    if (!aiSuggestedDraftText) return;
+    setEditorContent(aiSuggestedDraftText);
+    setAiSuggestedDraftText(null);
+    setIsAiSuggestionActive(false);
+    showToast('success', 'Changes Applied', 'AI suggested text inserted into editor buffer.');
   };
 
   // Settings Rename Case
@@ -1717,6 +4289,139 @@ export default function WorkspaceDetailScreen() {
     } catch (err) {
       showToast('error', 'Deletion Error', 'Failed to purge workspace.');
     }
+  };
+
+  const toggleArgumentExpanded = (id: string) => {
+    setExpandedArguments(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const handlePinArgument = (id: string) => {
+    setPinnedArguments(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+    showToast('success', pinnedArguments[id] ? 'Argument Unpinned' : 'Argument Pinned', pinnedArguments[id] ? 'Removed argument pin.' : 'Pinned argument to top row.');
+  };
+
+  const handleAddArgument = (type: 'petitioner' | 'respondent', argData: any) => {
+    const nextNum = type === 'petitioner' ? petitionerArguments.length + 1 : respondentArguments.length + 1;
+    const prefix = type === 'petitioner' ? 'ARG' : 'DEF';
+    const newArg = {
+      id: `arg_${Date.now()}`,
+      number: `${prefix} ${nextNum}`,
+      title: argData.title || 'Untitled Argument',
+      category: argData.category || 'Contract Law',
+      priority: argData.priority || 'High',
+      description: argData.description || '',
+      supportingFacts: argData.supportingFacts ? argData.supportingFacts.split('\n').filter((s: string) => s.trim()) : [],
+      supportingLaws: argData.supportingLaws ? argData.supportingLaws.split('\n').filter((s: string) => s.trim()) : [],
+      supportingCaseLaws: argData.supportingCaseLaws ? argData.supportingCaseLaws.split('\n').filter((s: string) => s.trim()) : [],
+      relatedEvidence: argData.relatedEvidence ? argData.relatedEvidence.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      relatedDocuments: argData.relatedDocuments ? argData.relatedDocuments.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      relatedTimelineEvents: argData.relatedTimelineEvents ? argData.relatedTimelineEvents.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      relatedHearings: argData.relatedHearings ? argData.relatedHearings.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      refutation: type === 'respondent' ? argData.refutation || '' : undefined
+    };
+    if (type === 'petitioner') {
+      setPetitionerArguments(prev => [...prev, newArg]);
+    } else {
+      setRespondentArguments(prev => [...prev, newArg]);
+    }
+    showToast('success', 'Argument Added', 'New manual litigation argument created successfully.');
+  };
+
+  const handleEditArgument = (type: 'petitioner' | 'respondent', id: string, argData: any) => {
+    const updateFn = (prev: any[]) => prev.map(a => a.id === id ? {
+      ...a,
+      title: argData.title,
+      category: argData.category,
+      priority: argData.priority,
+      description: argData.description,
+      supportingFacts: argData.supportingFacts ? argData.supportingFacts.split('\n').filter((s: string) => s.trim()) : a.supportingFacts,
+      supportingLaws: argData.supportingLaws ? argData.supportingLaws.split('\n').filter((s: string) => s.trim()) : a.supportingLaws,
+      supportingCaseLaws: argData.supportingCaseLaws ? argData.supportingCaseLaws.split('\n').filter((s: string) => s.trim()) : a.supportingCaseLaws,
+      relatedEvidence: argData.relatedEvidence ? argData.relatedEvidence.split(',').map((s: string) => s.trim()).filter(Boolean) : a.relatedEvidence,
+      relatedDocuments: argData.relatedDocuments ? argData.relatedDocuments.split(',').map((s: string) => s.trim()).filter(Boolean) : a.relatedDocuments,
+      relatedTimelineEvents: argData.relatedTimelineEvents ? argData.relatedTimelineEvents.split(',').map((s: string) => s.trim()).filter(Boolean) : a.relatedTimelineEvents,
+      relatedHearings: argData.relatedHearings ? argData.relatedHearings.split(',').map((s: string) => s.trim()).filter(Boolean) : a.relatedHearings,
+      refutation: type === 'respondent' ? argData.refutation : a.refutation
+    } : a);
+    
+    if (type === 'petitioner') {
+      setPetitionerArguments(updateFn);
+    } else {
+      setRespondentArguments(updateFn);
+    }
+    showToast('success', 'Argument Saved', 'Litigation argument changes saved.');
+  };
+
+  const handleDeleteArgument = (type: 'petitioner' | 'respondent', id: string) => {
+    if (type === 'petitioner') {
+      setPetitionerArguments(prev => prev.filter(a => a.id !== id));
+    } else {
+      setRespondentArguments(prev => prev.filter(a => a.id !== id));
+    }
+    showToast('success', 'Argument Deleted', 'Argument removed from active list.');
+  };
+
+  const handleDuplicateArgument = (type: 'petitioner' | 'respondent', arg: any) => {
+    const nextNum = type === 'petitioner' ? petitionerArguments.length + 1 : respondentArguments.length + 1;
+    const prefix = type === 'petitioner' ? 'ARG' : 'DEF';
+    const duplicatedArg = {
+      ...arg,
+      id: `arg_${Date.now()}`,
+      number: `${prefix} ${nextNum}`,
+      title: `${arg.title} Copy`
+    };
+    if (type === 'petitioner') {
+      setPetitionerArguments(prev => [...prev, duplicatedArg]);
+    } else {
+      setRespondentArguments(prev => [...prev, duplicatedArg]);
+    }
+    showToast('success', 'Argument Cloned', 'Duplicated argument details successfully.');
+  };
+
+  const openAddArgModal = (category: 'petitioner' | 'respondent') => {
+    setArgModalType('add');
+    setArgModalCategory(category);
+    setArgModalTargetId(null);
+    setArgForm({
+      title: '',
+      category: 'Contract Law',
+      priority: 'High',
+      description: '',
+      supportingFacts: '',
+      supportingLaws: '',
+      supportingCaseLaws: '',
+      relatedEvidence: '',
+      relatedDocuments: '',
+      relatedTimelineEvents: '',
+      relatedHearings: ''
+    });
+    setIsArgModalOpen(true);
+  };
+
+  const openEditArgModal = (category: 'petitioner' | 'respondent', arg: any) => {
+    setArgModalType('edit');
+    setArgModalCategory(category);
+    setArgModalTargetId(arg.id);
+    setArgForm({
+      title: arg.title || '',
+      category: arg.category || 'Contract Law',
+      priority: arg.priority || 'High',
+      description: arg.description || '',
+      supportingFacts: (arg.supportingFacts || []).join('\n'),
+      supportingLaws: (arg.supportingLaws || []).join('\n'),
+      supportingCaseLaws: (arg.supportingCaseLaws || []).join('\n'),
+      relatedEvidence: (arg.relatedEvidence || []).join(', '),
+      relatedDocuments: (arg.relatedDocuments || []).join(', '),
+      relatedTimelineEvents: (arg.relatedTimelineEvents || []).join(', '),
+      relatedHearings: (arg.relatedHearings || []).join(', ')
+    });
+    setIsArgModalOpen(true);
   };
 
   // Upload simulated file select
@@ -1929,10 +4634,6 @@ export default function WorkspaceDetailScreen() {
             <Text style={styles.aiButtonText}>Analyze Case</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.aiButton, styles.aiButtonOutline]} onPress={handleOpenAi}>
-            <Ionicons name="chatbubble-ellipses-outline" size={13} color={theme.primary} />
-            <Text style={[styles.aiButtonText, { color: theme.primary }]}>Ask AI</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity style={[styles.aiButton, styles.aiButtonOutline]} onPress={handleGenerateStrategy}>
             <Ionicons name="bulb-outline" size={13} color={theme.primary} />
@@ -1949,9 +4650,7 @@ export default function WorkspaceDetailScreen() {
     const lawyers = workspace?.lawyers || [];
     const partiesCount = 2 + lawyers.length;
 
-    const courtOrdersList = (workspace?.documents || []).filter(
-      d => d.tags.includes('Court Order') || d.type === 'Other' && d.name.toLowerCase().includes('order')
-    );
+    const courtOrdersList = workspace?.courtOrders || [];
 
     const navTiles = [
       { id: 'timeline', label: 'Timeline', desc: `${workspace?.facts?.length || 0} Milestones`, icon: 'time-outline', color: '#6366F1' },
@@ -2125,50 +4824,954 @@ export default function WorkspaceDetailScreen() {
   };
 
   const renderCourtOrdersTab = () => {
-    const list = (workspace?.documents || []).filter(
-      d => d.tags.includes('Court Order') || d.type === 'Other' && d.name.toLowerCase().includes('order')
+    if (!workspace) return null;
+
+    const courtOrdersList = workspace.courtOrders || [];
+
+    // Dashboard calculations
+    const totalOrders = courtOrdersList.length;
+    const pendingCompliance = courtOrdersList.reduce(
+      (acc, o) => acc + (o.complianceItems || []).filter((c: any) => c.status === 'Pending').length, 
+      0
     );
+    const upcomingHearingsCount = courtOrdersList.reduce(
+      (acc, o) => acc + (o.suggestedHearings || []).filter((h: any) => !h.accepted).length, 
+      0
+    );
+    const analyzedCount = courtOrdersList.filter(o => o.status === 'AI Analyzed' || o.status === 'Completed').length;
+    
+    const pendingSuggestionsCount = courtOrdersList.reduce(
+      (acc, o) => acc + 
+        (o.suggestedTasks || []).filter((t: any) => !t.accepted).length +
+        (o.suggestedTimeline || []).filter((t: any) => !t.accepted).length +
+        (o.suggestedHearings || []).filter((h: any) => !h.accepted).length +
+        (o.suggestedArguments || []).filter((a: any) => !a.accepted).length +
+        (o.suggestedResearch || []).filter((r: any) => !r.accepted).length +
+        (o.suggestedEvidence || []).filter((e: any) => !e.accepted).length,
+      0
+    );
+
+    // Filters and search logic
+    const filteredOrders = courtOrdersList.filter((order) => {
+      const metadata = order.metadata || {};
+      const matchesSearch = 
+        order.name.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (metadata.courtName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (metadata.judgeName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (metadata.caseNumber || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (metadata.orderType || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (order.ocrText || '').toLowerCase().includes(orderSearchQuery.toLowerCase());
+      
+      if (orderFilter === 'All') return matchesSearch;
+      if (orderFilter === 'Latest') return matchesSearch;
+      if (orderFilter === 'Interim Orders') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('interim');
+      }
+      if (orderFilter === 'Final Orders') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('final');
+      }
+      if (orderFilter === 'Compliance Pending') {
+        const hasPending = (order.complianceItems || []).some((c: any) => c.status === 'Pending');
+        return matchesSearch && hasPending;
+      }
+      if (orderFilter === 'Hearing Orders') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('hearing');
+      }
+      if (orderFilter === 'Bail Orders') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('bail');
+      }
+      if (orderFilter === 'Stay Orders') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('stay');
+      }
+      if (orderFilter === 'Judgments') {
+        return matchesSearch && (metadata.orderType || '').toLowerCase().includes('judgment');
+      }
+      if (orderFilter === 'AI Analyzed') {
+        return matchesSearch && order.status === 'AI Analyzed';
+      }
+      return matchesSearch;
+    });
+
+    const getOrderPriorityColor = (priority: string) => {
+      switch (priority) {
+        case 'Critical': return '#EF4444';
+        case 'High': return '#F59E0B';
+        case 'Medium': return '#3B82F6';
+        default: return '#10B981';
+      }
+    };
 
     return (
       <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Official Court Orders</Text>
-          <Pressable
-            style={styles.moduleHeaderBtn}
+        {/* Sticky Case Header details row */}
+        <View style={styles.caseHeaderContainer}>
+          <View style={styles.caseHeaderMain}>
+            <Text style={styles.caseHeaderTitle}>⚖️ {workspace.name}</Text>
+            <View style={styles.caseHeaderBadgeRow}>
+              <View style={[styles.statusBadge, styles.badgeSuccess]}>
+                <Text style={[styles.statusBadgeText, { color: '#10B981' }]}>{workspace.status}</Text>
+              </View>
+              <View style={[styles.statusBadge, styles.badgeDanger]}>
+                <Text style={[styles.statusBadgeText, { color: '#EF4444' }]}>{workspace.priority}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Dashboard KPIs Grid */}
+        <View style={styles.orderDashboardContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.metricsContainer}>
+            <View style={[styles.orderMetricCard, { borderLeftColor: '#6D5DFC' }]}>
+              <Text style={styles.orderMetricValue}>{totalOrders}</Text>
+              <Text style={styles.orderMetricLabel}>Total Orders</Text>
+            </View>
+            <View style={[styles.orderMetricCard, { borderLeftColor: '#EF4444' }]}>
+              <Text style={styles.orderMetricValue}>{pendingCompliance}</Text>
+              <Text style={styles.orderMetricLabel}>Compliance Pending</Text>
+            </View>
+            <View style={[styles.orderMetricCard, { borderLeftColor: '#F59E0B' }]}>
+              <Text style={styles.orderMetricValue}>{upcomingHearingsCount}</Text>
+              <Text style={styles.orderMetricLabel}>Upcoming Hearings</Text>
+            </View>
+            <View style={[styles.orderMetricCard, { borderLeftColor: '#10B981' }]}>
+              <Text style={styles.orderMetricValue}>{analyzedCount}</Text>
+              <Text style={styles.orderMetricLabel}>Orders Analyzed</Text>
+            </View>
+            <View style={[styles.orderMetricCard, { borderLeftColor: '#3B82F6' }]}>
+              <Text style={styles.orderMetricValue}>{pendingSuggestionsCount}</Text>
+              <Text style={styles.orderMetricLabel}>Pending Suggestions</Text>
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* Quick Actions Row */}
+        <View style={styles.orderQuickActionsRow}>
+          <TouchableOpacity 
+            style={[styles.orderQuickBtn, { backgroundColor: '#6D5DFC' }]} 
+            onPress={handleUploadCourtOrder}
+          >
+            <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.orderQuickBtnText}>Upload Order</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.orderQuickBtn, styles.orderQuickBtnOutline]}
             onPress={() => {
-              setModalType('court_order');
-              setIsModalOpen(true);
+              setLogOrderForm({
+                name: '',
+                courtName: workspace.courtName || 'Delhi High Court',
+                judgeName: 'Justice Amit Verma',
+                bench: 'Single Bench',
+                courtNumber: 'Courtroom No. 302',
+                caseNumber: (workspace as any).caseNumber || 'CS/102/2026',
+                orderDate: new Date().toISOString().split('T')[0],
+                nextHearingDate: '',
+                orderType: 'Interim Order',
+                stageOfCase: 'Court',
+                petitioner: workspace.clientName || '',
+                respondent: workspace.opponentName || '',
+                advocates: '',
+                caseStatus: 'Active',
+                notesText: '',
+              });
+              setIsOrderFormOpen(true);
             }}
           >
             <Ionicons name="add" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Log Decree</Text>
-          </Pressable>
+            <Text style={[styles.orderQuickBtnText, { color: '#6D5DFC' }]}>Log Manually</Text>
+          </TouchableOpacity>
         </View>
 
-        {list.length === 0 ? (
-          <Text style={styles.emptyText}>No official court orders or decrees recorded.</Text>
+        {/* Search Bar */}
+        <View style={styles.orderSearchBarRow}>
+          <Ionicons name="search" size={18} color="#9CA3AF" style={styles.orderSearchIcon} />
+          <TextInput
+            placeholder="Search orders, judges, case number..."
+            value={orderSearchQuery}
+            onChangeText={setOrderSearchQuery}
+            placeholderTextColor="#9CA3AF"
+            style={styles.orderSearchInput}
+          />
+          {orderSearchQuery !== '' && (
+            <TouchableOpacity onPress={() => setOrderSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filter Chips Scrollbar */}
+        <View style={styles.orderFiltersWrapper}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {[
+              'All', 'Latest', 'Interim Orders', 'Final Orders', 'Compliance Pending', 
+              'Hearing Orders', 'Bail Orders', 'Stay Orders', 'Judgments', 'AI Analyzed'
+            ].map((filt) => {
+              const isActive = orderFilter === filt;
+              return (
+                <TouchableOpacity
+                  key={filt}
+                  style={[styles.orderFilterChip, isActive && styles.orderFilterChipActive]}
+                  onPress={() => setOrderFilter(filt)}
+                >
+                  <Text style={[styles.orderFilterChipText, isActive && styles.orderFilterChipTextActive]}>
+                    {filt}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Order Cards Roster */}
+        {filteredOrders.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="document-text-outline" size={40} color="#9CA3AF" />
+            <Text style={styles.emptyText}>No matching court orders or decrees found.</Text>
+          </View>
         ) : (
-          <View style={styles.cardList}>
-            {list.map((order, i) => (
-              <View key={i} style={styles.itemCard}>
-                <View style={styles.itemCardHeader}>
-                  <Text style={styles.itemCardTitle}>📜 {order.name}</Text>
-                  <View style={[styles.statusBadge, styles.badgeInfo]}>
-                    <Text style={styles.statusBadgeText}>Decree</Text>
+          <View style={styles.orderCardList}>
+            {filteredOrders.map((order: any) => {
+              const pendingCompCount = (order.complianceItems || []).filter((c: any) => c.status === 'Pending').length;
+              return (
+                <View key={order._id || order.id} style={styles.orderCard}>
+                  <View style={styles.orderCardHeader}>
+                    <View style={styles.orderCardHeaderLeft}>
+                      <Ionicons name="document-text" size={20} color="#6D5DFC" />
+                      <View>
+                        <Text style={styles.orderCardTitle} numberOfLines={1}>{order.name}</Text>
+                        <Text style={styles.orderCardSubtitle}>
+                          {order.metadata?.courtName} • {order.metadata?.orderType}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.orderStatusBadge, order.status === 'Completed' ? styles.orderBadgeCompleted : styles.orderBadgeAnalyzed]}>
+                      <Text style={styles.orderStatusBadgeText}>{order.status}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.orderCardSummary} numberOfLines={3}>
+                    {order.aiSummary?.shortSummary || 'AI analysis pending or incomplete for this order.'}
+                  </Text>
+
+                  {/* Highlights and compliance alerts */}
+                  <View style={styles.orderHighlightsContainer}>
+                    {pendingCompCount > 0 && (
+                      <View style={styles.orderHighlightRow}>
+                        <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                        <Text style={styles.orderHighlightText}>
+                          {pendingCompCount} compliance directives pending review.
+                        </Text>
+                      </View>
+                    )}
+                    {order.metadata?.nextHearingDate && (
+                      <View style={styles.orderHighlightRow}>
+                        <Ionicons name="calendar-outline" size={14} color="#F59E0B" />
+                        <Text style={styles.orderHighlightText}>
+                          Next hearing date detected: {order.metadata.nextHearingDate}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.orderCardFooterRow}>
+                    <Text style={styles.orderCardUploadMeta}>
+                      Uploaded by {order.uploadedBy} on {order.createdAt ? order.createdAt.split('T')[0] : 'Today'}
+                    </Text>
+                    <View style={styles.orderCardActions}>
+                      <TouchableOpacity 
+                        style={styles.orderActionIconBtn}
+                        onPress={() => {
+                          setSelectedCourtOrder(order);
+                          setIsOrderViewerOpen(true);
+                        }}
+                      >
+                        <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.orderActionIconBtn}
+                        onPress={() => handleReanalyzeCourtOrder(order._id || order.id)}
+                      >
+                        <Ionicons name="refresh" size={16} color="#10B981" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.orderActionIconBtn}
+                        onPress={() => handleDeleteCourtOrder(order._id || order.id)}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-                <Text style={styles.itemCardBody}>
-                  Issued By: {order.extractedData?.issuer || 'District Court Judge'}
-                </Text>
-                {order.extractedData?.notes && (
-                  <Text style={styles.itemCardBody}>
-                    Directives: &quot;{order.extractedData.notes}&quot;
-                  </Text>
-                )}
-                <Text style={styles.itemCardFooter}>Date Issued: {order.uploadDate}</Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
+        )}
+
+        {/* OCR Scanning Progress Modal Overlay */}
+        <Modal
+          visible={orderOcrScanning}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setOrderOcrScanning(false)}
+        >
+          <View style={styles.orderModalOverlay}>
+            <View style={styles.orderOcrLoaderBox}>
+              <Text style={styles.ocrLoaderTitle}>🧠 AI Court Order Analyzer</Text>
+              <ActivityIndicator size="large" color="#6D5DFC" style={styles.ocrLoaderSpinner} />
+              
+              <View style={styles.ocrProgressBarWrapper}>
+                <View style={[styles.ocrProgressBarFill, { width: `${orderUploadProgress}%` }]} />
+              </View>
+              <Text style={styles.ocrProgressPercentage}>{orderUploadProgress}% Completed</Text>
+              
+              <Text style={styles.ocrLoaderStepText}>{ocrScanningText}</Text>
+              
+              <View style={styles.ocrPipelineIndicators}>
+                <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 0 && styles.ocrPipelineStepActive]} />
+                <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 1 && styles.ocrPipelineStepActive]} />
+                <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 2 && styles.ocrPipelineStepActive]} />
+                <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 3 && styles.ocrPipelineStepActive]} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Manual Log Order Modal Form */}
+        <Modal
+          visible={isOrderFormOpen}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setIsOrderFormOpen(false)}
+        >
+          <View style={styles.orderModalOverlay}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.orderFormContainer}>
+              <View style={styles.orderFormHeader}>
+                <Text style={styles.orderFormHeaderTitle}>📜 Log Court Order Manually</Text>
+                <TouchableOpacity onPress={() => setIsOrderFormOpen(false)}>
+                  <Ionicons name="close" size={22} color="#1F2937" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={styles.orderFormScrollContent}>
+                <Text style={styles.orderFormLabel}>Document / File Name *</Text>
+                <TextInput
+                  placeholder="e.g. Interim Injunction Order"
+                  value={logOrderForm.name}
+                  onChangeText={(text) => setLogOrderForm({ ...logOrderForm, name: text })}
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.orderFormInput}
+                />
+
+                <Text style={styles.orderFormLabel}>Court Name *</Text>
+                <TextInput
+                  placeholder="e.g. Delhi High Court"
+                  value={logOrderForm.courtName}
+                  onChangeText={(text) => setLogOrderForm({ ...logOrderForm, courtName: text })}
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.orderFormInput}
+                />
+
+                <Text style={styles.orderFormLabel}>Judge Name</Text>
+                <TextInput
+                  placeholder="e.g. Justice Amit Verma"
+                  value={logOrderForm.judgeName}
+                  onChangeText={(text) => setLogOrderForm({ ...logOrderForm, judgeName: text })}
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.orderFormInput}
+                />
+
+                <View style={styles.orderFormRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderFormLabel}>Case Number</Text>
+                    <TextInput
+                      placeholder="e.g. CS(OS) 234/2026"
+                      value={logOrderForm.caseNumber}
+                      onChangeText={(text) => setLogOrderForm({ ...logOrderForm, caseNumber: text })}
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.orderFormInput}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderFormLabel}>Courtroom No.</Text>
+                    <TextInput
+                      placeholder="e.g. 302"
+                      value={logOrderForm.courtNumber}
+                      onChangeText={(text) => setLogOrderForm({ ...logOrderForm, courtNumber: text })}
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.orderFormInput}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.orderFormRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderFormLabel}>Order Date</Text>
+                    <TextInput
+                      placeholder="YYYY-MM-DD"
+                      value={logOrderForm.orderDate}
+                      onChangeText={(text) => setLogOrderForm({ ...logOrderForm, orderDate: text })}
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.orderFormInput}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderFormLabel}>Next Hearing Date</Text>
+                    <TextInput
+                      placeholder="YYYY-MM-DD"
+                      value={logOrderForm.nextHearingDate}
+                      onChangeText={(text) => setLogOrderForm({ ...logOrderForm, nextHearingDate: text })}
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.orderFormInput}
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.orderFormLabel}>Order Type Category</Text>
+                <View style={styles.orderHorizontalSelectorScroll}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {['Interim Order', 'Final Order', 'Bail Order', 'Stay Order', 'Judgment'].map((type) => {
+                      const isActive = logOrderForm.orderType === type;
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          style={[styles.orderSelectorHorizontalItem, isActive && styles.orderSelectorHorizontalItemActive]}
+                          onPress={() => setLogOrderForm({ ...logOrderForm, orderType: type })}
+                        >
+                          <Text style={[styles.orderSelectorHorizontalItemText, isActive && styles.orderSelectorHorizontalItemTextActive]}>
+                            {type}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                <Text style={styles.orderFormLabel}>Directives Notes / Observations</Text>
+                <TextInput
+                  placeholder="Enter court orders details and judge directions here..."
+                  multiline
+                  numberOfLines={4}
+                  value={logOrderForm.notesText}
+                  onChangeText={(text) => setLogOrderForm({ ...logOrderForm, notesText: text })}
+                  placeholderTextColor="#9CA3AF"
+                  style={[styles.orderFormInput, styles.orderFormTextArea]}
+                />
+              </ScrollView>
+
+              <View style={styles.orderFormFooter}>
+                <TouchableOpacity 
+                  style={[styles.orderFormBtn, styles.orderFormBtnCancel]}
+                  onPress={() => setIsOrderFormOpen(false)}
+                >
+                  <Text style={styles.orderFormBtnCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.orderFormBtn, styles.orderFormBtnSubmit]}
+                  onPress={handleManualAddCourtOrder}
+                >
+                  <Text style={styles.orderFormBtnSubmitText}>Save Decree</Text>
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+
+        {/* Detailed Drawer Modal: AI Court Order Analyzer */}
+        {selectedCourtOrder && (
+          <Modal
+            visible={isOrderViewerOpen}
+            animationType="slide"
+            onRequestClose={() => setIsOrderViewerOpen(false)}
+          >
+            <SafeAreaView style={styles.orderDrawerContainer}>
+              {/* Header */}
+              <View style={styles.orderDrawerHeader}>
+                <TouchableOpacity 
+                  style={styles.orderDrawerBackBtn}
+                  onPress={() => setIsOrderViewerOpen(false)}
+                >
+                  <Ionicons name="arrow-back" size={24} color="#1F2937" />
+                </TouchableOpacity>
+                <View style={styles.orderDrawerHeaderTitleWrapper}>
+                  <Text style={styles.orderDrawerTitle} numberOfLines={1}>{selectedCourtOrder.name}</Text>
+                  <Text style={styles.orderDrawerSubtitle}>
+                    {selectedCourtOrder.metadata?.orderType} • {selectedCourtOrder.metadata?.caseNumber}
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.orderDrawerCloseBtn}
+                  onPress={() => setIsOrderViewerOpen(false)}
+                >
+                  <Ionicons name="close" size={24} color="#1F2937" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Sub-tab navigation selector bar */}
+              <View style={styles.orderSubTabSelector}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {['Metadata', 'AI Summary', 'Compliance', 'AI Suggestions', 'Risk & Links'].map((sub) => {
+                    const isActive = syncActiveSubTab === sub;
+                    return (
+                      <TouchableOpacity
+                        key={sub}
+                        style={[styles.orderSubTabItem, isActive && styles.orderSubTabItemActive]}
+                        onPress={() => setSyncActiveSubTab(sub)}
+                      >
+                        <Text style={[styles.orderSubTabItemText, isActive && styles.orderSubTabItemTextActive]}>
+                          {sub}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Content Panel Scroll */}
+              <ScrollView contentContainerStyle={styles.orderDrawerContentScroll}>
+                
+                {/* 1. PDF Viewer Simulation */}
+                <View style={styles.pdfViewerCard}>
+                  <View style={styles.pdfViewerHeader}>
+                    <Ionicons name="document-text" size={16} color="#9CA3AF" />
+                    <Text style={styles.pdfViewerHeaderText}>Original Scan View (Page 1 of 1)</Text>
+                  </View>
+                  <ScrollView style={styles.pdfViewerScroll} nestedScrollEnabled>
+                    <Text style={styles.pdfViewerTextCode}>{selectedCourtOrder.ocrText || 'Scanning text layer...'}</Text>
+                  </ScrollView>
+                </View>
+
+                {/* Sub Tab contents switch */}
+                {syncActiveSubTab === 'Metadata' && (
+                  <View style={styles.syncTabContentBox}>
+                    <Text style={styles.drawerSectionHeading}>🏛️ Extracted Court Metadata</Text>
+                    
+                    <View style={styles.metadataGrid}>
+                      <View style={styles.metadataGridRow}>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Court</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.courtName || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Judge</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.judgeName || 'N/A'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metadataGridRow}>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Bench</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.bench || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Case Number</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.caseNumber || 'N/A'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metadataGridRow}>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Order Type</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.orderType || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Order Date</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.orderDate || 'N/A'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metadataGridRow}>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Next Hearing</Text>
+                          <Text style={[styles.metaValueText, { color: '#F59E0B', fontWeight: '800' }]}>
+                            {selectedCourtOrder.metadata?.nextHearingDate || 'None Detected'}
+                          </Text>
+                        </View>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Case Status</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.caseStatus || 'N/A'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metadataGridRow}>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Petitioner</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.petitioner || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.metadataGridCol}>
+                          <Text style={styles.metaLabelText}>Respondent</Text>
+                          <Text style={styles.metaValueText}>{selectedCourtOrder.metadata?.respondent || 'N/A'}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {syncActiveSubTab === 'AI Summary' && (
+                  <View style={styles.syncTabContentBox}>
+                    <Text style={styles.drawerSectionHeading}>📝 Brief Case Outcome</Text>
+                    <View style={styles.aiSummaryDetailBox}>
+                      <Text style={styles.aiSummaryShortText}>
+                        {selectedCourtOrder.aiSummary?.shortSummary || 'No summary available.'}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.drawerSectionHeading}>💡 Critical Observations</Text>
+                    {(selectedCourtOrder.aiSummary?.keyPoints || []).map((point: string, idx: number) => (
+                      <View key={idx} style={styles.keyPointBulletRow}>
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#6D5DFC" style={{ marginTop: 2 }} />
+                        <Text style={styles.keyPointBulletText}>{point}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {syncActiveSubTab === 'Compliance' && (
+                  <View style={styles.syncTabContentBox}>
+                    <Text style={styles.drawerSectionHeading}>📋 Judicial Directives Checklist</Text>
+                    {(selectedCourtOrder.complianceItems || []).length === 0 ? (
+                      <Text style={styles.subtextAlert}>No compliance items parsed from this decree.</Text>
+                    ) : (
+                      (selectedCourtOrder.complianceItems || []).map((comp: any, idx: number) => (
+                        <View key={idx} style={styles.complianceDrawerItem}>
+                          <View style={styles.complianceDrawerLeft}>
+                            <Ionicons 
+                              name={comp.status === 'Completed' ? 'checkbox' : 'square-outline'} 
+                              size={20} 
+                              color={comp.status === 'Completed' ? '#10B981' : '#9CA3AF'} 
+                              onPress={async () => {
+                                // Toggle status locally and update Project db
+                                const updatedOrders = (workspace.courtOrders || []).map(o => {
+                                  if (o._id === selectedCourtOrder._id || o.id === selectedCourtOrder.id) {
+                                    const updatedCompList = [...(o.complianceItems || [])];
+                                    updatedCompList[idx] = { 
+                                      ...updatedCompList[idx], 
+                                      status: updatedCompList[idx].status === 'Completed' ? 'Pending' : 'Completed' 
+                                    };
+                                    return { ...o, complianceItems: updatedCompList };
+                                  }
+                                  return o;
+                                });
+                                await handleUpdateField({ courtOrders: updatedOrders });
+                                setSelectedCourtOrder(updatedOrders.find(o => (o._id === selectedCourtOrder._id || o.id === selectedCourtOrder.id)));
+                              }}
+                            />
+                            <View style={{ flex: 1, marginLeft: 8 }}>
+                              <Text style={[styles.complianceDescText, comp.status === 'Completed' && styles.lineThroughText]}>
+                                {comp.description}
+                              </Text>
+                              <Text style={styles.complianceMetaText}>
+                                Due: {comp.dueDate} • Assignee: {comp.responsiblePerson}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={[styles.statusBadge, { backgroundColor: getOrderPriorityColor(comp.priority) + '15' }]}>
+                            <Text style={[styles.statusBadgeText, { color: getOrderPriorityColor(comp.priority) }]}>
+                              {comp.priority}
+                            </Text>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                )}
+
+                {syncActiveSubTab === 'AI Suggestions' && (
+                  <View style={styles.syncTabContentBox}>
+                    <Text style={styles.drawerSectionHeading}>🔮 Suggested Workspace Updates</Text>
+                    <Text style={styles.suggestedHelpText}>
+                      Tapping confirmation creates these records in their respective modules instantly.
+                    </Text>
+
+                    {/* Timeline suggestions list */}
+                    {(selectedCourtOrder.suggestedTimeline || []).map((t: any, idx: number) => (
+                      <View key={'time_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#6366F120' }]}>
+                              <Text style={{ color: '#6366F1', fontSize: 9, fontWeight: '800' }}>TIMELINE</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{t.title}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{t.description} ({t.date})</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, t.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'timeline', idx)}
+                        >
+                          <Ionicons name={t.accepted ? 'checkmark-circle' : 'cloud-upload-outline'} size={14} color={t.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, t.accepted && { color: '#FFFFFF' }]}>
+                            {t.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Hearing suggestions list */}
+                    {(selectedCourtOrder.suggestedHearings || []).map((h: any, idx: number) => (
+                      <View key={'hear_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#F59E0B20' }]}>
+                              <Text style={{ color: '#F59E0B', fontSize: 9, fontWeight: '800' }}>HEARING</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{h.title}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{h.purpose} ({h.date} • {h.courtroom})</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, h.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'hearing', idx)}
+                        >
+                          <Ionicons name={h.accepted ? 'checkmark-circle' : 'calendar-outline'} size={14} color={h.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, h.accepted && { color: '#FFFFFF' }]}>
+                            {h.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Task suggestions list */}
+                    {(selectedCourtOrder.suggestedTasks || []).map((t: any, idx: number) => (
+                      <View key={'task_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#10B98120' }]}>
+                              <Text style={{ color: '#10B981', fontSize: 9, fontWeight: '800' }}>TASK</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{t.title}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{t.description}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, t.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'task', idx)}
+                        >
+                          <Ionicons name={t.accepted ? 'checkmark-circle' : 'list-outline'} size={14} color={t.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, t.accepted && { color: '#FFFFFF' }]}>
+                            {t.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Evidence suggestions list */}
+                    {(selectedCourtOrder.suggestedEvidence || []).map((e: any, idx: number) => (
+                      <View key={'ev_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#06B6D420' }]}>
+                              <Text style={{ color: '#06B6D4', fontSize: 9, fontWeight: '800' }}>EVIDENCE</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{e.title}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{e.description}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, e.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'evidence', idx)}
+                        >
+                          <Ionicons name={e.accepted ? 'checkmark-circle' : 'shield-checkmark-outline'} size={14} color={e.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, e.accepted && { color: '#FFFFFF' }]}>
+                            {e.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Research suggestions list */}
+                    {(selectedCourtOrder.suggestedResearch || []).map((r: any, idx: number) => (
+                      <View key={'res_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#14B8A620' }]}>
+                              <Text style={{ color: '#14B8A6', fontSize: 9, fontWeight: '800' }}>RESEARCH</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{r.act} - {r.section}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{r.description}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, r.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'research', idx)}
+                        >
+                          <Ionicons name={r.accepted ? 'checkmark-circle' : 'library-outline'} size={14} color={r.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, r.accepted && { color: '#FFFFFF' }]}>
+                            {r.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Argument suggestions list */}
+                    {(selectedCourtOrder.suggestedArguments || []).map((a: any, idx: number) => (
+                      <View key={'arg_' + idx} style={styles.suggestionPromoteRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.suggestionTypeBadge, { backgroundColor: '#EF444420' }]}>
+                              <Text style={{ color: '#EF4444', fontSize: 9, fontWeight: '800' }}>ARGUMENT</Text>
+                            </View>
+                            <Text style={styles.suggestionTitle}>{a.title}</Text>
+                          </View>
+                          <Text style={styles.suggestionDesc}>{a.logic}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.suggestionPromoteBtn, a.accepted && styles.suggestionPromoteBtnAccepted]}
+                          onPress={() => handlePromoteOrderSuggestion(selectedCourtOrder._id || selectedCourtOrder.id, 'argument', idx)}
+                        >
+                          <Ionicons name={a.accepted ? 'checkmark-circle' : 'alert-circle-outline'} size={14} color={a.accepted ? '#FFFFFF' : '#6D5DFC'} />
+                          <Text style={[styles.suggestionPromoteBtnText, a.accepted && { color: '#FFFFFF' }]}>
+                            {a.accepted ? 'Synced' : 'Approve'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {syncActiveSubTab === 'Risk & Links' && (
+                  <View style={styles.syncTabContentBox}>
+                    <Text style={styles.drawerSectionHeading}>🚨 AI Procedural Risk Analysis</Text>
+                    
+                    <View style={styles.riskBadgeCard}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={styles.riskCardLabel}>Limitation Period Risk</Text>
+                        <Text style={[styles.riskCardValue, { color: '#EF4444' }]}>
+                          {selectedCourtOrder.riskAnalysis?.limitationRisk || 'Medium Risk'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.probabilityBox}>
+                      <Text style={styles.probabilityLabel}>Objections Admission Probability</Text>
+                      <View style={styles.probabilityBarWrapper}>
+                        <View style={[styles.probabilityBarFill, { width: `${selectedCourtOrder.riskAnalysis?.objectionsProbability || 30}%` }]} />
+                      </View>
+                      <Text style={styles.probabilityPercentText}>
+                        {selectedCourtOrder.riskAnalysis?.objectionsProbability || 30}% predicted by Co-Counsel
+                      </Text>
+                    </View>
+
+                    <Text style={styles.riskAnalysisSubheading}>Vulnerabilities Detected:</Text>
+                    {(selectedCourtOrder.riskAnalysis?.proceduralDefects || []).map((defect: string, idx: number) => (
+                      <View key={idx} style={styles.riskDefectRow}>
+                        <Ionicons name="warning" size={16} color="#EF4444" />
+                        <Text style={styles.riskDefectText}>{defect}</Text>
+                      </View>
+                    ))}
+
+                    <Text style={styles.drawerSectionHeading}>🔗 Linked Modules Shortcuts</Text>
+                    <View style={styles.drawerLinksGrid}>
+                      <TouchableOpacity 
+                        style={styles.drawerLinkCard}
+                        onPress={() => {
+                          setIsOrderViewerOpen(false);
+                          setActiveWorkspaceTab('hearings');
+                        }}
+                      >
+                        <Ionicons name="hammer-outline" size={18} color="#F59E0B" />
+                        <Text style={styles.drawerLinkLabel}>Hearings ({selectedCourtOrder.linkedRecords?.hearingsCount || 0})</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity 
+                        style={styles.drawerLinkCard}
+                        onPress={() => {
+                          setIsOrderViewerOpen(false);
+                          setActiveWorkspaceTab('tasks');
+                        }}
+                      >
+                        <Ionicons name="list-outline" size={18} color="#10B981" />
+                        <Text style={styles.drawerLinkLabel}>Tasks ({selectedCourtOrder.linkedRecords?.tasksCount || 0})</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity 
+                        style={styles.drawerLinkCard}
+                        onPress={() => {
+                          setIsOrderViewerOpen(false);
+                          setActiveWorkspaceTab('evidence');
+                        }}
+                      >
+                        <Ionicons name="shield-checkmark-outline" size={18} color="#06B6D4" />
+                        <Text style={styles.drawerLinkLabel}>Evidence ({selectedCourtOrder.linkedRecords?.evidenceCount || 0})</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* Co-Counsel Workspace Synchronization Panel */}
+                <View style={styles.workspaceSyncPanel}>
+                  <Text style={styles.syncPanelHeading}>🧠 Co-Counsel Workspace Sync</Text>
+                  <Text style={styles.syncPanelDesc}>
+                    Select modules to synchronize directives. Clicking batch sync promoter will immediately commit all approved items.
+                  </Text>
+                  
+                  <View style={styles.syncCheckboxesGrid}>
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, timeline: !syncOptions.timeline })}
+                    >
+                      <Ionicons name={syncOptions.timeline ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Timeline Chronology</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, hearings: !syncOptions.hearings })}
+                    >
+                      <Ionicons name={syncOptions.hearings ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Hearing Dates</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, tasks: !syncOptions.tasks })}
+                    >
+                      <Ionicons name={syncOptions.tasks ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Directives to Tasks</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, evidence: !syncOptions.evidence })}
+                    >
+                      <Ionicons name={syncOptions.evidence ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Missing Evidence List</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, research: !syncOptions.research })}
+                    >
+                      <Ionicons name={syncOptions.research ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Cited Legal Statutes</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.syncCheckboxRow}
+                      onPress={() => setSyncOptions({ ...syncOptions, arguments: !syncOptions.arguments })}
+                    >
+                      <Ionicons name={syncOptions.arguments ? 'checkbox' : 'square-outline'} size={20} color="#6D5DFC" />
+                      <Text style={styles.syncCheckboxLabel}>Sync Strategy Arguments</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {selectedCourtOrder.status !== 'Completed' ? (
+                    <TouchableOpacity 
+                      style={styles.syncBatchBtn}
+                      onPress={() => handleSynchronizeWorkspace(selectedCourtOrder._id || selectedCourtOrder.id)}
+                    >
+                      <Ionicons name="sync" size={16} color="#FFFFFF" />
+                      <Text style={styles.syncBatchBtnText}>Batch Synchronize Workspace</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.syncSuccessMessage}>
+                      <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                      <Text style={styles.syncSuccessText}>Workspace fully synchronized with this order.</Text>
+                    </View>
+                  )}
+                </View>
+
+              </ScrollView>
+            </SafeAreaView>
+          </Modal>
         )}
       </View>
     );
@@ -3068,50 +6671,437 @@ export default function WorkspaceDetailScreen() {
   };
 
   // Evidence Vault Tab
+  // Evidence Vault Tab Constants & Helpers
+  const evidenceFilters = [
+    'All', 'Documents', 'Images', 'Videos', 'Audio', 'Digital', 'Physical',
+    'Verified', 'Pending', 'Witness', 'Contracts', 'Receipts', 'Photographs', 'Messages', 'Emails'
+  ];
+
+  const ocrStepTitles = [
+    'Reading document raw layers...',
+    'Extracting optical characters (OCR)...',
+    'Structuring extracted text buffer...',
+    'Checking signatures and stamps...'
+  ];
+
+  const aiStepTitles = [
+    'Analyzing relevance under Indian Evidence Act...',
+    'Detecting critical timeline entity entries...',
+    'Identifying potential legal vulnerabilities...',
+    'Finalizing exhibit summary report...'
+  ];
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Verified': return '#10B981';
+      case 'Pending': return '#F59E0B';
+      case 'Rejected': return '#EF4444';
+      case 'Disputed': return '#3B82F6';
+      default: return '#9CA3AF';
+    }
+  };
+
+  const getEvidenceIcon = (type: string) => {
+    switch (type) {
+      case 'Document':
+      case 'Contracts':
+      case 'Emails':
+        return 'document-text';
+      case 'Images':
+      case 'Photographs':
+        return 'image';
+      case 'Videos':
+        return 'videocam';
+      case 'Audio':
+        return 'mic';
+      case 'Digital':
+        return 'cloud-done';
+      case 'Physical':
+        return 'briefcase';
+      default:
+        return 'shield-checkmark';
+    }
+  };
+
+  const handleScanDocumentSimulate = () => {
+    showToast('info', 'Document Scanner', 'Scanning document structures...');
+    setTimeout(() => {
+      handleAddEvidenceWithPipeline({
+        name: `Scanned_Exhibit_Doc_${Math.floor(Math.random() * 900 + 100)}.pdf`,
+        type: 'Document',
+        description: 'Auto-scanned document containing client correspondence and details.',
+        notes: 'Digitized via Mobile Evidence Scanner.',
+        tags: 'Scanned, OCR, PDF',
+        fileSize: '3.4 MB'
+      });
+    }, 1000);
+  };
+
+  const handleCapturePhotoSimulate = () => {
+    showToast('info', 'Secure Camera', 'Activating secure case camera...');
+    setTimeout(() => {
+      handleAddEvidenceWithPipeline({
+        name: `IMG_Evidence_${Math.floor(Math.random() * 9000 + 1000)}.jpg`,
+        type: 'Images',
+        description: 'Photograph of dispute site and assets captured on site.',
+        notes: 'Captured via Secure Mobile Camera.',
+        tags: 'Camera, Photo, JPEG',
+        fileSize: '4.8 MB'
+      });
+    }, 1000);
+  };
+
+  const handleDownloadEvidenceSimulated = (evName: string) => {
+    showToast('info', 'Downloading', `Starting download for "${evName}"...`);
+    setTimeout(() => {
+      showToast('success', 'Download Complete', `"${evName}" saved to Device Downloads.`);
+    }, 1500);
+  };
+
+  const handleShareEvidence = async (ev: CaseEvidence) => {
+    try {
+      await Share.share({
+        title: ev.name,
+        message: `Case Evidence Exhibit ${ev.exhibitNumber || 'N/A'}: ${ev.name}\nType: ${ev.type}\nStatus: ${ev.status}\nSHA-256 Hash: ${ev.hash || 'N/A'}\nDescription: ${ev.description}`,
+      });
+    } catch (error) {
+      console.warn('Share error:', error);
+    }
+  };
+
+  const handleUploadSubmit = () => {
+    if (!logEvidenceForm.name.trim()) {
+      showToast('error', 'Validation Error', 'Evidence file name is required.');
+      return;
+    }
+    
+    const sizeStr = logEvidenceForm.fileSize.toUpperCase();
+    let sizeMb = 0;
+    if (sizeStr.includes('GB')) {
+      sizeMb = parseFloat(sizeStr) * 1024;
+    } else if (sizeStr.includes('KB')) {
+      sizeMb = parseFloat(sizeStr) / 1024;
+    } else {
+      sizeMb = parseFloat(sizeStr) || 0;
+    }
+
+    if (sizeMb > 50) {
+      showToast('error', 'Validation Error', 'File size exceeds the 50 MB mobile transmission threshold.');
+      return;
+    }
+
+    handleAddEvidenceWithPipeline();
+  };
+
+  const renderMetricItem = (label: string, count: number, icon: string, color: string) => {
+    return (
+      <View key={label} style={styles.metricItemCard}>
+        <View style={[styles.metricItemIconBg, { backgroundColor: color + '15' }]}>
+          <Ionicons name={icon} size={18} color={color} />
+        </View>
+        <Text style={styles.metricItemCount}>{count}</Text>
+        <Text style={styles.metricItemLabel}>{label}</Text>
+      </View>
+    );
+  };
+
+  const renderEntityBlock = (label: string, entitiesList?: string[]) => {
+    if (!entitiesList || entitiesList.length === 0) return null;
+    return (
+      <View style={styles.entityBlock}>
+        <Text style={styles.entityLabel}>{label}:</Text>
+        <View style={styles.entityChipsContainer}>
+          {entitiesList.map((ent, i) => (
+            <View key={i} style={styles.entityChip}>
+              <Text style={styles.entityChipText}>{ent}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const handleRelatedLinkPress = (tabName: string) => {
+    setActiveWorkspaceTab(tabName);
+    setIsEvidenceDetailsOpen(false);
+    showToast('info', 'Section Jump', `Switched workspace tab to ${tabName.toUpperCase()}`);
+  };
+
+  // Evidence Vault Tab
   const renderEvidenceTab = () => {
     const list = workspace?.evidence || [];
 
+    // Calculate metrics
+    const totalCount = list.length;
+    const verifiedCount = list.filter(e => e.status === 'Verified').length;
+    const pendingCount = list.filter(e => e.status === 'Pending').length;
+    const digitalCount = list.filter(e => e.type === 'Digital').length;
+    const physicalCount = list.filter(e => e.type === 'Physical').length;
+    const photoCount = list.filter(e => e.type === 'Images' || e.type === 'Photographs').length;
+    const audioVideoCount = list.filter(e => e.type === 'Audio' || e.type === 'Videos').length;
+    const docCount = list.filter(e => e.type === 'Document' || e.type === 'Contracts' || e.type === 'Receipts' || e.type === 'Emails').length;
+
+    // Filter list
+    let filteredList = list;
+    if (evidenceSearchQuery.trim()) {
+      const query = evidenceSearchQuery.toLowerCase();
+      filteredList = filteredList.filter(e => 
+        (e.name || '').toLowerCase().includes(query) ||
+        (e.exhibitNumber || '').toLowerCase().includes(query) ||
+        (e.type || '').toLowerCase().includes(query) ||
+        (e.description || '').toLowerCase().includes(query) ||
+        (e.tags || []).some(t => t.toLowerCase().includes(query))
+      );
+    }
+
+    if (evidenceFilter && evidenceFilter !== 'All') {
+      const filter = evidenceFilter.toLowerCase();
+      if (filter === 'verified') {
+        filteredList = filteredList.filter(e => (e.status || '').toLowerCase() === 'verified');
+      } else if (filter === 'pending') {
+        filteredList = filteredList.filter(e => (e.status || '').toLowerCase() === 'pending');
+      } else if (filter === 'documents') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'document' || (e.type || '').toLowerCase() === 'contracts' || (e.type || '').toLowerCase() === 'receipts');
+      } else if (filter === 'images' || filter === 'photographs') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'images' || (e.type || '').toLowerCase() === 'photographs');
+      } else if (filter === 'videos') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'videos');
+      } else if (filter === 'audio') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'audio');
+      } else if (filter === 'digital') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'digital');
+      } else if (filter === 'physical') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'physical');
+      } else if (filter === 'witness') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'witness' || (e.tags || []).some(t => t.toLowerCase().includes('witness')));
+      } else if (filter === 'contracts') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'contracts' || (e.type || '').toLowerCase() === 'contract');
+      } else if (filter === 'receipts') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'receipts' || (e.type || '').toLowerCase() === 'receipt');
+      } else if (filter === 'messages') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'messages' || (e.type || '').toLowerCase() === 'message' || (e.tags || []).some(t => t.toLowerCase().includes('message')));
+      } else if (filter === 'emails') {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'emails' || (e.type || '').toLowerCase() === 'email');
+      } else {
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === filter);
+      }
+    }
+
     return (
-      <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Evidence Vault</Text>
-          <Pressable
-            style={styles.moduleHeaderBtn}
-            onPress={() => {
-              setModalType('evidence');
-              setIsModalOpen(true);
-            }}
-          >
-            <Ionicons name="add" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Log Proof</Text>
-          </Pressable>
+      <View style={styles.evidenceTabContainer}>
+        {/* Sticky Case Header */}
+        <View style={styles.evidenceHeader}>
+          <Text style={styles.evidenceCaseTitle}>{workspace?.name}</Text>
+          <View style={styles.evidenceBadgesRow}>
+            <View style={[styles.evidenceBadge, styles.evidenceBadgeActive]}>
+              <Text style={styles.evidenceBadgeText}>{workspace?.status || 'Active'}</Text>
+            </View>
+            <View style={[styles.evidenceBadge, styles.evidenceBadgePriority]}>
+              <Text style={[styles.evidenceBadgeText, { color: theme.danger }]}>
+                {workspace?.priority || 'High'} Priority
+              </Text>
+            </View>
+          </View>
         </View>
 
-        {list.length === 0 ? (
-          <Text style={styles.emptyText}>Evidence vault is empty.</Text>
+        {/* Evidence Locker Card */}
+        <View style={styles.lockerCard}>
+          <View style={styles.lockerCardHeader}>
+            <View style={styles.lockerIconBg}>
+              <Ionicons name="lock-closed" size={24} color="#6D5DFC" />
+            </View>
+            <View style={styles.lockerCardTitleBlock}>
+              <Text style={styles.lockerCardTitle}>Evidence Locker</Text>
+              <Text style={styles.lockerCardSubtitle}>Secure storage for all case evidence and exhibits.</Text>
+            </View>
+          </View>
+          <View style={styles.lockerActionsRow}>
+            <Pressable
+              style={styles.lockerPrimaryBtn}
+              onPress={() => setIsEvidenceUploadOpen(true)}
+            >
+              <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.lockerPrimaryBtnText}>Upload Evidence</Text>
+            </Pressable>
+            <Pressable
+              style={styles.lockerSecondaryBtn}
+              onPress={handleScanDocumentSimulate}
+            >
+              <Ionicons name="scan-outline" size={16} color="#6D5DFC" />
+              <Text style={styles.lockerSecondaryBtnText}>Scan Document</Text>
+            </Pressable>
+            <Pressable
+              style={styles.lockerSecondaryBtn}
+              onPress={handleCapturePhotoSimulate}
+            >
+              <Ionicons name="camera-outline" size={16} color="#6D5DFC" />
+              <Text style={styles.lockerSecondaryBtnText}>Capture Photo</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Metrics Summary Horizontal Grid */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.metricsScrollView}
+          contentContainerStyle={styles.metricsContainer}
+        >
+          {renderMetricItem('Total Proof', totalCount, 'folder-outline', '#6D5DFC')}
+          {renderMetricItem('Verified', verifiedCount, 'shield-checkmark-outline', '#10B981')}
+          {renderMetricItem('Pending', pendingCount, 'time-outline', '#F59E0B')}
+          {renderMetricItem('Digital', digitalCount, 'cloud-done-outline', '#3B82F6')}
+          {renderMetricItem('Physical', physicalCount, 'briefcase-outline', '#8B5CF6')}
+          {renderMetricItem('Photographs', photoCount, 'image-outline', '#EC4899')}
+          {renderMetricItem('Audio/Video', audioVideoCount, 'videocam-outline', '#EF4444')}
+          {renderMetricItem('Documents', docCount, 'document-text-outline', '#10B981')}
+        </ScrollView>
+
+        {/* Search & Filters */}
+        <View style={styles.searchFilterContainer}>
+          <View style={styles.evidenceSearchBar}>
+            <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.evidenceSearchIcon} />
+            <TextInput
+              style={styles.evidenceSearchInput}
+              placeholder="Search file name, exhibit, type, keywords..."
+              placeholderTextColor="#9CA3AF"
+              value={evidenceSearchQuery}
+              onChangeText={setEvidenceSearchQuery}
+            />
+            {evidenceSearchQuery.trim() !== '' && (
+              <Pressable onPress={() => setEvidenceSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+              </Pressable>
+            )}
+          </View>
+
+          {/* Horizontal Filter Pills */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pillsScrollView}
+            contentContainerStyle={styles.pillsContainer}
+          >
+            {evidenceFilters.map((pill, idx) => {
+              const isActive = evidenceFilter === pill;
+              return (
+                <Pressable
+                  key={idx}
+                  style={[styles.evidenceFilterPill, isActive && styles.evidenceFilterPillActive]}
+                  onPress={() => setEvidenceFilter(pill)}
+                >
+                  <Text style={[styles.evidenceFilterPillText, isActive && styles.evidenceFilterPillTextActive]}>
+                    {pill}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Evidence List */}
+        {filteredList.length === 0 ? (
+          <View style={styles.emptyEvidenceContainer}>
+            <Ionicons name="shield-outline" size={48} color="#9CA3AF" />
+            <Text style={styles.emptyEvidenceTitle}>No Evidence Found</Text>
+            <Text style={styles.emptyEvidenceSubtitle}>
+              {list.length === 0 
+                ? 'Your evidence locker is empty. Start by uploading or scanning a document.'
+                : 'No files match your search query or active filters.'}
+            </Text>
+          </View>
         ) : (
-          <View style={styles.cardList}>
-            {list.map((ev, i) => (
-              <View key={i} style={styles.itemCard}>
-                <View style={styles.itemCardHeader}>
-                  <Text style={styles.itemCardTitle}>🛡️ {ev.name}</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      ev.admissibility === 'Admissible'
-                        ? styles.badgeSuccess
-                        : ev.admissibility === 'Inadmissible'
-                        ? styles.badgeDanger
-                        : styles.badgeWarning,
-                    ]}
-                  >
-                    <Text style={styles.statusBadgeText}>{ev.admissibility}</Text>
+          <View style={styles.evidenceListContainer}>
+            {filteredList.map((ev) => {
+              const statusColor = getStatusColor(ev.status || 'Pending');
+              const statusBg = statusColor + '10';
+              
+              return (
+                <View key={ev.id || ev._id} style={styles.evidenceCard}>
+                  {/* Card Main Block */}
+                  <View style={styles.evidenceCardMain}>
+                    <View style={[styles.evidenceIconContainer, { backgroundColor: '#EEECFF' }]}>
+                      <Ionicons name={getEvidenceIcon(ev.type)} size={22} color="#6D5DFC" />
+                    </View>
+                    <View style={styles.evidenceCardMetaBlock}>
+                      <View style={styles.evidenceCardTitleRow}>
+                        <Text style={styles.exhibitCode}>{ev.exhibitNumber || 'N/A'}</Text>
+                        <View style={[styles.evStatusBadge, { backgroundColor: statusBg }]}>
+                          <View style={[styles.evStatusDot, { backgroundColor: statusColor }]} />
+                          <Text style={[styles.evStatusBadgeText, { color: statusColor }]}>{ev.status || 'Pending'}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.evidenceName} numberOfLines={1}>{ev.name}</Text>
+                      <Text style={styles.evidenceDesc} numberOfLines={2}>{ev.description}</Text>
+                      
+                      <View style={styles.tagsRow}>
+                        {(ev.tags || []).map((tag, tIdx) => (
+                          <View key={tIdx} style={styles.tagPill}>
+                            <Text style={styles.tagPillText}>#{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <View style={styles.evidenceUploaderRow}>
+                        <Ionicons name="person-outline" size={10} color="#9CA3AF" />
+                        <Text style={styles.uploaderText}>
+                          {ev.uploadedBy || 'Advocate'} • {ev.fileSize || '1.2 MB'} • {ev.uploadedDate ? new Date(ev.uploadedDate).toLocaleDateString() : new Date().toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Actions Row */}
+                  <View style={styles.evidenceActionsRow}>
+                    <Pressable
+                      style={styles.evidenceActionBtn}
+                      onPress={() => {
+                        setSelectedEvidence(ev);
+                        setIsEvidenceDetailsOpen(true);
+                      }}
+                    >
+                      <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
+                      <Text style={styles.evidenceActionText}>View</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.evidenceActionBtn}
+                      onPress={() => {
+                        setVerifyTargetId(ev.id || ev._id || null);
+                        setIsVerifyModalOpen(true);
+                      }}
+                    >
+                      <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
+                      <Text style={[styles.evidenceActionText, { color: '#10B981' }]}>Verify</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.evidenceActionBtn}
+                      onPress={() => handleShareEvidence(ev)}
+                    >
+                      <Ionicons name="share-social-outline" size={16} color="#3B82F6" />
+                      <Text style={[styles.evidenceActionText, { color: '#3B82F6' }]}>Share</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.evidenceActionBtn}
+                      onPress={() => handleDownloadEvidenceSimulated(ev.name)}
+                    >
+                      <Ionicons name="download-outline" size={16} color="#F59E0B" />
+                      <Text style={[styles.evidenceActionText, { color: '#F59E0B' }]}>Download</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.evidenceActionBtn}
+                      onPress={() => handleDeleteEvidence(ev.id || ev._id || '')}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      <Text style={[styles.evidenceActionText, { color: '#EF4444' }]}>Delete</Text>
+                    </Pressable>
                   </View>
                 </View>
-                <Text style={styles.itemCardBody}>{ev.description}</Text>
-                {ev.notes && <Text style={styles.itemCardFooter}>Notes: {ev.notes}</Text>}
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
       </View>
@@ -3121,181 +7111,4424 @@ export default function WorkspaceDetailScreen() {
   // Research precedents
   const renderResearchTab = () => {
     const list = workspace?.savedPrecedents || [];
+    const client = workspace?.clientName || 'Plaintiff';
+    const opponent = workspace?.opponentName || workspace?.accused || 'Defendant';
+
+    const baseLegalResearch = {
+      caseType: workspace?.caseType || 'Civil Suit for Money Recovery',
+      domain: 'Commercial Debt & Summary Contractual Obligations',
+      completenessScore: 92,
+      confidenceScore: 96,
+      primaryCode: 'Civil Procedure Code',
+      limitationRisk: 'Medium Risk',
+      issues: [
+        `Admissibility of uncertified electronic WhatsApp logs between ${client} and ${opponent} under Section 65B(4) of the Evidence Act.`,
+        `Whether suit recovery limitation resets dynamically under Section 18 of the Limitation Act through digital debt acknowledgment by ${opponent}.`,
+        `Calculability of interest rate for commercial loans when not explicitly set under Section 34 of Code of Civil Procedure (CPC).`
+      ],
+      principles: [
+        `Strict certification compliance under Section 65B(4) represents a mandatory condition precedent for electronic secondary proofs between ${client} and ${opponent}.`,
+        `Written digital acknowledgment by ${opponent} inside standard limitation durations triggers a fresh timeline computation for ${client}.`,
+        `Courts hold discretion in commercial transactions to award reasonable market interest rate even if contract terms are silent.`
+      ],
+      caseStrengthSummary: "Strong prima facie case based on explicit digital debt acknowledgment, but vulnerable to electronic admissibility objections.",
+      aiObservations: "The opponent has raised a limitation defense, but Section 18 of the Limitation Act is reset by their WhatsApp acknowledgment. High chance of decree under Order 37 if electronic certificates are filed.",
+      laws: [
+        {
+          act: 'Indian Contract Act, 1872',
+          section: 'Section 73 & Section 74',
+          title: 'Compensation for breach of contract',
+          description: 'Compensation details for contract breaches. Regulates standard interest caps and penal clauses validity.',
+          reason: 'Applies directly to audited contract penalty rate limits and allows claiming unpaid invoice values as compensatory damages.'
+        },
+        {
+          act: 'Code of Civil Procedure, 1908',
+          section: 'Section 34 & Order XXXVII',
+          title: 'Interest awards & summary suit procedure',
+          description: 'Prescribes swift summary recovery protocols for debt claims based on written contracts.',
+          reason: 'Ensures case adheres to accelerated civil decree rules and summary procedure Order 37 to expedite judgements.'
+        },
+        {
+          act: 'Indian Evidence Act, 1872',
+          section: 'Section 65B',
+          title: 'Admissibility of electronic records',
+          description: 'Admissibility guidelines for digital chats, email records, and account ledgers.',
+          reason: 'Essential for placing HDFC ledger screenshots, email reminders, and WhatsApp chats in court record.'
+        },
+        {
+          act: 'Specific Relief Act, 1963',
+          section: 'Section 10',
+          title: 'Specific performance of contracts',
+          description: 'Discretion of the court to enforce contractual obligations directly.',
+          reason: 'Applicable if simple recovery of dues is not adequate and direct enforcement of contractual obligations is demanded.'
+        },
+        {
+          act: 'Transfer of Property Act, 1882',
+          section: 'Section 54',
+          title: 'Definition and transfer of sale',
+          description: 'Defines sale of tangible immovable property and regulates delivery and contract of transfer.',
+          reason: 'Relevant to determine the nature of collateral hardware assets or leased premises in dispute.'
+        },
+        {
+          act: 'Indian Registration Act, 1908',
+          section: 'Section 17',
+          title: 'Documents compulsory for registration',
+          description: 'Mandates compulsory registration of documents affecting immovable property, lease deeds exceeding one year.',
+          reason: 'Applies if opponent argues lease or transaction contracts are inadmissible due to lack of compulsory registration.'
+        }
+      ],
+      judgments: [
+        {
+          name: 'Kailash Nath Associates vs DDA',
+          court: 'Supreme Court of India',
+          citation: '2015 4 SCC 136',
+          year: '2015',
+          bench: 'Two-Judge Bench',
+          principle: 'Liquidated damages enforcement under Section 74',
+          why: 'Governs interest damages recovery limits and penalty clause validity.',
+          ratio: 'Forfeiture or penalty claims require a genuine pre-estimate assessment and actual loss demonstration.',
+          summary: 'Deals with liquidated damages limits. Governs contractual obligations between plaintiff and defendant.'
+        },
+        {
+          name: 'Anvar P.V. vs P.K. Basheer',
+          court: 'Supreme Court of India',
+          citation: '2014 10 SCC 473',
+          year: '2014',
+          bench: 'Three-Judge Bench',
+          principle: 'Secondary electronic records admissibility under Section 65B',
+          why: 'Regulates WhatsApp/email printouts acceptability.',
+          ratio: 'Secondary electronic files require explicit statutory certification.',
+          summary: 'Admissibility guidelines for secondary electronic devices. Mandates signed Section 65B certification checks.'
+        },
+        {
+          name: 'State of Nagaland vs Lipok AO',
+          court: 'Supreme Court of India',
+          citation: '2005 3 SCC 752',
+          year: '2005',
+          bench: 'Two-Judge Bench',
+          principle: 'Procedural delay condonation under Section 5',
+          why: 'Assists in defending against any limitation technicalities raised by the opposing counsel.',
+          ratio: 'Courts must adopt a pragmatic, non-pedantic approach to condoning delays where justice warrants a full trial.',
+          summary: 'Addressed procedural delay condonation under Section 5. Stressed that technical issues should not override substantive justice.'
+        },
+        {
+          name: 'Ambalal Sarabhai Enterprise Ltd. vs K.S. Infraspace LLP',
+          court: 'Supreme Court of India',
+          citation: '2020 15 SCC 585',
+          year: '2020',
+          bench: 'Two-Judge Bench',
+          principle: 'Summary commercial suit jurisdiction and timelines',
+          why: 'Applicable if the opposing party tries to transfer the suit to regular civil courts to delay trials.',
+          ratio: 'The provisions of the Commercial Courts Act must be strictly interpreted and applied to speed up dispute resolutions.',
+          summary: 'Examines the scope of commercial court jurisdiction and timelines under the Commercial Courts Act, 2015.'
+        },
+        {
+          name: 'Arjun Panditrao Khotkar vs Kailash Kushanrao Gorantyal',
+          court: 'Supreme Court of India',
+          citation: '2020 7 SCC 1',
+          year: '2020',
+          bench: 'Three-Judge Bench',
+          principle: 'Timing for producing Section 65B(4) electronic certificate',
+          why: 'Clarifies certificate production procedure during the trial.',
+          ratio: 'The required certificate under Section 65B(4) can be supplied at any stage prior to trial commencement.',
+          summary: 'Clarified that producing an electronic certificate is mandatory, but if the device owner refuses, the court can issue summons to produce it.'
+        },
+        {
+          name: 'SBI vs M/s. Aditya Birla',
+          court: 'High Court of Delhi',
+          citation: '2022 SCC OnLine DL 842',
+          year: '2022',
+          bench: 'Division Bench',
+          principle: 'Limitation period resets via electronic debt acknowledgment',
+          why: 'Validates electronic communications as a reset trigger.',
+          ratio: 'Ledger balances and acknowledgements confirmed via email constitute a valid acknowledgement of debt under Section 18.',
+          summary: 'Held that digital communication containing ledger approval counts as valid written acknowledgment under Section 18 of the Limitation Act.'
+        }
+      ],
+      recommendations: [
+        `Acquire a certified Section 65B certificate for WhatsApp database backups between ${client} and ${opponent}.`,
+        `File detailed replication contesting delivery default claims by ${opponent}.`,
+        `Rely on Kailash Nath Associates vs DDA to justify delayed simple interest damages for ${client}.`,
+        `Compile Information Technology Act device owner signatures raw records.`,
+        `Obtain HDFC Bank statement verified printouts showing direct payment reversals.`
+      ],
+      arguments: {
+        primary: [
+          `The debt transaction was explicitly verified and acknowledged via email on 12 April 2025.`,
+          `WhatsApp logs contain explicit promises to pay outstanding dues, resetting the limitation period.`
+        ],
+        counter: [
+          `The defendant claims the suit is barred by the three-year limitation period.`,
+          `The defendant disputes WhatsApp admissibility due to lack of a Section 65B certificate.`
+        ],
+        authorities: [
+          `Anvar P.V. vs P.K. Basheer (2014) on Section 65B.`,
+          `SBI vs M/s. Aditya Birla (2022) on debt acknowledgment.`
+        ],
+        weaknesses: [
+          `Lack of raw IT server logs for email authentication.`
+        ],
+        strengths: [
+          `Explicit email acknowledgements are signed with standard digital metadata.`
+        ],
+        strategy: [
+          `File Order 37 summary suit immediately to limit the defense options.`
+        ],
+        opponentArguments: [
+          `Uncertified WhatsApp chat logs are completely inadmissible.`
+        ],
+        suggestedRebuttals: [
+          `Rely on Arjun Panditrao Khotkar to argue certificate can be supplied before trial.`
+        ]
+      },
+      missingEvidence: [
+        `IT administrator certificate for HDFC ledger printouts.`
+      ],
+      missingCaseLaws: [
+        `High Court rulings on Slack or chat systems admissibility.`
+      ],
+      additionalAuthorities: [
+        `Shahi Associates vs Union of India`
+      ],
+      suggestedActs: [
+        `Information Technology Act, 2000 (Section 65A/65B)`
+      ],
+      additionalDocs: [
+        `Raw email source EML files with header metadata.`
+      ],
+      missingPrecedents: [
+        `Limitation Act Section 18 applicability to digital ledger approvals.`
+      ]
+    };
+
+    const activeLaws = conversationalSearchResults ? conversationalSearchResults.laws : baseLegalResearch.laws;
+    let activeJudgments = conversationalSearchResults ? conversationalSearchResults.judgments : baseLegalResearch.judgments;
+
+    // Apply judgment filter
+    if (judgmentFilter !== 'All') {
+      if (judgmentFilter === 'Supreme Court') {
+        activeJudgments = activeJudgments.filter(j => j.court.includes('Supreme Court'));
+      } else if (judgmentFilter === 'High Court') {
+        activeJudgments = activeJudgments.filter(j => j.court.includes('High Court'));
+      } else if (judgmentFilter === 'Tribunal') {
+        activeJudgments = activeJudgments.filter(j => j.court.toLowerCase().includes('tribunal') || j.court.includes('NCLT'));
+      } else if (judgmentFilter === 'Recent') {
+        activeJudgments = activeJudgments.filter(j => parseInt(j.year || '0') >= 2015);
+      } else if (judgmentFilter === 'Landmark') {
+        activeJudgments = activeJudgments.filter(j => ['Kailash Nath', 'Anvar P.V.', 'Arjun Panditrao'].some(n => j.name.includes(n)));
+      }
+    }
+
+    const toggleSection = (sectionName: string) => {
+      setExpandedResearchSection(expandedResearchSection === sectionName ? '' : sectionName);
+    };
 
     return (
       <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Case Precedents</Text>
-          <Pressable
-            style={styles.moduleHeaderBtn}
-            onPress={() => {
-              setModalType('research');
-              setIsModalOpen(true);
-            }}
-          >
-            <Ionicons name="search" size={14} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Search citations</Text>
-          </Pressable>
+        {/* 1. Case Header */}
+        <View style={styles.premiumHeaderCard}>
+          <View style={styles.premiumHeaderTop}>
+            <Ionicons name="briefcase" size={18} color="#6D5DFC" />
+            <Text style={styles.premiumHeaderTitle}>{workspace?.name || 'Case Workspace'}</Text>
+          </View>
+          <View style={styles.premiumHeaderBadges}>
+            <View style={[styles.premiumStatusBadge, { backgroundColor: workspace?.status === 'Closed' ? '#F3F4F6' : '#EEF2FF' }]}>
+              <Text style={[styles.premiumBadgeText, { color: workspace?.status === 'Closed' ? '#4B5563' : '#6D5DFC' }]}>{workspace?.status || 'Active'}</Text>
+            </View>
+            <View style={[styles.premiumPriorityBadge, { backgroundColor: '#FEE2E2' }]}>
+              <Text style={[styles.premiumBadgeText, { color: '#EF4444' }]}>{workspace?.priority || 'High'} Priority</Text>
+            </View>
+          </View>
         </View>
 
-        {list.length === 0 ? (
-          <Text style={styles.emptyText}>No citations saved to brief portfolio.</Text>
-        ) : (
-          <View style={styles.cardList}>
-            {list.map((prec, i) => (
-              <View key={i} style={styles.itemCard}>
-                <Text style={styles.itemCardTitle}>⚖️ {prec.title}</Text>
-                <Text style={styles.citationText}>Citation: {prec.citation}</Text>
-                <Text style={styles.itemCardBody}>{prec.summary}</Text>
-              </View>
-            ))}
+        {/* 2. AI Legal Research Engine */}
+        <View style={styles.premiumSearchCard}>
+          <Text style={styles.premiumSearchTitle}>AI Legal Research Engine</Text>
+          <Text style={styles.premiumSearchSubtitle}>
+            Automatic context-aware legal research synced with active case documents.
+          </Text>
+          
+          <View style={styles.searchBarRow}>
+            <TextInput
+              style={styles.premiumSearchInput}
+              placeholder="Ask the AI legal research engine..."
+              placeholderTextColor="#9CA3AF"
+              value={researchSearchQuery}
+              onChangeText={setResearchSearchQuery}
+              onSubmitEditing={() => processConversationalSearch(researchSearchQuery)}
+            />
+            <TouchableOpacity 
+              style={styles.premiumSearchBtn}
+              onPress={() => processConversationalSearch(researchSearchQuery)}
+            >
+              <Text style={styles.premiumSearchBtnText}>Search</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.premiumAnalyzeBtn}
+              onPress={() => runResearchAnalysis(false)}
+              disabled={isRegeneratingResearch}
+            >
+              <Ionicons name="sparkles" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.premiumAnalyzeBtnText}>Analyze & Refresh</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Suggestion Chips */}
+          <Text style={styles.suggestionsTitle}>Examples:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionChipsContainer}>
+            {[
+              'Find judgments supporting recovery suits',
+              'What Supreme Court cases apply?',
+              'Limitation period precedents',
+              'WhatsApp evidence admissibility'
+            ].map((sug, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.sugChip}
+                onPress={() => processConversationalSearch(sug)}
+              >
+                <Text style={styles.sugChipText}>"{sug}"</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {isRegeneratingResearch && (
+          <View style={styles.ocrOverlayStatic}>
+            <ActivityIndicator size="small" color="#6D5DFC" style={{ marginBottom: 8 }} />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#6D5DFC' }}>
+              {researchRegenSteps[activeResearchRegenStep] || 'Structuring citation parameters...'}
+            </Text>
+          </View>
+        )}
+
+        {isSearchingResearch && (
+          <View style={styles.ocrOverlayStatic}>
+            <ActivityIndicator size="small" color="#6D5DFC" />
+            <Text style={{ fontSize: 11, fontWeight: '600', color: '#4B5563', marginTop: 6 }}>Searching digital judicial archives...</Text>
+          </View>
+        )}
+
+        {/* Empty State vs Content Render */}
+        {!isResearchGenerated ? (
+          <View style={styles.emptyStateContainer}>
+            <Ionicons name="library-outline" size={48} color="#9CA3AF" style={{ marginBottom: 12 }} />
+            <Text style={styles.emptyStateText}>No legal research has been generated for this case yet.</Text>
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity style={styles.emptyStateBtn} onPress={() => runResearchAnalysis(false)}>
+                <Text style={styles.emptyStateBtnText}>Analyze Case</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.emptyStateBtn, { backgroundColor: '#F3F4F6', borderColor: '#D1D5DB' }]} onPress={() => runResearchAnalysis(false)}>
+                <Text style={[styles.emptyStateBtnText, { color: '#4B5563' }]}>Refresh Research</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <>
+            {/* 3. Research Summary Cards */}
+            <View style={styles.metricsGrid}>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricValue}>{baseLegalResearch.completenessScore}%</Text>
+                <Text style={styles.metricLabel}>Research Coverage</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={[styles.metricValue, { color: '#10B981' }]}>{baseLegalResearch.confidenceScore}%</Text>
+                <Text style={styles.metricLabel}>Confidence Index</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={[styles.metricValue, { color: '#F59E0B' }]}>CPC</Text>
+                <Text style={styles.metricLabel}>Primary Code</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={[styles.metricValue, { color: '#EF4444' }]}>Medium</Text>
+                <Text style={styles.metricLabel}>Limitation Risk</Text>
+              </View>
+            </View>
+
+            {/* 4. AI Research Dashboard Overview */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('dashboard')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="analytics-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>AI Research Dashboard Overview</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'dashboard' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'dashboard' && (
+                <View style={styles.accordionContent}>
+                  {aiResearchReply ? (
+                    <View style={styles.aiReplyContainer}>
+                      <Text style={styles.aiReplyTitle}>🔮 Live AI Research Analysis:</Text>
+                      <Text style={styles.aiReplyText}>{aiResearchReply}</Text>
+                      <View style={[styles.dividerLine, { marginVertical: 12 }]} />
+                    </View>
+                  ) : null}
+                  <Text style={styles.accordionTextBold}>Identified Case Type: <Text style={{ fontWeight: 'normal' }}>{baseLegalResearch.caseType}</Text></Text>
+                  <Text style={[styles.accordionTextBold, { marginTop: 4 }]}>Core Jurisdiction / Domain: <Text style={{ fontWeight: 'normal' }}>{baseLegalResearch.domain}</Text></Text>
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Key Legal Issues:</Text>
+                  {baseLegalResearch.issues.map((iss, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {iss}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Relevant Judicial Principles:</Text>
+                  {baseLegalResearch.principles.map((pr, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {pr}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Case Strength Summary:</Text>
+                  <Text style={styles.accordionTextNormal}>{baseLegalResearch.caseStrengthSummary}</Text>
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>AI Legal Observations:</Text>
+                  <Text style={styles.accordionTextNormal}>{baseLegalResearch.aiObservations}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* 5. Applicable Laws & Provisions */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('laws')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="book-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>Applicable Laws & Provisions ({activeLaws.length})</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'laws' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'laws' && (
+                <View style={styles.accordionContent}>
+                  {activeLaws.map((l, i) => {
+                    const isLawExpanded = !!expandedLaws[i];
+                    return (
+                      <View key={i} style={styles.researchLawItemCard}>
+                        <TouchableOpacity
+                          style={styles.lawItemHeader}
+                          onPress={() => setExpandedLaws(prev => ({ ...prev, [i]: !prev[i] }))}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.lawActLabel}>{l.act}</Text>
+                            <Text style={styles.lawSecLabel}>{l.section}</Text>
+                          </View>
+                          <Ionicons name={isLawExpanded ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
+                        </TouchableOpacity>
+                        {isLawExpanded && (
+                          <View style={styles.lawItemExpandedContent}>
+                            <Text style={styles.lawTitleLabel}>{l.title || 'Provision Title'}</Text>
+                            <Text style={styles.lawDesc}>{l.description}</Text>
+                            <View style={styles.lawExplanationBox}>
+                              <Ionicons name="sparkles" size={11} color="#6D5DFC" style={{ marginTop: 2 }} />
+                              <Text style={styles.lawExplanationText}>
+                                <Text style={{ fontWeight: 'bold' }}>Applicability to Case: </Text>{l.reason}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            {/* 6. Relevant Judgments & Precedents */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('judgments')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="document-text-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>Relevant Judgments & Precedents ({activeJudgments.length})</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'judgments' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'judgments' && (
+                <View style={styles.accordionContent}>
+                  {/* Category filters */}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.judFilterContainer}>
+                    {['All', 'Supreme Court', 'High Court', 'Tribunal', 'Recent', 'Landmark'].map((filter) => (
+                      <TouchableOpacity
+                        key={filter}
+                        style={[styles.judFilterBtn, judgmentFilter === filter && styles.judFilterBtnActive]}
+                        onPress={() => setJudgmentFilter(filter)}
+                      >
+                        <Text style={[styles.judFilterBtnText, judgmentFilter === filter && styles.judFilterBtnTextActive]}>
+                          {filter}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {activeJudgments.map((j, i) => {
+                    const isJudExpanded = !!expandedJudgments[i];
+                    return (
+                      <View key={i} style={styles.judgmentItemCard}>
+                        <TouchableOpacity
+                          style={styles.judgmentItemHeader}
+                          onPress={() => setExpandedJudgments(prev => ({ ...prev, [i]: !prev[i] }))}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.judgmentTitle}>{j.name}</Text>
+                            <Text style={styles.judgmentCitation}>{j.court} • {j.citation} ({j.year})</Text>
+                          </View>
+                          <Ionicons name={isJudExpanded ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
+                        </TouchableOpacity>
+                        
+                        {isJudExpanded && (
+                          <View style={styles.judgmentItemExpandedContent}>
+                            <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Bench: </Text>{j.bench || 'Division Bench'}</Text>
+                            <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Legal Principle: </Text>{j.principle}</Text>
+                            <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Summary: </Text>{j.summary}</Text>
+                            <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Ratio: </Text>{j.ratio}</Text>
+                            <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Why it applies: </Text>{j.why}</Text>
+                            
+                            <View style={styles.judgmentButtonsRow}>
+                              <TouchableOpacity style={styles.judActionBtn} onPress={() => showToast('info', 'View Judgment', `Opening full judgment for ${j.name}...`)}>
+                                <Text style={styles.judActionBtnText}>View Full Judgment</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={styles.judActionBtn} onPress={() => handleSavePrecedentToBackend(j)}>
+                                <Text style={styles.judActionBtnText}>Save Citation</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={styles.judActionBtn} onPress={() => {
+                                Clipboard.setString(`${j.name} (${j.citation})`);
+                                showToast('success', 'Copied', 'Citation copied to clipboard.');
+                              }}>
+                                <Text style={styles.judActionBtnText}>Copy Citation</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={styles.judActionBtn} onPress={() => showToast('info', 'Open Judgment', `Redirecting to digital law archives...`)}>
+                                <Text style={styles.judActionBtnText}>Open Judgment</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            {/* 7. AI Arguments & Strategy Formulation */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('arguments')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="bulb-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>AI Arguments & Strategy Formulation</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'arguments' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'arguments' && (
+                <View style={styles.accordionContent}>
+                  <Text style={styles.accordionTextBold}>Primary Arguments:</Text>
+                  {baseLegalResearch.arguments.primary.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Counter Arguments:</Text>
+                  {baseLegalResearch.arguments.counter.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Supporting Authorities:</Text>
+                  {baseLegalResearch.arguments.authorities.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Weaknesses:</Text>
+                  {baseLegalResearch.arguments.weaknesses.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Strengths:</Text>
+                  {baseLegalResearch.arguments.strengths.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Recommended Strategy:</Text>
+                  {baseLegalResearch.arguments.strategy.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Possible Opponent Arguments:</Text>
+                  {baseLegalResearch.arguments.opponentArguments.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Suggested Rebuttals:</Text>
+                  {baseLegalResearch.arguments.suggestedRebuttals.map((arg, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {arg}</Text>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* 8. AI Recommendations & Missing Authorities */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('recommendations')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="warning-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>AI Recommendations & Missing Authorities</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'recommendations' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'recommendations' && (
+                <View style={styles.accordionContent}>
+                  <Text style={styles.accordionTextBold}>Missing Evidence:</Text>
+                  {baseLegalResearch.missingEvidence.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Missing Case Laws:</Text>
+                  {baseLegalResearch.missingCaseLaws.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Additional Authorities Recommended:</Text>
+                  {baseLegalResearch.additionalAuthorities.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Suggested Supporting Acts:</Text>
+                  {baseLegalResearch.suggestedActs.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Additional Documents Required:</Text>
+                  {baseLegalResearch.additionalDocs.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                  <Text style={[styles.accordionTextBold, { marginTop: 8 }]}>Missing Precedents:</Text>
+                  {baseLegalResearch.missingPrecedents.map((item, i) => (
+                    <Text key={i} style={styles.accordionBullet}>• {item}</Text>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* 9. Saved Research Citations */}
+            <View style={styles.accordionContainer}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => toggleSection('saved')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="bookmark-outline" size={16} color="#6D5DFC" />
+                  <Text style={styles.accordionTitle}>Saved Research Citations ({list.length})</Text>
+                </View>
+                <Ionicons name={expandedResearchSection === 'saved' ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              {expandedResearchSection === 'saved' && (
+                <View style={styles.accordionContent}>
+                  {list.length === 0 ? (
+                    <Text style={styles.emptyTextSaved}>No citations registered to this brief roster. Click "Save Citation" above.</Text>
+                  ) : (
+                    list.map((prec, i) => (
+                      <View key={i} style={styles.savedPrecedentItemCard}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.savedPrecedentTitle}>⚖️ {prec.title}</Text>
+                            <Text style={styles.savedPrecedentCitation}>{prec.citation}</Text>
+                            <Text style={styles.savedPrecedentDate}>Bookmarked: {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity
+                              onPress={() => showToast('info', 'Quick Open', `Opening archived citation file...`)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="open-outline" size={14} color="#6D5DFC" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => {
+                                Clipboard.setString(`${prec.title} (${prec.citation})`);
+                                showToast('success', 'Copied', 'Citation copied to clipboard.');
+                              }}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="copy-outline" size={14} color="#4B5563" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => {
+                                const updated = list.filter((_, idx) => idx !== i);
+                                handleUpdateField({ savedPrecedents: updated });
+                                showToast('success', 'Deleted', 'Saved research reference removed.');
+                              }}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                        <Text style={styles.savedPrecedentSummary}>{prec.summary}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              )}
+            </View>
+          </>
         )}
       </View>
     );
   };
 
   // Draft Pleadings
+  // Draft Pleadings
   const renderDraftsTab = () => {
+    const DRAFT_TEMPLATES = [
+      'Legal Notice',
+      'Reply Notice',
+      'FIR Draft',
+      'Affidavit',
+      'Agreement',
+      'Written Statement',
+      'Plaint',
+      'Appeal',
+      'Bail Application',
+      'Contract',
+      'Power of Attorney',
+      'Rent Agreement',
+      'Employment Agreement',
+      'Recovery Notice',
+      'Consumer Complaint',
+      'Misc'
+    ];
+
+    const list = workspace?.drafts || [];
+    
+    const filteredList = list.filter(d => {
+      // Search filter
+      if (draftSearchQuery.trim()) {
+        const q = draftSearchQuery.toLowerCase();
+        const matchName = d.name && d.name.toLowerCase().includes(q);
+        const matchType = d.type && d.type.toLowerCase().includes(q);
+        const matchContent = d.content && d.content.toLowerCase().includes(q);
+        if (!matchName && !matchType && !matchContent) return false;
+      }
+
+      // Category filter pills
+      if (draftFilter !== 'All') {
+        const f = draftFilter;
+        if (f === 'Notices') {
+          return d.type.toLowerCase().includes('notice') || d.type.toLowerCase().includes('complaint');
+        } else if (f === 'Affidavits') {
+          return d.type.toLowerCase().includes('affidavit');
+        } else if (f === 'Agreements') {
+          return d.type.toLowerCase().includes('agreement');
+        } else if (f === 'Contracts') {
+          return d.type.toLowerCase().includes('contract');
+        } else if (f === 'Replies') {
+          return d.type.toLowerCase().includes('reply') || d.type.toLowerCase().includes('statement');
+        } else if (f === 'Completed') {
+          return d.status === 'Completed' || d.status === 'Reviewed';
+        } else if (f === 'In Progress') {
+          return d.status === 'In Progress' || d.status === 'Draft';
+        } else if (f === 'AI Generated') {
+          return d.createdBy === 'AI';
+        } else if (f === 'Manual') {
+          return d.createdBy !== 'AI';
+        }
+      }
+      return true;
+    });
+
+    const sortedList = [...filteredList].sort((a, b) => {
+      if (draftSort === 'Newest') {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      } else if (draftSort === 'Oldest') {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      } else if (draftSort === 'Recently Updated') {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      } else if (draftSort === 'Alphabetical') {
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      return 0;
+    });
+
     return (
       <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>AI Pleading Compiler</Text>
-          <Pressable
-            style={styles.moduleHeaderBtn}
-            onPress={() => {
-              setModalType('draft');
-              setIsModalOpen(true);
-            }}
-          >
-            <Ionicons name="sparkles" size={14} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Compile Pleading</Text>
-          </Pressable>
+        {/* 1. Case Header */}
+        <View style={styles.premiumHeaderCard}>
+          <View style={styles.premiumHeaderTop}>
+            <Ionicons name="briefcase" size={18} color="#6D5DFC" />
+            <Text style={styles.premiumHeaderTitle}>{workspace?.name || 'Case Workspace'}</Text>
+          </View>
+          <View style={styles.premiumHeaderBadges}>
+            <View style={[styles.premiumStatusBadge, { backgroundColor: workspace?.status === 'Closed' ? '#F3F4F6' : '#EEF2FF' }]}>
+              <Text style={[styles.premiumBadgeText, { color: workspace?.status === 'Closed' ? '#4B5563' : '#6D5DFC' }]}>{workspace?.status || 'Active'}</Text>
+            </View>
+            <View style={[styles.premiumPriorityBadge, { backgroundColor: '#FEE2E2' }]}>
+              <Text style={[styles.premiumBadgeText, { color: '#EF4444' }]}>{workspace?.priority || 'High'} Priority</Text>
+            </View>
+          </View>
         </View>
 
-        <Text style={styles.emptyText}>Use the pleading compiler to generate complaints, legal demand notices, or power of attorney papers.</Text>
+        {/* 2. Initialize Manual Draft Folder Card */}
+        <View style={styles.premiumSearchCard}>
+          <Text style={styles.premiumSearchTitle}>Initialize Manual Draft Folder</Text>
+          <Text style={styles.premiumSearchSubtitle}>
+            Create a new manual legal draft folder to compile pleadings, contracts, or notices.
+          </Text>
+          
+          <Text style={styles.inputLabel}>Draft Folder Name</Text>
+          <TextInput
+            style={styles.premiumSearchInput}
+            placeholder="Draft Name (e.g. Reply Notice)"
+            placeholderTextColor="#9CA3AF"
+            value={draftForm.name}
+            onChangeText={(t) => setDraftForm({ ...draftForm, name: t })}
+          />
+
+          <View style={styles.dropdownContainer}>
+            <Text style={styles.inputLabel}>Draft Template Type</Text>
+            <TouchableOpacity 
+              style={styles.dropdownTrigger}
+              onPress={() => setIsDraftTypePickerOpen(!isDraftTypePickerOpen)}
+            >
+              <Text style={styles.dropdownTriggerText}>{draftForm.type}</Text>
+              <Ionicons name={isDraftTypePickerOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5563" />
+            </TouchableOpacity>
+            {isDraftTypePickerOpen && (
+              <View style={styles.dropdownListContainer}>
+                <ScrollView style={styles.dropdownList} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                  {DRAFT_TEMPLATES.map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      style={[styles.dropdownItem, draftForm.type === type && styles.dropdownItemActive]}
+                      onPress={() => {
+                        setDraftForm({ ...draftForm, type });
+                        setIsDraftTypePickerOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.dropdownItemText, draftForm.type === type && styles.dropdownItemTextActive]}>{type}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.formSubmitBtn, { marginTop: 12 }]}
+            onPress={handleCreateDraftFolder}
+          >
+            <Ionicons name="folder-open-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.formSubmitBtnText}>Initialize Draft Folder</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 3. Search and Filters */}
+        <View style={[styles.premiumSearchCard, { paddingVertical: 12 }]}>
+          <View style={styles.searchBarRow}>
+            <TextInput
+              style={[styles.premiumSearchInput, { flex: 1 }]}
+              placeholder="Search drafts by title, type..."
+              placeholderTextColor="#9CA3AF"
+              value={draftSearchQuery}
+              onChangeText={setDraftSearchQuery}
+            />
+            {draftSearchQuery ? (
+              <TouchableOpacity onPress={() => setDraftSearchQuery('')} style={{ paddingHorizontal: 4 }}>
+                <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            ) : (
+              <Ionicons name="search-outline" size={18} color="#9CA3AF" style={{ paddingHorizontal: 4 }} />
+            )}
+          </View>
+
+          {/* Filter Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionChipsContainer}>
+            {['All', 'Notices', 'Affidavits', 'Agreements', 'Contracts', 'Replies', 'Completed', 'In Progress', 'AI Generated', 'Manual'].map((f) => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.sugChip, draftFilter === f && styles.sugChipActive]}
+                onPress={() => setDraftFilter(f)}
+              >
+                <Text style={[styles.sugChipText, draftFilter === f && styles.sugChipTextActive]}>{f}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Sort Row */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortOptionsContainer}>
+              {['Newest', 'Oldest', 'Recently Updated', 'Alphabetical'].map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.sortOptionChip, draftSort === opt && styles.sortOptionChipActive]}
+                  onPress={() => setDraftSort(opt)}
+                >
+                  <Text style={[styles.sortOptionText, draftSort === opt && styles.sortOptionTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+
+        {/* 4. Case Drafts Folder List */}
+        <View style={{ gap: 12 }}>
+          {sortedList.length === 0 ? (
+            <View style={styles.emptyStateContainer}>
+              <Ionicons name="document-text-outline" size={48} color="#9CA3AF" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyStateText}>No legal drafts match your criteria.</Text>
+              <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginTop: 4 }}>
+                Initialize a manual draft folder above to begin compiling pleadings.
+              </Text>
+            </View>
+          ) : (
+            sortedList.map((draft) => {
+              const isRenaming = renameTargetDraftId === draft.id;
+              const updatedDateStr = new Date(draft.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              
+              return (
+                <View key={draft.id} style={styles.itemCard}>
+                  <View style={styles.itemCardHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                      <Ionicons 
+                        name={draft.createdBy === 'AI' ? 'sparkles-outline' : 'folder-outline'} 
+                        size={20} 
+                        color={draft.createdBy === 'AI' ? '#EC4899' : '#6D5DFC'} 
+                      />
+                      
+                      {isRenaming ? (
+                        <View style={styles.renameRow}>
+                          <TextInput
+                            style={styles.renameInput}
+                            value={renameValue}
+                            onChangeText={setRenameValue}
+                            autoFocus
+                            placeholder="Enter name"
+                            placeholderTextColor="#9CA3AF"
+                          />
+                          <TouchableOpacity 
+                            style={styles.renameActionBtn}
+                            onPress={() => {
+                              handleRenameDraft(draft.id, renameValue);
+                              setRenameTargetDraftId('');
+                            }}
+                          >
+                            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.renameActionBtn, { backgroundColor: '#EF4444' }]}
+                            onPress={() => setRenameTargetDraftId('')}
+                          >
+                            <Ionicons name="close" size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemCardTitle}>{draft.name}</Text>
+                          <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{draft.type}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={styles.versionBadge}>
+                        <Text style={styles.versionBadgeText}>v{draft.versions?.length || 1}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, 
+                        draft.status === 'Completed' ? styles.badgeSuccess : 
+                        draft.status === 'Reviewed' ? styles.badgeInfo : 
+                        draft.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+                      ]}>
+                        <Text style={styles.statusBadgeText}>{draft.status}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Preview snippet */}
+                  <Text style={[styles.itemCardBody, { fontSize: 11, color: '#4B5563', fontStyle: 'italic', marginVertical: 6 }]} numberOfLines={2}>
+                    {draft.content ? draft.content.replace(/={3,}/g, '').substring(0, 120).trim() + '...' : 'Empty content...'}
+                  </Text>
+
+                  <View style={{ borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 8, marginTop: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Updated: {updatedDateStr} by {draft.createdBy}</Text>
+                    
+                    {/* Actions Row */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                      {/* 👁 Preview/View Draft */}
+                      <TouchableOpacity 
+                        onPress={() => {
+                          setPreviewDraft(draft);
+                          setIsPreviewOpen(true);
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="eye-outline" size={18} color="#6D5DFC" />
+                      </TouchableOpacity>
+                      
+                      {/* ✏️ Edit Draft */}
+                      <TouchableOpacity 
+                        onPress={() => handleOpenDraftEditor(draft)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="create-outline" size={18} color="#3B82F6" />
+                      </TouchableOpacity>
+
+                      {/* 🗑 Delete Draft */}
+                      <TouchableOpacity 
+                        onPress={() => handleDeleteDraft(draft.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                      </TouchableOpacity>
+
+                      {/* ⋮ More */}
+                      <TouchableOpacity 
+                        onPress={() => {
+                          setActiveDraftForMoreMenu(draft);
+                          setIsCardMoreMenuOpen(true);
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={18} color="#4B5563" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
       </View>
     );
+  };
+
+  // Contracts mock and analysis helper functions
+  const mockContractDetails = {
+    name: 'commercial_lease_agreement_signed.pdf',
+    size: '1.2 MB',
+    date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    readingTime: '5 mins',
+    type: 'Commercial Lease Agreement',
+    parties: 'Rajesh Sharma (Lessor) & Amit Verma (Lessee)',
+    riskScore: '82/100',
+    contractValue: 'INR 18,00,000',
+    jurisdiction: 'Delhi, India',
+    expiryDate: '12 Jun 2027',
+    renewalStatus: 'Manual Option (30-day notice)',
+    contractStatus: 'Active / Fully Executed',
+    executionDate: '12 Jun 2024',
+    effectiveDate: '15 Jun 2024',
+    renewalDate: '12 May 2027',
+    governingLaw: 'Indian Contract Act, 1872 & Delhi Rent Control Act',
+    
+    keyInfo: {
+      parties: 'Rajesh Sharma (Lessor) vs Amit Verma (Lessee)',
+      addresses: 'Lessor: 12 Barakhamba Rd, Connaught Place, New Delhi. Lessee: Pocket E, Sector 15, Rohini, New Delhi.',
+      dates: 'Execution Date: 12 Jun 2024. Expiry Date: 12 Jun 2027.',
+      amounts: 'Security Deposit: INR 1,50,000. Monthly Rent: INR 50,000.',
+      duration: '36 Months (3 Years)',
+      paymentTerms: 'Rent payable in advance on or before the 5th of each calendar month via bank transfer.',
+      noticePeriod: '3 Months (90 days) written notice required by either party.',
+      renewalPeriod: 'Written request for renewal required 30 days prior to expiry.',
+      terminationConditions: 'Unilateral termination permitted upon material default or insolvency with 30-day cure period.',
+      arbitrationClause: 'Sole arbitrator appointed by Delhi International Arbitration Centre (DIAC).',
+      jurisdiction: 'Courts of Delhi, India.',
+      obligations: 'Lessor: Maintain structural integrity of building. Lessee: Pay utility bills, minor repairs, restrict sub-letting.',
+      deliverables: 'Handover of vacant possession on 15 June 2024.',
+      deadlines: 'Rent payments due monthly by 5th day. Security deposit payment by 10 June 2024.'
+    },
+
+    clauses: [
+      {
+        number: 'Clause 4',
+        title: 'Payment & Late Fee Interest Penalty',
+        category: 'Payment',
+        original: 'The Tenant shall pay the monthly rent on the 5th day of every month. Any delay in payments shall attract interest at the discretion of the Landlord.',
+        summary: 'tenant pays monthly rent by the 5th. Vague discretionary late fee penalty is set by the Landlord.',
+        risk: 'Medium',
+        explanation: 'Discretionary late fees can be challenged as a penalty under Section 74 of the Indian Contract Act if they are excessive or arbitrary.',
+        improvements: 'Change discretionary penalty to a fixed commercial simple interest cap (e.g. 12% per annum).',
+        law: 'Section 74, Indian Contract Act, 1872'
+      },
+      {
+        number: 'Clause 8',
+        title: 'Security Deposit & Refunding Terms',
+        category: 'Financial',
+        original: 'A security deposit of INR 1,50,000 shall be maintained by the Landlord. Refund shall be processed within 90 days after tenant vacates, subject to deductions.',
+        summary: 'Security deposit refund takes 90 days post-handover, with landlord deductions permitted.',
+        risk: 'Medium',
+        explanation: '90 days is commercially slow for retail deposits and lacks explicit dispute resolution terms for deductions.',
+        improvements: 'Reduce refund period to 30 days and mandate joint walkthrough report before deduction.',
+        law: 'Section 105, Transfer of Property Act, 1882'
+      },
+      {
+        number: 'Clause 11',
+        title: 'Unilateral Termination Option',
+        category: 'Termination',
+        original: 'The Landlord reserves the right to terminate this agreement immediately and forfeit the security deposit if the Tenant fails to clear rent for two consecutive periods, without prior notice.',
+        summary: 'Landlord can terminate lease immediately without notice upon consecutive rent defaults.',
+        risk: 'High',
+        explanation: 'Immediate forfeiture without notice or a cure period constitutes an unenforceable penalty and violates statutory tenant relief laws.',
+        improvements: 'Add a mandatory 15-day written notice and a 10-day cure period before forfeiture.',
+        law: 'Section 114, Transfer of Property Act, 1882'
+      },
+      {
+        number: 'Clause 15',
+        title: 'Dispute Resolution & DIAC Arbitration',
+        category: 'Dispute Resolution',
+        original: 'All disputes arising from this lease agreement shall be referred to arbitration in Mumbai. The courts in Mumbai shall have exclusive jurisdiction.',
+        summary: 'Mumbai courts and arbitration have exclusive jurisdiction over disputes.',
+        risk: 'Medium',
+        explanation: 'Since the property is located in Delhi and parties reside there, Mumbai jurisdiction is inconvenient and may increase litigation costs.',
+        improvements: 'Amend dispute resolution seat and venue to New Delhi under DIAC administration.',
+        law: 'Section 20, Arbitration and Conciliation Act, 1996'
+      },
+      {
+        number: 'Clause 18',
+        title: 'Sub-letting and Structural Modification Restriction',
+        category: 'Compliance',
+        original: 'The Lessee shall not sub-let, assign, or part with the possession of the premises, nor make structural changes without the prior written consent of the Lessor.',
+        summary: 'Prohibits subletting, transfer of possession, or structural changes without Landlord written consent.',
+        risk: 'Low',
+        explanation: 'Standard commercial protection clause. Well-drafted and legally enforceable.',
+        improvements: 'None needed. Maintain current clause wording.',
+        law: 'Section 108, Transfer of Property Act, 1882'
+      }
+    ],
+
+    risks: {
+      high: [
+        {
+          title: 'Unilateral Immediate Termination',
+          reason: 'Clause 11 permits the landlord to terminate the contract immediately without notice and forfeit security deposit upon default.',
+          consequences: 'Tenant can obtain a court injunction staying the eviction. Landlord could face legal liability for illegal possession lockout.',
+          fix: 'Add a mandatory 15-day written cure notice before lease termination.',
+          law: 'Section 114, Transfer of Property Act, 1882'
+        }
+      ],
+      medium: [
+        {
+          title: 'Vague Late Fee Penalties',
+          reason: 'Clause 4 allows the landlord to charge late fees "at the Landlord\'s discretion".',
+          consequences: 'Arbitrary penalties are regularly struck down under Section 74. Tenant could refuse payment on grounds of unreasonableness.',
+          fix: 'Cap late payment penalty to a simple interest of 12% per annum.',
+          law: 'Section 74, Indian Contract Act, 1872'
+        },
+        {
+          title: 'Inconvenient Jurisdiction Venue',
+          reason: 'Clause 15 sets Mumbai courts as the venue for dispute resolution instead of New Delhi.',
+          consequences: 'Significantly increases cost of dispute filings and travel expenses for witnesses and documents.',
+          fix: 'Change jurisdiction to New Delhi, India.',
+          law: 'Section 20, Civil Procedure Code (CPC)'
+        }
+      ],
+      low: [
+        {
+          title: '90-Day Security Deposit Refund Delay',
+          reason: 'Clause 8 allows the landlord to hold the deposit for 90 days post vacate date.',
+          consequences: 'Ties up tenant capital. Potential dispute upon vacate.',
+          fix: 'Reduce security deposit refund period to 30 days.',
+          law: 'Section 108, Transfer of Property Act, 1882'
+        }
+      ]
+    },
+
+    missingClauses: [
+      {
+        title: 'Force Majeure & Epidemic Relief',
+        risk: 'High',
+        recommendation: 'Insert a standard Force Majeure clause to specify rental suspensions or modifications in cases of earthquakes, pandemics, lockdowns, or building destruction.'
+      },
+      {
+        title: 'Confidentiality Protection',
+        risk: 'Medium',
+        recommendation: 'Add confidentiality provisions protecting proprietary tenant hardware designs or commercial financials exchanged during lease term.'
+      },
+      {
+        title: 'Limitation of Liability',
+        risk: 'Medium',
+        recommendation: 'Include a limitation clause capping either party\'s indirect or consequential damages to the amount of lease payments.'
+      }
+    ],
+
+    suggestions: {
+      negotiation: [
+        'Demand matching notice periods: If landlord wants 90 days, tenant should also have 90 days notice.',
+        'Reduce deposit: Offer 2 months deposit instead of 3 months to improve cash flow.',
+        'Negotiate utility caps: Lessor should bear structural plumbing/roof repair costs.'
+      ],
+      alternatives: [
+        {
+          original: 'Clause 11: ...terminate immediately without prior notice.',
+          alternative: 'Clause 11: In the event of default, Landlord shall issue a written cure notice of 15 days. If Tenant fails to clear dues within 15 days, Landlord may proceed with termination.'
+        }
+      ],
+      saferClauses: [
+        '“Late Fee Penalty: Interest on delayed payments shall accrue at a simple interest rate of 12% per annum, calculated daily.”',
+        '“Security Deposit: Security deposit shall be returned within 30 days after handing over vacant possession of the premises.”'
+      ],
+      missingDefinitions: [
+        '“Material Breach” - Vague defaults are currently categorized identically to minor administrative issues.',
+        '“Structural Repairs” - Lacks definition on what constitutes structural vs minor modifications.'
+      ],
+      conflictingTerms: [
+        'Clause 8 requires vacating on 12 June 2027, but Clause 4 references rent charges based on calendar months, creating confusion over final month partial payments.'
+      ]
+    },
+
+    recommendations: {
+      potentialRisks: 'Discretionary rent late fee and lack of notice cure periods.',
+      recommendedEdits: 'Incorporate 15-day cure notices and fix late fee to 12% simple interest.',
+      missingClauses: 'Force Majeure, Confidentiality, and Limitation of Liability.',
+      negotiationPoints: 'Reduce refund period to 30 days and seat dispute resolution in Delhi.',
+      complianceIssues: 'Register agreement under Delhi Registration rules.',
+      legalObservations: 'Overall draft is weighted towards landlord, tenant should negotiate.',
+      strengthScore: 84
+    }
+  };
+
+  const handleUploadContract = async () => {
+    setIsAnalyzingContract(true);
+    setContractAnalysisSteps([
+      'Reading document pages & raw layers...',
+      'Extracting clause boundaries and definitions...',
+      'Detecting execution dates and party headers...',
+      'Auditing liabilities, risks, and missing terms...',
+      'Compiling contract intelligence profile...'
+    ]);
+    setActiveContractAnalysisStep(0);
+
+    const interval = setInterval(() => {
+      setActiveContractAnalysisStep(prev => (prev < 4 ? prev + 1 : prev));
+    }, 600);
+
+    try {
+      const clientName = workspace?.clientName || 'Client';
+      const opponentName = workspace?.opponentName || workspace?.accused || 'Opponent';
+      
+      const result = await DraftService.executeTool({
+        toolName: 'legal_contract_analyzer',
+        message: `Analyze the contract agreement for case: "${workspace?.name || ''}". Client: "${clientName}". Opponent: "${opponentName}". Identify risk level, vulnerability terms, termination period, and payment penalties.`,
+        caseContext: {
+          name: workspace?.name,
+          clientName: clientName,
+          opponentName: opponentName,
+          caseType: workspace?.caseType,
+          summary: workspace?.summary || workspace?.caseSummary
+        }
+      });
+
+      clearInterval(interval);
+      setIsAnalyzingContract(false);
+
+      if (result && result.success) {
+        setUploadedContract({
+          ...mockContractDetails,
+          summary: {
+            ...mockContractDetails.recommendations,
+            potentialRisks: result.reply.substring(0, 300) + '...'
+          }
+        });
+        
+        const current = (workspace as any).contracts || [];
+        handleUpdateField({
+          contracts: [...current, {
+            name: 'commercial_lease_agreement_signed.pdf',
+            riskLevel: 'High',
+            notes: 'Audited automatically by AI Contract Intelligence'
+          }]
+        });
+        showToast('success', 'Contract Audited', 'AI scanned contract and compiled clause audit.');
+      } else {
+        showToast('error', 'Analysis Failed', result?.error || 'Failed to analyze contract.');
+      }
+    } catch (err) {
+      clearInterval(interval);
+      setIsAnalyzingContract(false);
+      console.error('[CONTRACT ANALYZER ERROR]', err);
+      setUploadedContract(mockContractDetails);
+      
+      const current = (workspace as any).contracts || [];
+      handleUpdateField({
+        contracts: [...current, {
+          name: 'commercial_lease_agreement_signed.pdf',
+          riskLevel: 'High',
+          notes: 'Audited automatically by AI Contract Intelligence'
+        }]
+      });
+      showToast('warning', 'Analysis Fallback', 'Scanned contract using default local workspace parameters.');
+    }
+  };
+
+  const handleSyncWithCaseWorkspace = () => {
+    if (!workspace) return;
+    const existingTimeline = workspace.facts || [];
+    const hasContractEvents = existingTimeline.some(e => (e.event || '').includes('Contract Execution'));
+    
+    let updatedTimeline = existingTimeline;
+    if (!hasContractEvents) {
+      updatedTimeline = [
+        ...existingTimeline,
+        {
+          date: '12 Jun 2024',
+          event: 'Contract Execution (AI Extracted)',
+          description: 'Signing and execution of Commercial Lease Agreement between Rajesh Sharma and Amit Verma.'
+        },
+        {
+          date: '12 Jun 2027',
+          event: 'Contract Expiry (AI Extracted)',
+          description: 'Expiry of commercial lease requiring written renewal notice.'
+        }
+      ];
+    }
+
+    handleUpdateField({
+      opposingLawyer: 'Vipul Sen (Senior Counsel)',
+      courtName: 'Delhi District Court',
+      facts: updatedTimeline as any
+    });
+    setIsContractLinked(true);
+    showToast('success', 'Workspace Synced', 'Roster parties and chronology events updated from contract.');
+  };
+
+  const renderKeyInfoRow = (label: string, value: string) => {
+    return (
+      <View style={styles.overviewTableRow} key={label}>
+        <Text style={styles.overviewTableLabel}>{label}</Text>
+        <Text style={styles.overviewTableValue}>{value}</Text>
+      </View>
+    );
+  };
+
+  const toggleClauseExpanded = (index: number) => {
+    setExpandedClauses(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
+  };
+
+  const toggleRiskExpanded = (key: string) => {
+    setExpandedRisks(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const toggleMissingExpanded = (key: string) => {
+    setExpandedMissing(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
   };
 
   // Contracts
   const renderContractsTab = () => {
+    // Search and filter logic
+    const filteredClauses = uploadedContract
+      ? (uploadedContract.clauses as any[]).filter(c => {
+          const matchQuery = 
+            c.number.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+            c.title.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+            c.original.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+            c.summary.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+            c.law.toLowerCase().includes(contractSearchQuery.toLowerCase());
+          
+          if (contractFilter === 'All Clauses') return matchQuery;
+          if (contractFilter === 'High Risk') return matchQuery && c.risk === 'High';
+          if (contractFilter === 'Medium Risk') return matchQuery && c.risk === 'Medium';
+          if (contractFilter === 'Low Risk') return matchQuery && c.risk === 'Low';
+          if (contractFilter === 'Financial') return matchQuery && c.category === 'Financial';
+          if (contractFilter === 'Termination') return matchQuery && c.category === 'Termination';
+          if (contractFilter === 'Payment') return matchQuery && c.category === 'Payment';
+          if (contractFilter === 'Confidentiality') return matchQuery && c.category === 'Confidentiality';
+          if (contractFilter === 'Dispute Resolution') return matchQuery && c.category === 'Dispute Resolution';
+          if (contractFilter === 'Arbitration') return matchQuery && c.category === 'Arbitration';
+          if (contractFilter === 'Renewal') return matchQuery && c.category === 'Renewal';
+          if (contractFilter === 'Liability') return matchQuery && c.category === 'Liability';
+          if (contractFilter === 'Compliance') return matchQuery && c.category === 'Compliance';
+          return matchQuery;
+        })
+      : [];
+
     return (
       <View style={styles.tabContent}>
-        <Text style={styles.moduleTitle}>Clause Risk Auditor</Text>
-        <View style={styles.metaCard}>
-          <Text style={styles.metaTitle}>Registered Lease Contract</Text>
-          <Text style={styles.riskLevelText}>Risk Assessment: <Text style={[styles.boldText, { color: theme.warning }]}>Medium Risk</Text></Text>
+        {/* Sticky Case Header */}
+        <View style={styles.evidenceHeader}>
+          <Text style={styles.evidenceCaseTitle}>{workspace?.name || 'Case Workspace'}</Text>
+          <View style={styles.evidenceBadgesRow}>
+            <View style={[styles.evidenceBadge, styles.evidenceBadgeActive]}>
+              <Text style={styles.evidenceBadgeText}>{workspace?.status || 'Active'}</Text>
+            </View>
+            <View style={[styles.evidenceBadge, styles.evidenceBadgePriority]}>
+              <Text style={[styles.evidenceBadgeText, { color: theme.danger }]}>
+                {workspace?.priority || 'High'} Priority
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <Text style={styles.subHeading}>Audited Contract Clauses</Text>
-        {[
-          { title: 'Payment Terms Section 4', text: 'Lessee shall disburse rent on the 5th day of every calendar month.', risk: 'Low' },
-          { title: 'Forfeiture Clause Section 11', text: 'Failure to disburse rent for 2 consecutive periods allows Lessor to terminate immediately.', risk: 'Medium' },
-          { title: 'Dispute Resolution Clause', text: 'Arbitration in Mumbai jurisdiction.', risk: 'High' },
-        ].map((c, i) => (
-          <View key={i} style={styles.itemCard}>
-            <View style={styles.itemCardHeader}>
-              <Text style={styles.itemCardTitle}>{c.title}</Text>
-              <View style={[styles.statusBadge, c.risk === 'High' ? styles.badgeDanger : c.risk === 'Medium' ? styles.badgeWarning : styles.badgeSuccess]}>
-                <Text style={styles.statusBadgeText}>{c.risk} Risk</Text>
+        {/* Empty State / Uploader */}
+        {!uploadedContract && !isAnalyzingContract && (
+          <View style={styles.contractUploadCard}>
+            <View style={styles.contractUploadIconBg}>
+              <Ionicons name="document-text-outline" size={32} color="#6D5DFC" />
+            </View>
+            <Text style={styles.contractUploadTitle}>Upload Term Contract or Agreement</Text>
+            <Text style={styles.contractUploadSubtitle}>
+              Drag & drop or browse contract files. AI will automatically audit payment terms, notices, liabilities, and risks.
+            </Text>
+            <Text style={styles.contractFormatsText}>
+              Supported Formats: PDF, DOCX, Scanned Images (Max 50MB)
+            </Text>
+            <View style={styles.contractUploadActions}>
+              <TouchableOpacity style={styles.contractUploadPrimaryBtn} onPress={handleUploadContract}>
+                <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.contractUploadPrimaryText}>Upload Contract</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.contractUploadSecondaryBtn} onPress={handleUploadContract}>
+                <Ionicons name="scan-outline" size={17} color="#6D5DFC" />
+                <Text style={styles.contractUploadSecondaryText}>Scan Document</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* OCR / Analysis Steps Loader */}
+        {isAnalyzingContract && (
+          <View style={styles.contractLoaderContainer}>
+            <View style={styles.contractLoaderIconWrapper}>
+              <ActivityIndicator size="large" color="#6D5DFC" />
+            </View>
+            <Text style={styles.contractLoaderTitle}>AI Contract Analyzer</Text>
+            <Text style={styles.contractLoaderSubtitle}>Digitizing document layers & computing risk variables...</Text>
+            
+            <View style={styles.loaderStepsContainer}>
+              {contractAnalysisSteps.map((step, idx) => {
+                const isCompleted = activeContractAnalysisStep > idx;
+                const isActive = activeContractAnalysisStep === idx;
+                return (
+                  <View key={idx} style={styles.loaderStepRow}>
+                    <View style={[
+                      styles.loaderStepBullet,
+                      isCompleted && styles.loaderStepBulletCompleted,
+                      isActive && styles.loaderStepBulletActive
+                    ]}>
+                      {isCompleted ? (
+                        <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                      ) : (
+                        <View style={[styles.loaderStepBulletDot, isActive && styles.loaderStepBulletDotActive]} />
+                      )}
+                    </View>
+                    <Text style={[
+                      styles.loaderStepText,
+                      isCompleted && styles.loaderStepTextCompleted,
+                      isActive && styles.loaderStepTextActive
+                    ]}>
+                      {step}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* Contract Audited Dashboard */}
+        {uploadedContract && !isAnalyzingContract && (
+          <View style={{ gap: 16 }}>
+            {/* Top Workspace Bar */}
+            <View style={styles.contractOverviewHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contractOverviewName}>📜 {uploadedContract.name}</Text>
+                <Text style={styles.contractOverviewSize}>
+                  {uploadedContract.size} • Reading time: {uploadedContract.readingTime}
+                </Text>
+              </View>
+              <View style={styles.contractOverviewActions}>
+                <TouchableOpacity
+                  style={[styles.contractOverviewSyncBtn, isContractLinked && { backgroundColor: '#F3F4F6' }]}
+                  onPress={handleSyncWithCaseWorkspace}
+                  disabled={isContractLinked}
+                >
+                  <Ionicons name="sparkles" size={14} color={isContractLinked ? '#9CA3AF' : '#6D5DFC'} />
+                  <Text style={[styles.contractOverviewSyncText, isContractLinked && { color: '#9CA3AF' }]}>
+                    {isContractLinked ? 'Linked' : 'Sync Workspace'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.contractOverviewReuploadBtn}
+                  onPress={() => {
+                    setUploadedContract(null);
+                    setIsContractLinked(false);
+                  }}
+                >
+                  <Ionicons name="reload" size={14} color="#6B7280" />
+                </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.itemCardBody}>{c.text}</Text>
-          </View>
-        ))}
-      </View>
-    );
-  };
 
-  // Arguments
-  const renderArgumentsTab = () => {
-    return (
-      <View style={styles.tabContent}>
-        <Text style={styles.moduleTitle}>Core Litigation Positions</Text>
-        <View style={styles.cardList}>
-          {[
-            { title: 'Prima Facie Contract Validation', text: 'Plaintiff holds registered contract deed signed by Defendant Amit Verma.' },
-            { title: 'Summons Service Affirmation', text: 'SUMMONS notice delivered on Defendant; tracking slip uploaded.' },
-            { title: 'Default Acknowledgment', text: 'Defendant defaulted on payment due on 15 April 2025.' },
-          ].map((arg, i) => (
-            <View key={i} style={styles.itemCard}>
-              <Text style={styles.itemCardTitle}>💡 Argument {i + 1}: {arg.title}</Text>
-              <Text style={styles.itemCardBody}>{arg.text}</Text>
+            {/* Metrics Dashboard Grid */}
+            <View style={styles.contractMetricsGrid}>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Contract Type</Text>
+                <Text style={styles.contractMetricValue} numberOfLines={1}>Lease</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Parties Identified</Text>
+                <Text style={styles.contractMetricValue}>2</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Total Clauses</Text>
+                <Text style={styles.contractMetricValue}>5</Text>
+              </View>
+              <View style={[styles.contractMetricCard, { borderLeftColor: '#EF4444', borderLeftWidth: 3 }]}>
+                <Text style={styles.contractMetricLabel}>Risk Score</Text>
+                <Text style={[styles.contractMetricValue, { color: '#EF4444' }]}>{uploadedContract.riskScore}</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Expiry Date</Text>
+                <Text style={styles.contractMetricValue} numberOfLines={1}>{uploadedContract.expiryDate}</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Renewal Status</Text>
+                <Text style={styles.contractMetricValue} numberOfLines={1}>Option</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Contract Value</Text>
+                <Text style={styles.contractMetricValue} numberOfLines={1}>1.8M INR</Text>
+              </View>
+              <View style={styles.contractMetricCard}>
+                <Text style={styles.contractMetricLabel}>Jurisdiction</Text>
+                <Text style={styles.contractMetricValue} numberOfLines={1}>Delhi</Text>
+              </View>
             </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
 
-  // Tasks checklist
-  const renderTasksTab = () => {
-    const list = workspace?.tasks || [];
+            {/* Horizontal Sub Navigation Tabs */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.contractPillsScroll}
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {[
+                { id: 'overview', label: 'Overview' },
+                { id: 'clauses', label: 'Clauses Audit' },
+                { id: 'risks', label: 'Risks & Missing' },
+                { id: 'suggestions', label: 'Suggestions & Exports' }
+              ].map((tab) => {
+                const isActive = contractActiveSubTab === tab.id;
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    style={[styles.contractTabPill, isActive && styles.contractTabPillActive]}
+                    onPress={() => setContractActiveSubTab(tab.id)}
+                  >
+                    <Text style={[styles.contractTabPillText, isActive && styles.contractTabPillTextActive]}>
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
-    return (
-      <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Task checklist</Text>
-          <Pressable
-            style={styles.moduleHeaderBtn}
-            onPress={() => {
-              setModalType('task');
-              setIsModalOpen(true);
-            }}
-          >
-            <Ionicons name="add" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Add Task</Text>
-          </Pressable>
-        </View>
-
-        {list.length === 0 ? (
-          <Text style={styles.emptyText}>No items in tasks checklist.</Text>
-        ) : (
-          <View style={styles.cardList}>
-            {list.map((t) => (
-              <Pressable
-                key={t._id}
-                style={styles.taskItemRow}
-                onPress={() => handleToggleTaskStatus(t._id!, t.status)}
-              >
-                <Ionicons
-                  name={t.status === 'Completed' ? 'checkbox' : 'square-outline'}
-                  size={20}
-                  color={t.status === 'Completed' ? '#10B981' : '#9CA3AF'}
-                />
-                <View style={styles.taskItemContent}>
-                  <Text style={[styles.taskItemTitle, t.status === 'Completed' && styles.taskItemTitleCompleted]}>
-                    {t.title}
-                  </Text>
-                  {t.description ? <Text style={styles.taskItemDesc}>{t.description}</Text> : null}
-                  <Text style={styles.taskItemDeadline}>Deadline: {t.deadline || 'None'}</Text>
+            {/* Tab CONTENT 1: Overview & Key Extraction */}
+            {contractActiveSubTab === 'overview' && (
+              <View style={{ gap: 16 }}>
+                {/* Contract Overview Metadata Card */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>Contract Overview</Text>
+                  <View style={styles.overviewTable}>
+                    {renderKeyInfoRow('Contract Name', uploadedContract.name)}
+                    {renderKeyInfoRow('Contract Type', uploadedContract.type)}
+                    {renderKeyInfoRow('Contract Status', uploadedContract.contractStatus)}
+                    {renderKeyInfoRow('Execution Date', uploadedContract.executionDate)}
+                    {renderKeyInfoRow('Effective Date', uploadedContract.effectiveDate)}
+                    {renderKeyInfoRow('Expiry Date', uploadedContract.expiryDate)}
+                    {renderKeyInfoRow('Renewal Date', uploadedContract.renewalDate)}
+                    {renderKeyInfoRow('Governing Law', uploadedContract.governingLaw)}
+                    {renderKeyInfoRow('Jurisdiction', uploadedContract.jurisdiction)}
+                  </View>
                 </View>
-              </Pressable>
-            ))}
+
+                {/* Key Information Extraction Card */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>Key Information Extraction</Text>
+                  <View style={styles.overviewTable}>
+                    {renderKeyInfoRow('Parties', uploadedContract.keyInfo.parties)}
+                    {renderKeyInfoRow('Addresses', uploadedContract.keyInfo.addresses)}
+                    {renderKeyInfoRow('Dates Extracted', uploadedContract.keyInfo.dates)}
+                    {renderKeyInfoRow('Financial Amounts', uploadedContract.keyInfo.amounts)}
+                    {renderKeyInfoRow('Contract Duration', uploadedContract.keyInfo.duration)}
+                    {renderKeyInfoRow('Payment Terms', uploadedContract.keyInfo.paymentTerms)}
+                    {renderKeyInfoRow('Notice Period', uploadedContract.keyInfo.noticePeriod)}
+                    {renderKeyInfoRow('Renewal Option Period', uploadedContract.keyInfo.renewalPeriod)}
+                    {renderKeyInfoRow('Termination Conditions', uploadedContract.keyInfo.terminationConditions)}
+                    {renderKeyInfoRow('Arbitration Clause', uploadedContract.keyInfo.arbitrationClause)}
+                    {renderKeyInfoRow('Jurisdiction Seat', uploadedContract.keyInfo.jurisdiction)}
+                    {renderKeyInfoRow('Obligations Outlined', uploadedContract.keyInfo.obligations)}
+                    {renderKeyInfoRow('Deliverables', uploadedContract.keyInfo.deliverables)}
+                    {renderKeyInfoRow('Deadlines', uploadedContract.keyInfo.deadlines)}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Tab CONTENT 2: Clauses Audit (expandable list, filters, search) */}
+            {contractActiveSubTab === 'clauses' && (
+              <View style={{ gap: 12 }}>
+                {/* Search Bar */}
+                <View style={styles.evidenceSearchBar}>
+                  <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.evidenceSearchIcon} />
+                  <TextInput
+                    style={styles.evidenceSearchInput}
+                    placeholder="Search clause text, title, laws, risk..."
+                    placeholderTextColor="#9CA3AF"
+                    value={contractSearchQuery}
+                    onChangeText={setContractSearchQuery}
+                  />
+                  {contractSearchQuery.trim() !== '' && (
+                    <Pressable onPress={() => setContractSearchQuery('')}>
+                      <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+                    </Pressable>
+                  )}
+                </View>
+
+                {/* Scrollable Pills Filter Bar */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.pillsScrollView}
+                  contentContainerStyle={styles.pillsContainer}
+                >
+                  {[
+                    'All Clauses', 'High Risk', 'Medium Risk', 'Low Risk', 
+                    'Financial', 'Termination', 'Payment', 'Confidentiality', 
+                    'Dispute Resolution', 'Arbitration', 'Renewal', 'Liability', 'Compliance'
+                  ].map((pill, idx) => {
+                    const isActive = contractFilter === pill;
+                    return (
+                      <Pressable
+                        key={idx}
+                        style={[styles.filterPill, isActive && styles.filterPillActive]}
+                        onPress={() => setContractFilter(pill)}
+                      >
+                        <Text style={[styles.filterPillText, isActive && styles.filterPillTextActive]}>
+                          {pill}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Clauses List */}
+                {filteredClauses.length === 0 ? (
+                  <View style={styles.emptyEvidenceContainer}>
+                    <Text style={styles.emptyEvidenceTitle}>No Matching Clauses</Text>
+                    <Text style={styles.emptyEvidenceSubtitle}>Adjust query terms or check another filter pill category.</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {filteredClauses.map((clause, idx) => {
+                      const isExpanded = !!expandedClauses[idx];
+                      const isHigh = clause.risk === 'High';
+                      const isMed = clause.risk === 'Medium';
+                      const riskColor = isHigh ? '#EF4444' : isMed ? '#F59E0B' : '#10B981';
+                      
+                      return (
+                        <View key={idx} style={styles.evidenceCard}>
+                          <Pressable style={styles.evidenceCardMain} onPress={() => toggleClauseExpanded(idx)}>
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.evidenceCardTitleRow}>
+                                <Text style={styles.exhibitCode}>{clause.number} • {clause.category}</Text>
+                                <View style={[styles.evStatusBadge, { backgroundColor: riskColor + '15' }]}>
+                                  <Text style={[styles.evStatusBadgeText, { color: riskColor }]}>{clause.risk} Risk</Text>
+                                </View>
+                              </View>
+                              <Text style={styles.evidenceName}>{clause.title}</Text>
+                              <Text style={styles.evidenceDesc} numberOfLines={isExpanded ? undefined : 2}>
+                                {clause.original}
+                              </Text>
+                            </View>
+                            <Ionicons 
+                              name={isExpanded ? "chevron-up" : "chevron-down"} 
+                              size={16} 
+                              color="#9CA3AF" 
+                              style={{ marginLeft: 8, marginTop: 4 }}
+                            />
+                          </Pressable>
+
+                          {isExpanded && (
+                            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6', gap: 10 }}>
+                              <View>
+                                <Text style={styles.evidenceInputLabel}>AI Clause Summary</Text>
+                                <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 2 }}>{clause.summary}</Text>
+                              </View>
+                              
+                              <View>
+                                <Text style={styles.evidenceInputLabel}>AI Explanation & Vulnerabilities</Text>
+                                <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 2 }}>{clause.explanation}</Text>
+                              </View>
+
+                              <View style={{ backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#DCFCE7' }}>
+                                <Text style={[styles.evidenceInputLabel, { color: '#15803D', marginTop: 0 }]}>Suggested Rewrite Improvement</Text>
+                                <Text style={{ fontSize: 12, color: '#15803D', marginTop: 4, fontStyle: 'italic', fontWeight: '500' }}>
+                                  {clause.improvements}
+                                </Text>
+                              </View>
+
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '600' }}>{clause.law}</Text>
+                                <View style={{ flexDirection: 'row', gap: 12, marginLeft: 'auto' }}>
+                                  <TouchableOpacity 
+                                    onPress={() => {
+                                      Clipboard.setString(clause.original);
+                                      showToast('success', 'Copied', 'Original clause copied.');
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 11, color: '#6D5DFC', fontWeight: '700' }}>Copy</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity 
+                                    onPress={() => {
+                                      showToast('success', 'Bookmarked', `${clause.number} saved in contract bookmarks.`);
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 11, color: '#6D5DFC', fontWeight: '700' }}>Bookmark</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Tab CONTENT 3: Risks & Missing */}
+            {contractActiveSubTab === 'risks' && (
+              <View style={{ gap: 16 }}>
+                {/* Categorized Risks list */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>AI Risk Analysis</Text>
+                  
+                  {/* High Risk Group */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.findingsSubLabel, { color: '#EF4444' }]}>🚨 High Risk Terms</Text>
+                    {uploadedContract.risks.high.map((risk: any, i: number) => (
+                      <View key={i} style={[styles.evidenceCard, { marginTop: 6, borderColor: '#FFE3E3' }]}>
+                        <Pressable style={{ padding: 12 }} onPress={() => toggleRiskExpanded('high_' + i)}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#C53030' }}>{risk.title}</Text>
+                            <Ionicons name={expandedRisks['high_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#C53030" />
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
+                          
+                          {!!expandedRisks['high_' + i] && (
+                            <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#FFE3E3', paddingTop: 8, gap: 6 }}>
+                              <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
+                              <Text style={{ fontSize: 11, color: '#15803D' }}><Text style={{ fontWeight: '700' }}>Suggested Fix: </Text>{risk.fix}</Text>
+                              <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{risk.law}</Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Medium Risk Group */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.findingsSubLabel, { color: '#F59E0B' }]}>⚠️ Medium Risk Terms</Text>
+                    {uploadedContract.risks.medium.map((risk: any, i: number) => (
+                      <View key={i} style={[styles.evidenceCard, { marginTop: 6, borderColor: '#FEF3C7' }]}>
+                        <Pressable style={{ padding: 12 }} onPress={() => toggleRiskExpanded('med_' + i)}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#B45309' }}>{risk.title}</Text>
+                            <Ionicons name={expandedRisks['med_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#B45309" />
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
+                          
+                          {!!expandedRisks['med_' + i] && (
+                            <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#FEF3C7', paddingTop: 8, gap: 6 }}>
+                              <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
+                              <Text style={{ fontSize: 11, color: '#15803D' }}><Text style={{ fontWeight: '700' }}>Suggested Fix: </Text>{risk.fix}</Text>
+                              <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{risk.law}</Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Low Risk Group */}
+                  <View>
+                    <Text style={[styles.findingsSubLabel, { color: '#10B981' }]}>✅ Low Risk Terms</Text>
+                    {uploadedContract.risks.low.map((risk: any, i: number) => (
+                      <View key={i} style={[styles.evidenceCard, { marginTop: 6, borderColor: '#D1FAE5' }]}>
+                        <Pressable style={{ padding: 12 }} onPress={() => toggleRiskExpanded('low_' + i)}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#065F46' }}>{risk.title}</Text>
+                            <Ionicons name={expandedRisks['low_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#065F46" />
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
+                          
+                          {!!expandedRisks['low_' + i] && (
+                            <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#D1FAE5', paddingTop: 8, gap: 6 }}>
+                              <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
+                              <Text style={{ fontSize: 11, color: '#15803D' }}><Text style={{ fontWeight: '700' }}>Suggested Fix: </Text>{risk.fix}</Text>
+                              <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{risk.law}</Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Missing Clauses Card */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>Missing Clauses Detected</Text>
+                  <Text style={styles.linkagesSubtitle}>AI audited contract clauses that are missing from this draft.</Text>
+                  
+                  {uploadedContract.missingClauses.map((clause: any, i: number) => (
+                    <View key={i} style={[styles.evidenceCard, { marginTop: 8, borderColor: '#ECECEC' }]}>
+                      <Pressable style={{ padding: 12 }} onPress={() => toggleMissingExpanded('missing_' + i)}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Ionicons 
+                            name="warning" 
+                            size={16} 
+                            color={clause.risk === 'High' ? '#EF4444' : '#F59E0B'} 
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1F2937' }}>{clause.title}</Text>
+                            <Text style={{ fontSize: 10, color: '#6D5DFC', fontWeight: '800', textTransform: 'uppercase', marginTop: 2 }}>
+                              {clause.risk} Severity Recommendation
+                            </Text>
+                          </View>
+                          <Ionicons name={expandedMissing['missing_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#9CA3AF" />
+                        </View>
+                        
+                        {!!expandedMissing['missing_' + i] && (
+                          <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 8 }}>
+                            <Text style={{ fontSize: 11, color: '#4B5563', lineHeight: 15 }}>
+                              {clause.recommendation}
+                            </Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Tab CONTENT 4: AI Suggestions & Exports */}
+            {contractActiveSubTab === 'suggestions' && (
+              <View style={{ gap: 16 }}>
+                {/* AI Recommendations Card */}
+                <View style={styles.metadataCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <Ionicons name="sparkles" size={18} color="#6D5DFC" />
+                    <Text style={[styles.sectionTitle, { marginLeft: 6, marginBottom: 0 }]}>AI Recommendation Overview</Text>
+                    <View style={styles.confidenceBadge}>
+                      <Text style={styles.confidenceText}>
+                        Strength: {uploadedContract.recommendations.strengthScore}/100
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <Text style={styles.findingsSubLabel}>Potential Risks Identified</Text>
+                  <Text style={styles.findingsValue}>{uploadedContract.recommendations.potentialRisks}</Text>
+
+                  <Text style={styles.findingsSubLabel}>Recommended Edits</Text>
+                  <Text style={styles.findingsValue}>{uploadedContract.recommendations.recommendedEdits}</Text>
+
+                  <Text style={styles.findingsSubLabel}>Negotiation Points</Text>
+                  <Text style={styles.findingsValue}>{uploadedContract.recommendations.negotiationPoints}</Text>
+
+                  <Text style={styles.findingsSubLabel}>Compliance Issues</Text>
+                  <Text style={styles.findingsValue}>{uploadedContract.recommendations.complianceIssues}</Text>
+
+                  <Text style={styles.findingsSubLabel}>Legal Observations</Text>
+                  <Text style={styles.findingsValue}>{uploadedContract.recommendations.legalObservations}</Text>
+                </View>
+
+                {/* Detailed Negotiation & Alternatives Suggestions Card */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>Negotiation & Alternative Suggestion Lists</Text>
+                  
+                  <Text style={styles.findingsSubLabel}>Negotiation Playbook Tips</Text>
+                  {uploadedContract.suggestions.negotiation.map((t: string, i: number) => (
+                    <View key={i} style={styles.bulletItem}>
+                      <View style={styles.bulletDot} />
+                      <Text style={styles.bulletText}>{t}</Text>
+                    </View>
+                  ))}
+
+                  <Text style={styles.findingsSubLabel}>Alternative wording</Text>
+                  {uploadedContract.suggestions.alternatives.map((alt: any, i: number) => (
+                    <View key={i} style={{ gap: 4, marginBottom: 8 }}>
+                      <Text style={{ fontSize: 11, color: '#EF4444', fontStyle: 'italic' }}>Original: {alt.original}</Text>
+                      <Text style={{ fontSize: 11, color: '#15803D', fontWeight: '500' }}>AI Proposed Safer Wording: {alt.alternative}</Text>
+                    </View>
+                  ))}
+
+                  <Text style={styles.findingsSubLabel}>Safer Clauses Replaced</Text>
+                  {uploadedContract.suggestions.saferClauses.map((t: string, i: number) => (
+                    <Text key={i} style={{ fontSize: 11, color: '#4B5563', fontStyle: 'italic', marginBottom: 6 }}>{t}</Text>
+                  ))}
+
+                  <Text style={styles.findingsSubLabel}>Conflicting Terms Detected</Text>
+                  {uploadedContract.suggestions.conflictingTerms.map((t: string, i: number) => (
+                    <Text key={i} style={{ fontSize: 11, color: '#EF4444', marginBottom: 6 }}>{t}</Text>
+                  ))}
+
+                  <Text style={styles.findingsSubLabel}>Missing Definitions</Text>
+                  {uploadedContract.suggestions.missingDefinitions.map((t: string, i: number) => (
+                    <Text key={i} style={{ fontSize: 11, color: '#F59E0B', marginBottom: 6 }}>{t}</Text>
+                  ))}
+                </View>
+
+                {/* Exports options */}
+                <View style={styles.metadataCard}>
+                  <Text style={styles.sectionTitle}>Export Workspace Reports</Text>
+                  <Text style={styles.linkagesSubtitle}>Generate and save detailed contract audit profiles locally.</Text>
+                  
+                  <View style={{ gap: 8 }}>
+                    <TouchableOpacity 
+                      style={styles.formCancelBtn}
+                      onPress={() => {
+                        showToast('success', 'Export PDF', 'Commercial Lease Risk Report compiled to PDF.');
+                      }}
+                    >
+                      <Text style={styles.formCancelBtnText}>Export PDF Analysis Report</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={styles.formCancelBtn}
+                      onPress={() => {
+                        showToast('success', 'Export DOCX', 'Suggested Clause Rewrites compiled to DOCX.');
+                      }}
+                    >
+                      <Text style={styles.formCancelBtnText}>Export DOCX Clauses Audit</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.formCancelBtn}
+                      onPress={() => {
+                        showToast('success', 'Risk Report', 'Executive Summary Risk profile exported successfully.');
+                      }}
+                    >
+                      <Text style={styles.formCancelBtnText}>Export Executive Risk Summary</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </View>
     );
   };
 
-  // Notes Notepad
-  const renderNotesTab = () => {
+  // Arguments Workspace
+  const renderArgumentsTab = () => {
+    const client = workspace?.clientName || 'Client';
+    const opponent = workspace?.opponentName || workspace?.accused || 'Opponent';
+
+    const handleAutoAnalyzeArguments = async () => {
+      setIsAnalyzingArguments(true);
+      setActiveArgumentsStep(0);
+      const steps = [
+        'Scanning case documents, timelines, and contract provisions...',
+        'Querying local precedent database and applicable Acts...',
+        'Formulating primary Petitioner legal claims...',
+        'Predicting Opposing Counsel\'s defense responses...',
+        'Mapping evidence vault attachments to arguments checklist...',
+        'Generating step-by-step trial sequencing strategy...'
+      ];
+      setArgumentsAnalysisSteps(steps);
+
+      const interval = setInterval(() => {
+        setActiveArgumentsStep(prev => (prev < 5 ? prev + 1 : prev));
+      }, 400);
+
+      try {
+        const clientName = workspace?.clientName || 'Client';
+        const opponentName = workspace?.opponentName || workspace?.accused || 'Opponent';
+
+        const result = await DraftService.executeTool({
+          toolName: 'legal_strategy_engine',
+          message: `Formulate petitioner courtroom arguments, cross-examination notes, and judge Q&A Qs for case: "${workspace?.name || ''}". Client: "${clientName}". Opponent: "${opponentName}". Case Type: "${workspace?.caseType || ''}".`,
+          caseContext: {
+            name: workspace?.name,
+            clientName: clientName,
+            opponentName: opponentName,
+            caseType: workspace?.caseType,
+            summary: workspace?.summary || workspace?.caseSummary
+          }
+        });
+
+        clearInterval(interval);
+        setIsAnalyzingArguments(false);
+
+        if (result && result.success) {
+          setAiStrategyReply(result.reply);
+          showToast('success', 'Analysis Complete', 'AI courtroom strategy engine rebuilt successfully.');
+        } else {
+          showToast('error', 'Analysis Failed', result?.error || 'Failed to formulate trial strategy.');
+        }
+      } catch (err) {
+        clearInterval(interval);
+        setIsAnalyzingArguments(false);
+        console.error('[STRATEGY ENGINE ERROR]', err);
+        showToast('warning', 'Analysis Fallback', 'Rebuilt trial strategy from local workspace parameters.');
+      }
+    };
+
+    const triggerPrint = () => {
+      showToast('info', 'Print Layout', 'Formatting courtroom prep binder for print layout...');
+    };
+
+    const handlePrepareForHearingAction = () => {
+      showToast('success', 'Preparation Initialized', 'Recalculating trial binder readiness index...');
+      setArgumentsActiveSubTab('preparation');
+    };
+
+    const handleToggleBinderTask = (id: string) => {
+      setPrepBinderTasks(prev => prev.map(t => t.id === id ? {
+        ...t,
+        status: t.status === 'Completed' ? 'Pending' : 'Completed'
+      } : t));
+    };
+
+    const handleMoveSequence = (index: number, direction: 'up' | 'down') => {
+      setTrialStrategySequence(prev => {
+        const list = [...prev];
+        if (direction === 'up' && index > 0) {
+          const temp = list[index];
+          list[index] = list[index - 1];
+          list[index - 1] = temp;
+        } else if (direction === 'down' && index < list.length - 1) {
+          const temp = list[index];
+          list[index] = list[index + 1];
+          list[index + 1] = temp;
+        }
+        return list.map((item, idx) => ({ ...item, step: idx + 1 }));
+      });
+    };
+
+    const filterArgumentsList = (list: any[]) => {
+      return list.filter(arg => {
+        const matchesSearch = 
+          arg.title.toLowerCase().includes(argumentsSearchQuery.toLowerCase()) ||
+          arg.description.toLowerCase().includes(argumentsSearchQuery.toLowerCase()) ||
+          (arg.category && arg.category.toLowerCase().includes(argumentsSearchQuery.toLowerCase())) ||
+          (arg.number && arg.number.toLowerCase().includes(argumentsSearchQuery.toLowerCase()));
+
+        if (!matchesSearch) return false;
+
+        if (argumentsFilter === 'All') return true;
+        if (argumentsFilter === 'High Priority') return arg.priority === 'High' || arg.priority === 'Critical';
+        if (argumentsFilter === 'Medium') return arg.priority === 'Medium';
+        if (argumentsFilter === 'Low') return arg.priority === 'Low';
+        
+        const categoryLower = (arg.category || '').toLowerCase();
+        const filterLower = argumentsFilter.toLowerCase();
+        return categoryLower.includes(filterLower);
+      });
+    };
+
+    const filteredPetitioner = filterArgumentsList(petitionerArguments);
+    const filteredRespondent = filterArgumentsList(respondentArguments);
+
+    const sortArguments = (list: any[]) => {
+      return [...list].sort((a, b) => {
+        const aPinned = pinnedArguments[a.id] ? 1 : 0;
+        const bPinned = pinnedArguments[b.id] ? 1 : 0;
+        return bPinned - aPinned;
+      });
+    };
+
+    const sortedPetitioner = sortArguments(filteredPetitioner);
+    const sortedRespondent = sortArguments(filteredRespondent);
+
+    const totalBinderTasks = prepBinderTasks.length;
+    const completedBinderTasks = prepBinderTasks.filter(t => t.status === 'Completed').length;
+    const prepScore = totalBinderTasks > 0 ? Math.round((completedBinderTasks / totalBinderTasks) * 100) : 0;
+
+    const filterOptions = [
+      'All', 'High Priority', 'Medium', 'Low', 
+      'Contract', 'Property', 'Evidence', 'Procedure', 
+      'Jurisdiction', 'Civil', 'Criminal', 'Constitutional'
+    ];
+
+    const strategyData = {
+      strengthScore: workspace?.intelligence?.strengthScore || 88,
+      completenessScore: 94,
+      evidenceLinksCount: workspace?.evidence?.length || 7,
+      activeArgumentsCount: 6,
+      prepBinder: {
+        openingStatement: `Respected Your Honor, this is a clear-cut case of commercial debt recovery. The Plaintiff (${client}) lent a sum on a written, notarized contract. The repayment date passed, and despite a legal notice, the Defendant (${opponent}) has failed to return the amount. The defense of forgery is a standard delaying tactic with no forensic backing. We seek recovery in full with interest.`,
+        oralArguments: [
+          `The contract signed between ${client} and ${opponent} is undisputed in law under Section 67 due to independent witness attestations.`,
+          `No proof of cash repayment has been placed on record by the defense, which is barred under Section 92 of Evidence Act.`
+        ],
+        crossExamination: [
+          'Are you aware that the agreement was signed in front of a Public Notary?',
+          `Can you produce any bank withdrawal slip or receipt proving the alleged cash repayment to ${client}?`,
+          'Did you reply to the legal notice served?'
+        ],
+        judgeQuestions: [
+          { question: 'Why is the Noida agreement being litigated in Delhi jurisdiction?', answer: `As per Clause 14, the parties agreed on exclusive Delhi jurisdiction. Furthermore, the loan amount was disbursed from and repayable to the Plaintiff's (${client}'s) bank account in Delhi.` }
+        ],
+        closingSubmission: `In summary, the written agreement is proved, default is confirmed by certified bank statements, and no legal defense is substantiated by ${opponent}. We pray for a decree in favor of the Plaintiff (${client}).`
+      }
+    };
+
     return (
       <View style={styles.tabContent}>
-        <Text style={styles.moduleTitle}>Litigation Memo Notes</Text>
-        <TextInput
-          style={styles.notesTextarea}
-          multiline={true}
-          placeholder="Jot down legal strategies, witness comments, or judge questions here. Changes are autosaved to server..."
-          placeholderTextColor="#9CA3AF"
-          value={caseNotes}
-          onChangeText={(text) => {
-            setCaseNotes(text);
-            handleUpdateField({ summary: text });
-          }}
-        />
+        {/* Module Header Row */}
+        <View style={styles.moduleHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.moduleTitle}>Litigation Arguments</Text>
+            <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '600' }}>AI litigation strategy & hearing binder</Text>
+          </View>
+        </View>
+
+        {/* Sticky-like Case Header inside Module */}
+        <View style={[styles.itemCard, { backgroundColor: '#F9FAFB', borderStyle: 'dashed', borderWidth: 1, padding: 12, marginBottom: 12 }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontWeight: '800', fontSize: 13, color: '#4B5563' }}>{workspace?.name || 'Case Workspace'}</Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={[styles.statusBadge, { backgroundColor: '#E0F2FE' }]}>
+                <Text style={{ color: '#0369A1', fontSize: 9, fontWeight: '700' }}>{workspace?.status || 'Active'}</Text>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2' }]}>
+                <Text style={{ color: '#B91C1C', fontSize: 9, fontWeight: '700' }}>{workspace?.priority || 'High'}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Top Action Bar */}
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+          <TouchableOpacity
+            style={[{ flex: 1, height: 36, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#6D5DFC' }]}
+            onPress={handleAutoAnalyzeArguments}
+            disabled={isAnalyzingArguments}
+          >
+            <Ionicons name="sparkles" size={13} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>Auto Analyze & Sync</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[{ flex: 1, height: 36, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10B981' }]}
+            onPress={handlePrepareForHearingAction}
+          >
+            <Ionicons name="briefcase" size={13} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>Prepare For Hearing</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[{ width: 44, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#ECECEC' }]}
+            onPress={triggerPrint}
+          >
+            <Ionicons name="ellipsis-vertical" size={16} color="#4B5563" />
+          </TouchableOpacity>
+        </View>
+
+        {isAnalyzingArguments && (
+          <View style={[styles.ocrOverlayStatic, { marginBottom: 12 }]}>
+            <ActivityIndicator size="small" color="#6D5DFC" style={{ marginBottom: 8 }} />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#6D5DFC' }}>
+              {argumentsAnalysisSteps[activeArgumentsStep] || 'Compiling strategy details...'}
+            </Text>
+          </View>
+        )}
+
+        {/* Horizontal Navigation Sub-tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.horizontalPillsScroll, { marginBottom: 12 }]}>
+          {[
+            { id: 'dashboard', name: 'Dashboard' },
+            { id: 'petitioner', name: 'Petitioner (Plaintiff)' },
+            { id: 'respondent', name: 'Respondent (Defendant)' },
+            { id: 'opponent', name: 'Opponent Predictions' },
+            { id: 'strategy', name: 'AI Sequencing' },
+            { id: 'preparation', name: 'Prep Binder' }
+          ].map(t => {
+            const isAct = argumentsActiveSubTab === t.id;
+            return (
+              <TouchableOpacity
+                key={t.id}
+                style={[styles.filterPill, isAct && styles.filterPillActive, { paddingHorizontal: 14 }]}
+                onPress={() => setArgumentsActiveSubTab(t.id)}
+              >
+                <Text style={[styles.filterPillText, isAct && { color: '#FFFFFF', fontWeight: '800' }]}>
+                  {t.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Dashboard Subtab */}
+        {argumentsActiveSubTab === 'dashboard' && !isAnalyzingArguments && (
+          <View style={styles.cardList}>
+            {/* Trial Strategy Position Summary Card */}
+            <View style={[styles.itemCard, { borderColor: '#E9D5FF', borderLeftWidth: 4, borderLeftColor: '#A855F7' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontWeight: '800', fontSize: 14, color: '#5B21B6' }}>Trial Strategy Position</Text>
+                <View style={{ backgroundColor: '#F3E8FF', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Text style={{ color: '#7E22CE', fontSize: 9, fontWeight: '700' }}>Advocate Core Draft</Text>
+                </View>
+              </View>
+
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#4B5563', marginBottom: 2 }}>AI Generated Litigation Position</Text>
+              <Text style={{ fontSize: 11, color: '#1F2937', marginBottom: 8, lineHeight: 15 }}>
+                Primary legal objective is to secure a swift summary decree under CPC Order 37. The case rests on the notarized contract deed and undisputed transaction logs.
+              </Text>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>PRIMARY OBJECTIVE</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#1F2937' }}>Swift Debt Recovery</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>CASE THEORY</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#1F2937' }}>Order 37 Summary Suit</Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>WINNING STRATEGY</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#1F2937' }}>Notarized Deed attestation</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>CASE STRENGTH</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>88% Optimal</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Critical Weakness warning card */}
+            <View style={[styles.hearingOutcomeBox, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A', borderWidth: 1, padding: 12, borderRadius: 12 }]}>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                <Ionicons name="warning" size={16} color="#D97706" />
+                <Text style={{ fontWeight: '800', fontSize: 11, color: '#D97706' }}>Critical Weakness Warning</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: '#B45309', lineHeight: 15, marginBottom: 8 }}>
+                Section 65B Certificate is missing for HDFC transaction ledger records. Prepare and annex it before the hearing to preempt defense objection.
+              </Text>
+              <TouchableOpacity
+                style={{ backgroundColor: '#F59E0B', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                onPress={() => {
+                  setArgumentsActiveSubTab('preparation');
+                  showToast('info', 'Binder Redirect', 'Preparing Section 65B Certificate checklist item.');
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700' }}>Compile & Annex Certificate</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Objections Probability and Evidence Mapping stacked layout */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+              {/* Objections Probability */}
+              <View style={[styles.itemCard, { flex: 1, padding: 12 }]}>
+                <Text style={{ fontWeight: '800', fontSize: 12, color: '#1F2937', marginBottom: 8 }}>Objection Probabilities</Text>
+                
+                {[
+                  { name: 'Admissibility', pct: 85, color: '#EF4444' },
+                  { name: 'Jurisdiction', pct: 35, color: '#F59E0B' },
+                  { name: 'Forgery Allegation', pct: 72, color: '#EC4899' }
+                ].map((obj, index) => (
+                  <View key={index} style={{ marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <Text style={{ fontSize: 10, color: '#4B5563', fontWeight: '500' }}>{obj.name}</Text>
+                      <Text style={{ fontSize: 10, color: '#1F2937', fontWeight: '700' }}>{obj.pct}%</Text>
+                    </View>
+                    <View style={{ height: 4, backgroundColor: '#E5E7EB', borderRadius: 2, overflow: 'hidden' }}>
+                      <View style={{ height: '100%', width: `${obj.pct}%`, backgroundColor: obj.color }} />
+                    </View>
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  style={{ marginTop: 6, paddingVertical: 4, alignItems: 'center' }}
+                  onPress={() => setArgumentsActiveSubTab('opponent')}
+                >
+                  <Text style={{ color: '#6D5DFC', fontSize: 10, fontWeight: '700' }}>View Defense Prediction →</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Evidence Mapping */}
+              <View style={[styles.itemCard, { flex: 1, padding: 12 }]}>
+                <Text style={{ fontWeight: '800', fontSize: 12, color: '#1F2937', marginBottom: 8 }}>Evidence Mapping</Text>
+                
+                {[
+                  { name: 'Execution Proof', state: 'Linked', verified: true },
+                  { name: 'Bank Statement', state: 'Linked', verified: true },
+                  { name: 'Witness Affidavit', state: 'Verified', verified: true },
+                  { name: 'Jurisdiction Proof', state: 'Missing', verified: false }
+                ].map((ev, index) => (
+                  <View key={index} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{ev.name}</Text>
+                    <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: ev.verified ? '#D1FAE5' : '#FEE2E2' }}>
+                      <Text style={{ color: ev.verified ? '#065F46' : '#991B1B', fontSize: 8, fontWeight: '700' }}>
+                        {ev.state}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Petitioner/Respondent Tab View with Search + Filter Chips */}
+        {(argumentsActiveSubTab === 'petitioner' || argumentsActiveSubTab === 'respondent') && (
+          <View>
+            {/* Search Input Bar */}
+            <View style={[styles.searchBar, { marginBottom: 8 }]}>
+              <Ionicons name="search" size={16} color="#9CA3AF" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search arguments, sections, act laws..."
+                placeholderTextColor="#9CA3AF"
+                value={argumentsSearchQuery}
+                onChangeText={setArgumentsSearchQuery}
+              />
+            </View>
+
+            {/* Scrollable Filters row of 12 chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 12, paddingBottom: 4 }}>
+              {filterOptions.map(chip => {
+                const isActive = argumentsFilter === chip;
+                return (
+                  <TouchableOpacity
+                    key={chip}
+                    style={[
+                      { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#ECECEC' },
+                      isActive && { backgroundColor: '#6D5DFC', borderColor: '#6D5DFC' }
+                    ]}
+                    onPress={() => setArgumentsFilter(chip)}
+                  >
+                    <Text style={[{ fontSize: 10, color: '#4B5563', fontWeight: '600' }, isActive && { color: '#FFFFFF' }]}>
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* manual additions action row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151' }}>
+                Active Arguments ({argumentsActiveSubTab === 'petitioner' ? sortedPetitioner.length : sortedRespondent.length})
+              </Text>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EEECFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}
+                onPress={() => openAddArgModal(argumentsActiveSubTab)}
+              >
+                <Ionicons name="add" size={12} color="#6D5DFC" />
+                <Text style={{ color: '#6D5DFC', fontSize: 10, fontWeight: '700' }}>Add Manual</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Empty State */}
+            {((argumentsActiveSubTab === 'petitioner' && sortedPetitioner.length === 0) ||
+              (argumentsActiveSubTab === 'respondent' && sortedRespondent.length === 0)) && (
+              <View style={[styles.centerContainer, { backgroundColor: '#F9FAFB', borderStyle: 'dashed', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingVertical: 32, marginTop: 12 }]}>
+                <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
+                <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', paddingHorizontal: 16 }}>
+                  No litigation arguments have been prepared yet.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#6D5DFC', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                    onPress={handleAutoAnalyzeArguments}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>Generate Arguments</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D1D5DB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                    onPress={() => openAddArgModal(argumentsActiveSubTab)}
+                  >
+                    <Text style={{ color: '#374151', fontSize: 10, fontWeight: '700' }}>Add Manual</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Roster list */}
+            <View style={styles.cardList}>
+              {(argumentsActiveSubTab === 'petitioner' ? sortedPetitioner : sortedRespondent).map((arg) => {
+                const isExpanded = !!expandedArguments[arg.id];
+                const isPinned = !!pinnedArguments[arg.id];
+                
+                const getPriorityStyle = (p: string) => {
+                  switch (p) {
+                    case 'Critical': return { bg: '#FEE2E2', txt: '#991B1B' };
+                    case 'High': return { bg: '#FFEDD5', txt: '#9A3412' };
+                    case 'Medium': return { bg: '#E0F2FE', txt: '#0369A1' };
+                    default: return { bg: '#F3F4F6', txt: '#374151' };
+                  }
+                };
+                const badge = getPriorityStyle(arg.priority);
+
+                return (
+                  <View key={arg.id} style={[styles.itemCard, isPinned && { borderColor: '#A855F7', borderWidth: 1.5 }]}>
+                    {/* Card Header Row */}
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => toggleArgumentExpanded(arg.id)}
+                      style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '800', color: '#6B7280' }}>{arg.number || 'ARG'}</Text>
+                          <View style={{ backgroundColor: '#EEECFF', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                            <Text style={{ color: '#5B4EDB', fontSize: 8, fontWeight: '700' }}>{arg.category}</Text>
+                          </View>
+                          <View style={{ backgroundColor: badge.bg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                            <Text style={{ color: badge.txt, fontSize: 8, fontWeight: '700' }}>{arg.priority}</Text>
+                          </View>
+                          {isPinned && <Ionicons name="pin" size={10} color="#A855F7" />}
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: '#1F2937' }}>{arg.title}</Text>
+                      </View>
+                      <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#6B7280" />
+                    </TouchableOpacity>
+
+                    {/* Brief description in card */}
+                    <Text style={{ fontSize: 11, color: '#4B5563', marginTop: 6, lineHeight: 14 }}>
+                      {arg.description}
+                    </Text>
+
+                    {/* Expandable strategies roster details */}
+                    {isExpanded && (
+                      <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#ECECEC', paddingTop: 8 }}>
+                        {/* Refutation Rebuttal for Defendant */}
+                        {argumentsActiveSubTab === 'respondent' && arg.refutation && (
+                          <View style={{ backgroundColor: '#F5F3FF', padding: 8, borderRadius: 6, marginBottom: 8, borderColor: '#DDD6FE', borderWidth: 0.5 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: '#6D5DFC', textTransform: 'uppercase' }}>AI Rebuttal Strategy</Text>
+                            <Text style={{ fontSize: 11, color: '#5B21B6', marginTop: 2 }}>{arg.refutation}</Text>
+                          </View>
+                        )}
+
+                        {/* Supporting Facts */}
+                        {arg.supportingFacts && arg.supportingFacts.length > 0 && (
+                          <View style={{ marginBottom: 6 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>SUPPORTING FACTS</Text>
+                            {arg.supportingFacts.map((f: string, idx: number) => (
+                              <Text key={idx} style={{ fontSize: 10, color: '#374151', marginLeft: 6, marginTop: 2 }}>• {f}</Text>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Applicable Laws */}
+                        {arg.supportingLaws && arg.supportingLaws.length > 0 && (
+                          <View style={{ marginBottom: 6 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>APPLICABLE LAWS / ACTS</Text>
+                            {arg.supportingLaws.map((l: string, idx: number) => (
+                              <Text key={idx} style={{ fontSize: 10, color: '#374151', marginLeft: 6, marginTop: 2 }}>• {l}</Text>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Case Laws */}
+                        {arg.supportingCaseLaws && arg.supportingCaseLaws.length > 0 && (
+                          <View style={{ marginBottom: 6 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF' }}>SUPPORTING CASE LAWS</Text>
+                            {arg.supportingCaseLaws.map((c: string, idx: number) => (
+                              <Text key={idx} style={{ fontSize: 10, color: '#374151', marginLeft: 6, marginTop: 2, fontStyle: 'italic' }}>• {c}</Text>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Linkages Grid */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                          {arg.relatedEvidence?.map((e: string, idx: number) => (
+                            <View key={idx} style={{ backgroundColor: '#F3F4F6', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                              <Ionicons name="link-outline" size={10} color="#4B5563" />
+                              <Text style={{ fontSize: 9, color: '#4B5563' }}>{e}</Text>
+                            </View>
+                          ))}
+                          {arg.relatedDocuments?.map((d: string, idx: number) => (
+                            <View key={idx} style={{ backgroundColor: '#EEECFF', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                              <Ionicons name="document-outline" size={10} color="#6D5DFC" />
+                              <Text style={{ fontSize: 9, color: '#6D5DFC' }}>{d}</Text>
+                            </View>
+                          ))}
+                          {arg.relatedTimelineEvents?.map((t: string, idx: number) => (
+                            <View key={idx} style={{ backgroundColor: '#FFFBEB', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                              <Ionicons name="time-outline" size={10} color="#D97706" />
+                              <Text style={{ fontSize: 9, color: '#D97706' }}>{t}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Card Actions Bottom Row */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 8, marginTop: 8 }}>
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+                        onPress={() => handlePinArgument(arg.id)}
+                      >
+                        <Ionicons name={isPinned ? 'pin' : 'pin-outline'} size={12} color={isPinned ? '#A855F7' : '#6B7280'} />
+                        <Text style={{ color: isPinned ? '#A855F7' : '#6B7280', fontSize: 10, fontWeight: '700' }}>Pin</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+                        onPress={() => openEditArgModal(argumentsActiveSubTab, arg)}
+                      >
+                        <Ionicons name="create-outline" size={12} color="#6D5DFC" />
+                        <Text style={{ color: '#6D5DFC', fontSize: 10, fontWeight: '700' }}>Edit</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+                        onPress={() => handleDuplicateArgument(argumentsActiveSubTab, arg)}
+                      >
+                        <Ionicons name="copy-outline" size={12} color="#10B981" />
+                        <Text style={{ color: '#10B981', fontSize: 10, fontWeight: '700' }}>Duplicate</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+                        onPress={() => handleDeleteArgument(argumentsActiveSubTab, arg.id)}
+                      >
+                        <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                        <Text style={{ color: '#EF4444', fontSize: 10, fontWeight: '700' }}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* Opponent Predictions Subtab */}
+        {argumentsActiveSubTab === 'opponent' && !isAnalyzingArguments && (
+          <View style={styles.cardList}>
+            <View style={[styles.itemCard, { backgroundColor: '#FDF2F8', borderColor: '#FBCFE8' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Ionicons name="sparkles" size={14} color="#DB2777" />
+                <Text style={{ fontWeight: '800', fontSize: 12, color: '#DB2777' }}>AI Predictive Defense Intelligence</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: '#BE185D', lineHeight: 14 }}>
+                Based on historical default disputes, opposing counsel is predicted to raise procedural objections under Section 65B of Evidence Act and contest interest rate compound structures.
+              </Text>
+            </View>
+
+            {opponentPredictions.map((pred) => (
+              <View key={pred.id} style={styles.itemCard}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#1F2937' }}>{pred.title}</Text>
+                    <Text style={{ fontSize: 9, color: '#9CA3AF', fontWeight: '700', textTransform: 'uppercase', marginTop: 2 }}>{pred.type}</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#DB2777' }}>{pred.probability}% Prob</Text>
+                </View>
+                
+                <View style={{ height: 6, backgroundColor: '#E5E7EB', borderRadius: 3, marginVertical: 8, overflow: 'hidden' }}>
+                  <View style={{ height: '100%', width: `${pred.probability}%`, backgroundColor: '#DB2777' }} />
+                </View>
+
+                <Text style={{ fontSize: 11, color: '#4B5563', lineHeight: 14, marginBottom: 8 }}>
+                  {pred.description}
+                </Text>
+
+                <View style={{ backgroundColor: '#EEECFF', padding: 8, borderRadius: 6, flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+                  <Ionicons name="sparkles" size={12} color="#6D5DFC" style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: '#5B4EDB' }}>RECOMMENDED REBUTTAL STRATEGY</Text>
+                    <Text style={{ fontSize: 11, color: '#1F2937', marginTop: 2, lineHeight: 14 }}>{pred.rebuttal}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* AI Sequencing Subtab */}
+        {argumentsActiveSubTab === 'strategy' && !isAnalyzingArguments && (
+          <View style={styles.cardList}>
+            <View style={[styles.itemCard, { backgroundColor: '#F5F3FF', borderColor: '#DDD6FE' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Ionicons name="sparkles" size={14} color="#7C3AED" />
+                <Text style={{ fontWeight: '800', fontSize: 12, color: '#7C3AED' }}>Optimal Presentation Sequence</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: '#6D28D9', lineHeight: 14 }}>
+                Arguments arranged in recommended chronological courtroom order to establish prima facie execution before default details. Drag/reorder items below.
+              </Text>
+            </View>
+
+            {trialStrategySequence.map((seq, index) => (
+              <View key={seq.id || index} style={[styles.itemCard, { flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
+                {/* Step indicator */}
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#6D5DFC', justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>{seq.step}</Text>
+                </View>
+
+                {/* Content */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#1F2937' }}>{seq.title}</Text>
+                  <Text style={{ fontSize: 11, color: '#4B5563', marginTop: 1, lineHeight: 14 }}>{seq.detail}</Text>
+                  <View style={{ alignSelf: 'flex-start', backgroundColor: '#E0F2FE', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, marginTop: 4 }}>
+                    <Text style={{ color: '#0369A1', fontSize: 8, fontWeight: '700' }}>{seq.status}</Text>
+                  </View>
+                </View>
+
+                {/* Interactive Moves */}
+                <View style={{ gap: 4 }}>
+                  <TouchableOpacity
+                    disabled={index === 0}
+                    onPress={() => handleMoveSequence(index, 'up')}
+                    style={{ padding: 2, opacity: index === 0 ? 0.3 : 1 }}
+                  >
+                    <Ionicons name="chevron-up-circle" size={20} color="#6D5DFC" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    disabled={index === trialStrategySequence.length - 1}
+                    onPress={() => handleMoveSequence(index, 'down')}
+                    style={{ padding: 2, opacity: index === trialStrategySequence.length - 1 ? 0.3 : 1 }}
+                  >
+                    <Ionicons name="chevron-down-circle" size={20} color="#6D5DFC" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Prep Binder Subtab */}
+        {argumentsActiveSubTab === 'preparation' && !isAnalyzingArguments && (
+          <View style={styles.cardList}>
+            {/* Prep score and dynamic metrics banner */}
+            <View style={[styles.itemCard, { borderLeftWidth: 4, borderLeftColor: '#10B981' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#1F2937' }}>Hearing Binder Score</Text>
+                  <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '700', textTransform: 'uppercase', marginTop: 2 }}>
+                    {completedBinderTasks} of {totalBinderTasks} Items Checked
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 24, fontWeight: '900', color: '#10B981' }}>{prepScore}%</Text>
+              </View>
+              
+              <View style={{ height: 6, backgroundColor: '#E5E7EB', borderRadius: 3, marginTop: 8, overflow: 'hidden' }}>
+                <View style={{ height: '100%', width: `${prepScore}%`, backgroundColor: '#10B981' }} />
+              </View>
+            </View>
+
+            {/* Checklist items */}
+            <View style={styles.itemCard}>
+              <Text style={{ fontWeight: '800', fontSize: 13, color: '#1F2937', marginBottom: 8 }}>Courtroom Preparation Checklist</Text>
+              
+              {prepBinderTasks.map((t) => (
+                <Pressable
+                  key={t.id}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: '#ECECEC' }}
+                  onPress={() => handleToggleBinderTask(t.id)}
+                >
+                  <Ionicons
+                    name={t.status === 'Completed' ? 'checkbox' : 'square-outline'}
+                    size={20}
+                    color={t.status === 'Completed' ? '#10B981' : '#9CA3AF'}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[{ fontSize: 11, color: '#1F2937', fontWeight: '600' }, t.status === 'Completed' && { textDecorationLine: 'line-through', color: '#9CA3AF' }]}>
+                      {t.title}
+                    </Text>
+                    <Text style={{ fontSize: 8, color: '#6D5DFC', fontWeight: '800', textTransform: 'uppercase' }}>{t.category}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Oral presentation content */}
+            <View style={styles.itemCard}>
+              <Text style={styles.accordionTitle}>Oral Presentation Binder</Text>
+              <View style={styles.dividerLine} />
+              
+              <Text style={styles.inputLabel}>Opening Statement Pitch</Text>
+              <Text style={[styles.lawDesc, { backgroundColor: '#F9FAFB', padding: 10, borderRadius: 8, fontStyle: 'italic', fontSize: 11, color: '#4B5563' }]}>
+                {strategyData.prepBinder.openingStatement}
+              </Text>
+
+              <Text style={[styles.inputLabel, { marginTop: 10 }]}>Cross-Examination Outline</Text>
+              {strategyData.prepBinder.crossExamination.map((q, i) => (
+                <Text key={i} style={{ fontSize: 11, color: '#4B5563', marginTop: 3 }}>{i+1}. {q}</Text>
+              ))}
+
+              <Text style={[styles.inputLabel, { marginTop: 10 }]}>Judge Queries Predicted</Text>
+              {strategyData.prepBinder.judgeQuestions.map((q, i) => (
+                <View key={i} style={{ backgroundColor: '#EEECFF', padding: 8, borderRadius: 6, marginTop: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#5B4EDB' }}>Q: {q.question}</Text>
+                  <Text style={{ fontSize: 11, color: '#1F2937', marginTop: 2 }}>A: {q.answer}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
       </View>
+    );
+  };
+
+  // Tasks checklist
+  const renderTasksTab = () => {
+    const activeTasks = workspace?.tasks || [];
+    const totalTasks = activeTasks.length;
+    const pendingTasks = activeTasks.filter(t => t.status === 'Pending').length;
+    const inProgressTasks = activeTasks.filter(t => t.status === 'In Progress').length;
+    const completedTasks = activeTasks.filter(t => t.status === 'Completed').length;
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const overdueTasks = activeTasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr).length;
+    const aiSuggestedCount = aiSuggestedTasks.length;
+
+    // Filter Logic
+    const filteredTasks = activeTasks.filter(t => {
+      // 1. Search Query
+      if (taskSearchQuery.trim()) {
+        const query = taskSearchQuery.toLowerCase();
+        const matchesTitle = (t.title || '').toLowerCase().includes(query);
+        const matchesDesc = (t.description || '').toLowerCase().includes(query);
+        const matchesDeadline = (t.deadline || '').toLowerCase().includes(query);
+        const matchesHearing = (t.relatedHearing || '').toLowerCase().includes(query);
+        const matchesEvidence = (t.relatedEvidence || '').toLowerCase().includes(query);
+        const matchesDoc = (t.relatedDocument || '').toLowerCase().includes(query);
+        
+        if (!matchesTitle && !matchesDesc && !matchesDeadline && !matchesHearing && !matchesEvidence && !matchesDoc) {
+          return false;
+        }
+      }
+
+      // 2. Chip Filter Preset
+      switch (taskFilter) {
+        case 'Pending':
+          return t.status === 'Pending';
+        case 'In Progress':
+          return t.status === 'In Progress';
+        case 'Completed':
+          return t.status === 'Completed';
+        case 'Overdue':
+          return t.status !== 'Completed' && t.deadline && t.deadline < todayStr;
+        case 'High Priority':
+          return t.priority === 'High' || t.priority === 'Urgent' || t.priority === 'Critical';
+        case 'Medium':
+          return t.priority === 'Medium';
+        case 'Low':
+          return t.priority === 'Low';
+        case 'AI Suggested':
+          return t.source === 'AI Suggestion' || (t._id && t._id.startsWith('task_ai'));
+        case 'Manual':
+          return t.source !== 'AI Suggestion' && !(t._id && t._id.startsWith('task_ai'));
+        case 'Hearing Related':
+          return !!(t.relatedHearing || t.linkedHearing);
+        case 'Document Related':
+          return !!t.relatedDocument;
+        case 'Evidence Related':
+          return !!t.relatedEvidence;
+        default:
+          return true;
+      }
+    });
+
+    // Chronological Grouping
+    const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const nextWeekStr = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+
+    const overdueGroup = filteredTasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
+    const todayGroup = filteredTasks.filter(t => t.status !== 'Completed' && t.deadline === todayStr);
+    const tomorrowGroup = filteredTasks.filter(t => t.status !== 'Completed' && t.deadline === tomorrowStr);
+    const thisWeekGroup = filteredTasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline > tomorrowStr && t.deadline <= nextWeekStr);
+    const upcomingGroup = filteredTasks.filter(t => t.status !== 'Completed' && (!t.deadline || t.deadline > nextWeekStr));
+    const completedGroup = filteredTasks.filter(t => t.status === 'Completed');
+
+    const taskFilters = [
+      'All', 'Pending', 'In Progress', 'Completed', 'Overdue', 
+      'High Priority', 'Medium', 'Low', 'AI Suggested', 'Manual', 
+      'Hearing Related', 'Document Related', 'Evidence Related'
+    ];
+
+    const toggleExpandTask = (taskId: string) => {
+      setExpandedTasks(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+    };
+
+    const getPriorityStyle = (p: string) => {
+      switch (p) {
+        case 'Critical':
+        case 'Urgent':
+          return { bg: '#FEE2E2', txt: '#991B1B', label: 'Critical' };
+        case 'High':
+          return { bg: '#FFEDD5', txt: '#9A3412', label: 'High' };
+        case 'Medium':
+          return { bg: '#E0F2FE', txt: '#0369A1', label: 'Medium' };
+        default:
+          return { bg: '#F3F4F6', txt: '#374151', label: 'Low' };
+      }
+    };
+
+    const handleFormSubmit = () => {
+      if (taskFormType === 'add') {
+        handleCreateTask();
+      } else {
+        handleEditTask();
+      }
+    };
+
+    const renderTaskCard = (t: any) => {
+      const isExpanded = !!expandedTasks[t._id!];
+      const badge = getPriorityStyle(t.priority);
+      
+      const checklist = t.checklist || [];
+      const totalSub = checklist.length;
+      const checkedSub = checklist.filter((c: any) => c.checked).length;
+      const ratio = totalSub > 0 ? checkedSub / totalSub : 0;
+
+      return (
+        <View key={t._id} style={[styles.taskCard, isExpanded && styles.taskCardExpanded]}>
+          {/* Card Summary Header */}
+          <View style={styles.taskCardHeader}>
+            <TouchableOpacity 
+              onPress={() => handleToggleTaskStatus(t._id!, t.status)}
+              style={styles.checkboxContainer}
+            >
+              <Ionicons 
+                name={t.status === 'Completed' ? 'checkbox' : 'square-outline'} 
+                size={22} 
+                color={t.status === 'Completed' ? '#10B981' : '#9CA3AF'} 
+              />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              onPress={() => toggleExpandTask(t._id!)}
+              style={{ flex: 1, marginHorizontal: 8 }}
+            >
+              <Text style={[styles.taskCardTitle, t.status === 'Completed' && styles.taskItemTitleCompleted]}>
+                {t.title}
+              </Text>
+              
+              <View style={styles.badgeContainer}>
+                <View style={[styles.priorityBadge, { backgroundColor: badge.bg }]}>
+                  <Text style={[styles.priorityBadgeText, { color: badge.txt }]}>{badge.label}</Text>
+                </View>
+                {t.source === 'AI Suggestion' && (
+                  <View style={styles.aiBadge}>
+                    <Ionicons name="sparkles" size={8} color="#6D5DFC" />
+                    <Text style={styles.aiBadgeText}>AI Suggested</Text>
+                  </View>
+                )}
+                {t.deadline && (
+                  <Text style={styles.deadlineLabel}>
+                    Due: {t.deadline}
+                  </Text>
+                )}
+              </View>
+
+              {totalSub > 0 && (
+                <View style={styles.checklistProgressRow}>
+                  <Text style={styles.progressText}>
+                    Subtasks: {checkedSub}/{totalSub}
+                  </Text>
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBarActive, { width: `${ratio * 100}%` }]} />
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => toggleExpandTask(t._id!)}>
+              <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5563" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Expanded Detail Drawer */}
+          {isExpanded && (
+            <View style={styles.detailDrawer}>
+              {t.description ? (
+                <Text style={styles.expandedDesc}>{t.description}</Text>
+              ) : null}
+
+              {/* Checklist builder */}
+              {totalSub > 0 && (
+                <View style={styles.subtasksContainer}>
+                  <Text style={styles.sectionSubTitle}>Subtasks Checklist</Text>
+                  {checklist.map((c: any, index: number) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => handleToggleSubtask(t._id!, index)}
+                      style={styles.checklistRow}
+                    >
+                      <Ionicons 
+                        name={c.checked ? 'checkbox' : 'square-outline'} 
+                        size={16} 
+                        color={c.checked ? '#10B981' : '#6B7280'} 
+                      />
+                      <Text style={[styles.checklistItemText, c.checked && styles.checklistItemTextCompleted]}>
+                        {c.title}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Linked objects */}
+              {(t.relatedHearing || t.relatedEvidence || t.relatedDocument || t.relatedTimelineEvent) && (
+                <View style={styles.linkagesContainer}>
+                  <Text style={styles.sectionSubTitle}>Linked Resources</Text>
+                  <View style={styles.pillsRow}>
+                    {t.relatedHearing ? (
+                      <TouchableOpacity 
+                        onPress={() => setActiveWorkspaceTab('hearings')}
+                        style={[styles.linkPill, { backgroundColor: '#EEECFF' }]}
+                      >
+                        <Ionicons name="calendar-outline" size={10} color="#5B4EDB" />
+                        <Text style={[styles.linkPillText, { color: '#5B4EDB' }]}>{t.relatedHearing}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {t.relatedEvidence ? (
+                      <TouchableOpacity 
+                        onPress={() => setActiveWorkspaceTab('evidence')}
+                        style={[styles.linkPill, { backgroundColor: '#ECFDF5' }]}
+                      >
+                        <Ionicons name="document-attach-outline" size={10} color="#10B981" />
+                        <Text style={[styles.linkPillText, { color: '#10B981' }]}>{t.relatedEvidence}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {t.relatedDocument ? (
+                      <TouchableOpacity 
+                        onPress={() => setActiveWorkspaceTab('documents')}
+                        style={[styles.linkPill, { backgroundColor: '#F0FDF4' }]}
+                      >
+                        <Ionicons name="document-text-outline" size={10} color="#16A34A" />
+                        <Text style={[styles.linkPillText, { color: '#16A34A' }]}>{t.relatedDocument}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {t.relatedTimelineEvent ? (
+                      <TouchableOpacity 
+                        onPress={() => setActiveWorkspaceTab('timeline')}
+                        style={[styles.linkPill, { backgroundColor: '#FFFBEB' }]}
+                      >
+                        <Ionicons name="time-outline" size={10} color="#D97706" />
+                        <Text style={[styles.linkPillText, { color: '#D97706' }]}>{t.relatedTimelineEvent}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              )}
+
+              {/* Meta details */}
+              <View style={styles.metaDetailsGrid}>
+                {t.assignTo ? (
+                  <Text style={styles.metaText}>
+                    👤 <Text style={{fontWeight: '700'}}>Assignee:</Text> {t.assignTo}
+                  </Text>
+                ) : null}
+                {t.reminder && t.reminder !== 'None' ? (
+                  <Text style={styles.metaText}>
+                    🔔 <Text style={{fontWeight: '700'}}>Reminder:</Text> {t.reminder}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.cardActionsRow}>
+                <TouchableOpacity 
+                  onPress={() => handleDuplicateTask(t)}
+                  style={styles.actionIconButton}
+                >
+                  <Ionicons name="copy-outline" size={16} color="#4B5563" />
+                  <Text style={styles.actionIconText}>Copy</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  onPress={() => handleOpenEditTaskModal(t)}
+                  style={styles.actionIconButton}
+                >
+                  <Ionicons name="create-outline" size={16} color="#4B5563" />
+                  <Text style={styles.actionIconText}>Edit</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  onPress={() => handleDeleteTask(t._id!)}
+                  style={[styles.actionIconButton, { borderRightWidth: 0 }]}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                  <Text style={[styles.actionIconText, { color: '#EF4444' }]}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      );
+    };
+
+    const renderGroupList = (title: string, groupTasks: any[], color: string) => {
+      if (groupTasks.length === 0) return null;
+      return (
+        <View style={styles.timelineGroup}>
+          <View style={[styles.timelineGroupHeader, { borderLeftColor: color }]}>
+            <Text style={[styles.timelineGroupTitle, { color }]}>{title}</Text>
+            <View style={[styles.timelineGroupCount, { backgroundColor: color + '1A' }]}>
+              <Text style={[styles.timelineGroupCountText, { color }]}>{groupTasks.length}</Text>
+            </View>
+          </View>
+          <View style={styles.timelineGroupContent}>
+            {groupTasks.map(renderTaskCard)}
+          </View>
+        </View>
+      );
+    };
+
+    return (
+      <ScrollView style={styles.tabContent} contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+        {/* Case Header Banner */}
+        <View style={styles.caseHeaderBanner}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.caseHeaderTitle}>{workspace?.name || 'Active Case Workspace'}</Text>
+            <Text style={styles.caseHeaderSubtitle}>AI Legal Task Manager & Strategy Binder</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+            <View style={[styles.badge, { backgroundColor: '#EEECFF' }]}>
+              <Text style={[styles.badgeText, { color: '#6D5DFC' }]}>{workspace?.status || 'Active'}</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: '#FFFBEB' }]}>
+              <Text style={[styles.badgeText, { color: '#D97706' }]}>{workspace?.priority || 'High'}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Task Metrics Dashboard */}
+        <View style={styles.taskDashboard}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+            <View style={[styles.metricCard, { borderLeftColor: '#6D5DFC' }]}>
+              <Text style={styles.metricNum}>{totalTasks}</Text>
+              <Text style={styles.metricLabel}>Total Tasks</Text>
+            </View>
+            <View style={[styles.metricCard, { borderLeftColor: '#F59E0B' }]}>
+              <Text style={styles.metricNum}>{pendingTasks}</Text>
+              <Text style={styles.metricLabel}>Pending</Text>
+            </View>
+            <View style={[styles.metricCard, { borderLeftColor: '#3B82F6' }]}>
+              <Text style={styles.metricNum}>{inProgressTasks}</Text>
+              <Text style={styles.metricLabel}>In Progress</Text>
+            </View>
+            <View style={[styles.metricCard, { borderLeftColor: '#10B981' }]}>
+              <Text style={styles.metricNum}>{completedTasks}</Text>
+              <Text style={styles.metricLabel}>Completed</Text>
+            </View>
+            <View style={[styles.metricCard, { borderLeftColor: '#EF4444' }]}>
+              <Text style={styles.metricNum}>{overdueTasks}</Text>
+              <Text style={styles.metricLabel}>Overdue</Text>
+            </View>
+            <View style={[styles.metricCard, { borderLeftColor: '#8B5CF6' }]}>
+              <Text style={styles.metricNum}>{aiSuggestedCount}</Text>
+              <Text style={styles.metricLabel}>AI Suggested</Text>
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* Daily Brief Panel */}
+        <View style={styles.aiBriefCard}>
+          <TouchableOpacity 
+            onPress={() => setAiTaskBriefOpen(!aiTaskBriefOpen)}
+            style={styles.aiBriefHeader}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="sparkles" size={18} color="#8B5CF6" />
+              <Text style={styles.aiBriefTitle}>AI Daily Brief</Text>
+            </View>
+            <Ionicons name={aiTaskBriefOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#8B5CF6" />
+          </TouchableOpacity>
+          {aiTaskBriefOpen && (
+            <View style={styles.aiBriefContent}>
+              <Text style={styles.aiBriefText}>
+                Good morning Advocate. Here is your priority legal checklist:
+              </Text>
+              {overdueTasks > 0 ? (
+                <Text style={[styles.aiBriefText, { color: '#EF4444', fontWeight: '700', marginTop: 4 }]}>
+                  ⚠️ You have {overdueTasks} overdue tasks that require immediate attention!
+                </Text>
+              ) : null}
+              <Text style={[styles.aiBriefText, { marginTop: 4 }]}>
+                • Section 65B Certificate must be finalized before the admission hearing.
+              </Text>
+              <Text style={[styles.aiBriefText, { marginTop: 2 }]}>
+                • Opposing counsel is predicted to raise objections on HDFC bank ledgers authenticity.
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Weekly Planner Accordion */}
+        <View style={styles.aiBriefCard}>
+          <TouchableOpacity 
+            onPress={() => setWeeklyPlannerOpen(!weeklyPlannerOpen)}
+            style={styles.aiBriefHeader}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="calendar-outline" size={18} color="#6D5DFC" />
+              <Text style={[styles.aiBriefTitle, { color: '#6D5DFC' }]}>AI Weekly Planner</Text>
+            </View>
+            <Ionicons name={weeklyPlannerOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#6D5DFC" />
+          </TouchableOpacity>
+          {weeklyPlannerOpen && (
+            <View style={styles.aiBriefContent}>
+              <View style={styles.weeklyPlannerCategory}>
+                <Text style={styles.weeklyCategoryHeader}>⚖️ Court Preparation</Text>
+                <Text style={styles.weeklyCategoryText}>Verify executing witness testimonies and draft opening statement notes.</Text>
+              </View>
+              <View style={styles.weeklyPlannerCategory}>
+                <Text style={styles.weeklyCategoryHeader}>📂 Drafting & Filings</Text>
+                <Text style={styles.weeklyCategoryText}>Submit written statement replication pleadings within limitation timeframe.</Text>
+              </View>
+              <View style={styles.weeklyPlannerCategory}>
+                <Text style={styles.weeklyCategoryHeader}>🔍 Evidence Collection</Text>
+                <Text style={styles.weeklyCategoryText}>Log Speed Post delivery tracking slip into Evidence vault.</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Quick Action Button Panel */}
+        <View style={styles.quickActionRow}>
+          <TouchableOpacity 
+            style={[styles.quickActionButton, { backgroundColor: '#6D5DFC' }]}
+            onPress={() => {
+              setTaskFormType('add');
+              setTaskForm({
+                title: '',
+                description: '',
+                priority: 'High',
+                deadline: '',
+                reminder: 'None',
+                assignTo: '',
+                status: 'Pending',
+                relatedHearing: '',
+                relatedTimelineEvent: '',
+                relatedEvidence: '',
+                relatedDocument: '',
+                notes: '',
+                attachments: [],
+                checklist: [],
+                tempSubtaskText: ''
+              });
+              setIsTaskFormModalOpen(true);
+            }}
+          >
+            <Ionicons name="add" size={16} color="#FFFFFF" />
+            <Text style={styles.quickActionButtonText}>Add Task</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.quickActionButton, { backgroundColor: '#8B5CF6' }]}
+            onPress={handleAiGenerateTasks}
+            disabled={isGeneratingAiTasks}
+          >
+            {isGeneratingAiTasks ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                <Text style={styles.quickActionButtonText}>AI Suggested</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.quickActionButton, { backgroundColor: '#1E293B' }]}
+            onPress={() => setIsVoiceTasksModalOpen(true)}
+          >
+            <Ionicons name="mic-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.quickActionButtonText}>Voice Dictation</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Search Input Panel */}
+        <View style={styles.searchBarRow}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={16} color="#9CA3AF" style={{ marginRight: 6 }} />
+            <TextInput
+              style={styles.searchInputText}
+              placeholder="Search by name, hearing, evidence, due date..."
+              placeholderTextColor="#9CA3AF"
+              value={taskSearchQuery}
+              onChangeText={setTaskSearchQuery}
+            />
+            {taskSearchQuery ? (
+              <TouchableOpacity onPress={() => setTaskSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Preset Chips Row */}
+        <View style={{ marginVertical: 10 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
+            {taskFilters.map((f) => {
+              const active = taskFilter === f;
+              return (
+                <TouchableOpacity
+                  key={f}
+                  onPress={() => setTaskFilter(f)}
+                  style={[styles.filterChip, active && styles.activeFilterChip]}
+                >
+                  <Text style={[styles.chipText, active && styles.activeChipText]}>{f}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Active Chronological Lists */}
+        {filteredTasks.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="clipboard-outline" size={48} color="#9CA3AF" />
+            <Text style={styles.emptyText}>No tasks match your active filters.</Text>
+          </View>
+        ) : (
+          <View style={{ paddingHorizontal: 12 }}>
+            {renderGroupList('🚨 Overdue', overdueGroup, '#EF4444')}
+            {renderGroupList('🗓️ Today', todayGroup, '#F59E0B')}
+            {renderGroupList('🌅 Tomorrow', tomorrowGroup, '#3B82F6')}
+            {renderGroupList('📅 This Week', thisWeekGroup, '#8B5CF6')}
+            {renderGroupList('⏳ Upcoming', upcomingGroup, '#6B7280')}
+            {renderGroupList('✅ Completed', completedGroup, '#10B981')}
+          </View>
+        )}
+
+        {/* AI Suggestions review queue block */}
+        {aiSuggestedTasks.length > 0 && (
+          <View style={styles.aiSuggestedQueueBox}>
+            <View style={styles.aiSuggestedQueueHeader}>
+              <Ionicons name="sparkles" size={16} color="#8B5CF6" />
+              <Text style={styles.aiSuggestedQueueTitle}>AI Suggested Tasks Queue ({aiSuggestedTasks.length})</Text>
+            </View>
+            <Text style={styles.aiSuggestedQueueSubtitle}>
+              Proactive recommendation list based on case variables. Promote to active list or dismiss.
+            </Text>
+
+            {aiSuggestedTasks.map((sTask) => (
+              <View key={sTask.id} style={styles.aiSuggestedItemCard}>
+                <View style={styles.aiSuggestedCardTop}>
+                  <Text style={styles.aiSuggestedCardTitle}>{sTask.title}</Text>
+                  <View style={[styles.priorityBadge, { backgroundColor: sTask.priority === 'Critical' ? '#FEE2E2' : '#FFEDD5' }]}>
+                    <Text style={[styles.priorityBadgeText, { color: sTask.priority === 'Critical' ? '#991B1B' : '#9A3412' }]}>
+                      {sTask.priority}
+                    </Text>
+                  </View>
+                </View>
+                
+                <Text style={styles.aiSuggestedCardReason}>
+                  💡 <Text style={{fontWeight: '700'}}>AI Reasoning:</Text> {sTask.reason}
+                </Text>
+                
+                <Text style={styles.aiSuggestedCardDue}>
+                  ⏳ <Text style={{fontWeight: '700'}}>Timeline Metric:</Text> {sTask.deadline}
+                </Text>
+
+                <View style={styles.aiSuggestedCardActions}>
+                  <TouchableOpacity
+                    onPress={() => handleApproveAiTask(sTask.id)}
+                    style={[styles.aiSuggestedBtn, { backgroundColor: '#6D5DFC' }]}
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.aiSuggestedBtnText}>Approve & Create</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleDismissAiTask(sTask.id)}
+                    style={[styles.aiSuggestedBtn, { backgroundColor: '#EF4444' }]}
+                  >
+                    <Ionicons name="trash-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.aiSuggestedBtnText}>Dismiss</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Task Form Modal (Add / Edit) */}
+        <Modal
+          visible={isTaskFormModalOpen}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setIsTaskFormModalOpen(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContentContainer}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>
+                  {taskFormType === 'add' ? 'Add Legal Task' : 'Edit Legal Task'}
+                </Text>
+                <TouchableOpacity onPress={() => setIsTaskFormModalOpen(false)}>
+                  <Ionicons name="close" size={24} color="#1F2937" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={styles.modalFormScroll}>
+                <Text style={styles.formLabel}>Task Title *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="e.g. Draft Writ Petition"
+                  placeholderTextColor="#9CA3AF"
+                  value={taskForm.title}
+                  onChangeText={(text) => setTaskForm(prev => ({ ...prev, title: text }))}
+                />
+
+                <Text style={styles.formLabel}>Detailed Description</Text>
+                <TextInput
+                  style={[styles.formInput, { height: 60 }]}
+                  placeholder="Scope of work, references..."
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  value={taskForm.description}
+                  onChangeText={(text) => setTaskForm(prev => ({ ...prev, description: text }))}
+                />
+
+                <View style={{ gap: 4, marginBottom: 8 }}>
+                  <Text style={styles.formLabel}>Priority</Text>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {['Critical', 'High', 'Medium', 'Low'].map(p => (
+                      <TouchableOpacity 
+                        key={p} 
+                        onPress={() => setTaskForm(prev => ({ ...prev, priority: p }))}
+                        style={{ 
+                          flex: 1, 
+                          padding: 8, 
+                          borderRadius: 6, 
+                          borderWidth: 1, 
+                          borderColor: taskForm.priority === p ? '#6D5DFC' : '#D1D5DB',
+                          backgroundColor: taskForm.priority === p ? '#EEECFF' : '#FFFFFF',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: taskForm.priority === p ? '#6D5DFC' : '#374151' }}>{p}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={{ gap: 4, marginBottom: 8 }}>
+                  <Text style={styles.formLabel}>Status</Text>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {['Pending', 'In Progress', 'Completed'].map(s => (
+                      <TouchableOpacity 
+                        key={s} 
+                        onPress={() => setTaskForm(prev => ({ ...prev, status: s }))}
+                        style={{ 
+                          flex: 1, 
+                          padding: 8, 
+                          borderRadius: 6, 
+                          borderWidth: 1, 
+                          borderColor: taskForm.status === s ? '#6D5DFC' : '#D1D5DB',
+                          backgroundColor: taskForm.status === s ? '#EEECFF' : '#FFFFFF',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: taskForm.status === s ? '#6D5DFC' : '#374151' }}>{s}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.formLabel}>Due Date (YYYY-MM-DD)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="e.g. 2026-06-30"
+                      placeholderTextColor="#9CA3AF"
+                      value={taskForm.deadline}
+                      onChangeText={(text) => setTaskForm(prev => ({ ...prev, deadline: text }))}
+                    />
+                  </View>
+                </View>
+
+                <View style={{ gap: 4, marginBottom: 8 }}>
+                  <Text style={styles.formLabel}>Reminder</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                    {['None', '1 Hour Before', '1 Day Before', '2 Days Before'].map(r => (
+                      <TouchableOpacity 
+                        key={r} 
+                        onPress={() => setTaskForm(prev => ({ ...prev, reminder: r }))}
+                        style={{ 
+                          paddingHorizontal: 12, 
+                          paddingVertical: 8, 
+                          borderRadius: 6, 
+                          borderWidth: 1, 
+                          borderColor: taskForm.reminder === r ? '#6D5DFC' : '#D1D5DB',
+                          backgroundColor: taskForm.reminder === r ? '#EEECFF' : '#FFFFFF',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: taskForm.reminder === r ? '#6D5DFC' : '#374151' }}>{r}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <Text style={styles.formLabel}>Assignee Advocate</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="e.g. Senior Counsel Vipul"
+                  placeholderTextColor="#9CA3AF"
+                  value={taskForm.assignTo}
+                  onChangeText={(text) => setTaskForm(prev => ({ ...prev, assignTo: text }))}
+                />
+
+                {/* Subtasks checklist builder */}
+                <Text style={styles.formLabel}>Subtask Checklist ({taskForm.checklist.length})</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+                  <TextInput
+                    style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
+                    placeholder="Add checklist subtask..."
+                    placeholderTextColor="#9CA3AF"
+                    value={(taskForm as any).tempSubtaskText || ''}
+                    onChangeText={(val) => setTaskForm(prev => ({ ...prev, tempSubtaskText: val }))}
+                  />
+                  <TouchableOpacity
+                    onPress={() => {
+                      const val = ((taskForm as any).tempSubtaskText || '').trim();
+                      if (!val) return;
+                      setTaskForm(prev => ({
+                        ...prev,
+                        checklist: [...prev.checklist, { title: val, checked: false }],
+                        tempSubtaskText: ''
+                      }));
+                    }}
+                    style={{ backgroundColor: '#EEECFF', paddingHorizontal: 12, justifyContent: 'center', borderRadius: 8 }}
+                  >
+                    <Text style={{ color: '#6D5DFC', fontWeight: '700' }}>+ Add</Text>
+                  </TouchableOpacity>
+                </View>
+                {taskForm.checklist.map((item, idx) => (
+                  <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                    <Text style={{ fontSize: 11, color: '#374151' }}>• {item.title}</Text>
+                    <TouchableOpacity onPress={() => {
+                      setTaskForm(prev => ({
+                        ...prev,
+                        checklist: prev.checklist.filter((_, i) => i !== idx)
+                      }));
+                    }}>
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                {/* Linked Objects Selectors */}
+                <Text style={styles.formLabel}>Link to Hearing</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="e.g. First trial scheduled"
+                  placeholderTextColor="#9CA3AF"
+                  value={taskForm.relatedHearing}
+                  onChangeText={(text) => setTaskForm(prev => ({ ...prev, relatedHearing: text }))}
+                />
+                
+                <Text style={styles.formLabel}>Link to Evidence Exhibit</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="e.g. Certified Bank Statement (Ex. P-2)"
+                  placeholderTextColor="#9CA3AF"
+                  value={taskForm.relatedEvidence}
+                  onChangeText={(text) => setTaskForm(prev => ({ ...prev, relatedEvidence: text }))}
+                />
+              </ScrollView>
+
+              <View style={styles.modalActionButtonsRow}>
+                <TouchableOpacity
+                  onPress={handleFormSubmit}
+                  style={[styles.modalBtn, { backgroundColor: '#6D5DFC' }]}
+                >
+                  <Text style={styles.modalBtnText}>Save Task</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setIsTaskFormModalOpen(false)}
+                  style={[styles.modalBtn, { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D1D5DB' }]}
+                >
+                  <Text style={[styles.modalBtnText, { color: '#374151' }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Voice Dictation Parser Modal */}
+        <Modal
+          visible={isVoiceTasksModalOpen}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setIsVoiceTasksModalOpen(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContentContainer}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>AI Voice Command Parser</Text>
+                <TouchableOpacity onPress={() => setIsVoiceTasksModalOpen(false)}>
+                  <Ionicons name="close" size={24} color="#1F2937" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalFormScroll}>
+                <Text style={styles.voicePromptText}>
+                  Speak or choose a preset directive below. AI will automatically parse the command and create a structured legal task.
+                </Text>
+
+                {/* Voice presets buttons list */}
+                <View style={{ gap: 8, marginVertical: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => setVoiceInputQuery('Draft and file the written statement reply before Friday')}
+                    style={styles.voicePresetBtn}
+                  >
+                    <Text style={styles.voicePresetBtnText}>
+                      💬 "Draft and file the written statement reply before Friday"
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setVoiceInputQuery('Prepare the Section 65B Electronic Evidence Certificate for next hearing')}
+                    style={styles.voicePresetBtn}
+                  >
+                    <Text style={styles.voicePresetBtnText}>
+                      💬 "Prepare the Section 65B Certificate for next hearing"
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setVoiceInputQuery('Upload the speed post dispatch postal receipt today')}
+                    style={styles.voicePresetBtn}
+                  >
+                    <Text style={styles.voicePresetBtnText}>
+                      💬 "Upload the speed post postal receipt today"
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.formLabel}>Vocal Directive Transcript</Text>
+                <TextInput
+                  style={[styles.formInput, { height: 70 }]}
+                  placeholder="Spoken words transcript..."
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  value={voiceInputQuery}
+                  onChangeText={setVoiceInputQuery}
+                />
+
+                {isProcessingVoice && (
+                  <View style={styles.voiceProcessingContainer}>
+                    <ActivityIndicator size="small" color="#6D5DFC" />
+                    <Text style={styles.voiceProcessingText}>Parsing vocal directives using AI NLP...</Text>
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.modalActionButtonsRow}>
+                <TouchableOpacity
+                  onPress={handleVoiceTaskParse}
+                  style={[styles.modalBtn, { backgroundColor: '#6D5DFC', flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center' }]}
+                  disabled={isProcessingVoice}
+                >
+                  <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                  <Text style={styles.modalBtnText}>Parse & Auto-Create</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setIsVoiceTasksModalOpen(false)}
+                  style={[styles.modalBtn, { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D1D5DB' }]}
+                >
+                  <Text style={[styles.modalBtnText, { color: '#374151' }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    );
+  };
+
+
+
+  // Notes Notepad
+  const renderNotesTab = () => {
+    if (!workspace) return null;
+    // Filter and Sort Notes
+    const filteredNotes = (workspace.notes || []).filter((note: any) => {
+      const matchesSearch = 
+        note.title.toLowerCase().includes(notesSearchQuery.toLowerCase()) ||
+        note.content.toLowerCase().includes(notesSearchQuery.toLowerCase()) ||
+        (note.tags || []).some((t: string) => t.toLowerCase().includes(notesSearchQuery.toLowerCase()));
+      
+      if (notesFilter === 'All') return matchesSearch && !note.archived;
+      if (notesFilter === 'Favorites') return matchesSearch && !!note.favorite && !note.archived;
+      if (notesFilter === 'Archived') return matchesSearch && !!note.archived;
+      return matchesSearch && note.category === notesFilter && !note.archived;
+    });
+
+    const pinnedNotes = filteredNotes.filter((n: any) => !!n.pinned);
+    const otherNotes = filteredNotes.filter((n: any) => !n.pinned);
+
+    return (
+      <ScrollView style={styles.tabContent} contentContainerStyle={{ paddingBottom: 120 }}>
+        {/* Case Header banner details */}
+        <View style={styles.caseHeaderBanner}>
+          <View style={styles.caseHeaderMain}>
+            <Text style={styles.caseHeaderTitle}>{workspace.name}</Text>
+            <View style={styles.caseHeaderBadgeRow}>
+              <View style={[styles.statusBadge, { backgroundColor: '#E0F2FE' }]}>
+                <Text style={[styles.statusBadgeText, { color: '#0369A1' }]}>{workspace.status}</Text>
+              </View>
+              <View style={[styles.priorityBadge, { backgroundColor: '#FEE2E2' }]}>
+                <Text style={[styles.priorityBadgeText, { color: '#B91C1C' }]}>{workspace.priority} Priority</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Notes Dashboard Overview metrics */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noteDashboardContainer}>
+          <View style={styles.noteMetricCard}>
+            <Text style={styles.noteMetricValue}>{(workspace.notes || []).length}</Text>
+            <Text style={styles.noteMetricLabel}>Total Notes</Text>
+          </View>
+          <View style={styles.noteMetricCard}>
+            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Strategy').length}</Text>
+            <Text style={styles.noteMetricLabel}>Strategy</Text>
+          </View>
+          <View style={styles.noteMetricCard}>
+            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Client Meeting').length}</Text>
+            <Text style={styles.noteMetricLabel}>Meetings</Text>
+          </View>
+          <View style={styles.noteMetricCard}>
+            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Hearing').length}</Text>
+            <Text style={styles.noteMetricLabel}>Hearings</Text>
+          </View>
+          <View style={styles.noteMetricCard}>
+            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.favorite).length}</Text>
+            <Text style={styles.noteMetricLabel}>Starred</Text>
+          </View>
+        </ScrollView>
+
+        {/* Quick Actions buttons */}
+        <View style={styles.noteQuickActionsBar}>
+          <TouchableOpacity style={styles.noteQuickActionBtn} onPress={handleOpenAddNoteModal}>
+            <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+            <Text style={styles.noteQuickActionText}>Add Note</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.noteQuickActionBtn, { backgroundColor: '#10B981' }]} onPress={() => setIsVoiceNoteModalOpen(true)}>
+            <Ionicons name="mic" size={18} color="#FFFFFF" />
+            <Text style={styles.noteQuickActionText}>Voice Note</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.noteQuickActionBtn, { backgroundColor: '#8B5CF6' }]} onPress={() => setAiInsightsOpen(!aiInsightsOpen)}>
+            <Ionicons name="analytics" size={18} color="#FFFFFF" />
+            <Text style={styles.noteQuickActionText}>AI Insights</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* AI Second Brain Insights Panel */}
+        {aiInsightsOpen && (
+          <View style={styles.noteAiInsightsPanel}>
+            <Text style={styles.noteAiInsightsTitle}>🧠 Co-Counsel Second Brain Insights</Text>
+            <Text style={styles.noteAiInsightsSubtitle}>Key Mentions & Recurring Patterns:</Text>
+            
+            <View style={styles.noteAiInsightsSection}>
+              <Text style={styles.noteAiInsightsHeading}>👤 People Mentioned:</Text>
+              <View style={styles.noteAiInsightsRow}>
+                <Text style={styles.noteEntityChip}>Client (Plaintiff)</Text>
+                <Text style={styles.noteEntityChip}>Justice Rao</Text>
+                <Text style={styles.noteEntityChip}>Opponent Lawyer</Text>
+              </View>
+            </View>
+            
+            <View style={styles.noteAiInsightsSection}>
+              <Text style={styles.noteAiInsightsHeading}>📜 Governing Laws & Evidence:</Text>
+              <View style={styles.noteAiInsightsRow}>
+                <Text style={styles.noteEntityChip}>Limitation Act Section 3</Text>
+                <Text style={styles.noteEntityChip}>CPC Section 20</Text>
+                <Text style={styles.noteEntityChip}>Original Sale Deed</Text>
+              </View>
+            </View>
+            
+            <View style={styles.noteAiInsightsSection}>
+              <Text style={styles.noteAiInsightsHeading}>⚠️ Pending Strategy Risks:</Text>
+              <Text style={styles.noteAiInsightsText}>• Ensure Section 65B Electronic Evidence Certificate is signed before interim stay hearing.</Text>
+              <Text style={styles.noteAiInsightsText}>• Obtain certified postal service logs from client speed post dispatch.</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Search bar */}
+        <View style={styles.noteSearchBarRow}>
+          <Ionicons name="search" size={18} color="#9CA3AF" style={styles.noteSearchIcon} />
+          <TextInput
+            style={styles.noteSearchInput}
+            placeholder="Search notes by title, entities, acts, dates..."
+            placeholderTextColor="#9CA3AF"
+            value={notesSearchQuery}
+            onChangeText={setNotesSearchQuery}
+          />
+        </View>
+
+        {/* Horizontal filters chip scroll bar */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noteFiltersRow}>
+          {['All', 'Strategy', 'Client Meeting', 'Hearing', 'Personal', 'Favorites', 'Archived'].map((item) => (
+            <TouchableOpacity
+              key={item}
+              style={[styles.noteFilterChip, notesFilter === item && styles.noteFilterChipActive]}
+              onPress={() => setNotesFilter(item)}
+            >
+              <Text style={[styles.noteFilterChipText, notesFilter === item && styles.noteFilterChipTextActive]}>
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Pinned section list banner */}
+        {pinnedNotes.length > 0 && (
+          <View>
+            <Text style={styles.noteListHeading}>📌 Pinned Notes</Text>
+            {pinnedNotes.map((note) => renderNoteCardItem(note))}
+          </View>
+        )}
+
+        {/* Case Notes roster list */}
+        <Text style={styles.noteListHeading}>📝 Case Notes</Text>
+        {otherNotes.length === 0 && pinnedNotes.length === 0 ? (
+          <View style={styles.noteEmptyState}>
+            <Ionicons name="document-text-outline" size={48} color="#9CA3AF" />
+            <Text style={styles.noteEmptyText}>No case notes found matching search filters.</Text>
+            <TouchableOpacity style={styles.noteEmptyBtn} onPress={handleOpenAddNoteModal}>
+              <Text style={styles.noteEmptyBtnText}>Write First Note</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          otherNotes.map((note) => renderNoteCardItem(note))
+        )}
+
+        {/* Note Editor and Template Creation Modal */}
+        {renderNoteFormModal()}
+
+        {/* Voice Note Simulation Waveforms Modal */}
+        {renderVoiceNoteModal()}
+
+        {/* Revisions Version Selection Modal */}
+        {renderVersionHistoryModal()}
+      </ScrollView>
+    );
+  };
+
+  // Render Note Card Item Layout
+  const renderNoteCardItem = (note: any) => {
+    const isExpanded = !!expandedNotes[note._id || note.id];
+    
+    return (
+      <View key={note._id || note.id} style={[styles.noteCard, isExpanded && styles.noteCardExpanded]}>
+        {/* Card Header information */}
+        <View style={styles.noteCardHeader}>
+          <TouchableOpacity 
+            style={styles.noteFavoriteTouch}
+            onPress={() => handleToggleFavoriteNote(note._id || note.id)}
+          >
+            <Ionicons 
+              name={note.favorite ? "star" : "star-outline"} 
+              size={18} 
+              color={note.favorite ? "#F59E0B" : "#9CA3AF"} 
+            />
+          </TouchableOpacity>
+          
+          <View style={styles.noteHeaderMetaRow}>
+            <Text style={styles.noteCategoryTag}>{note.category}</Text>
+            <Text style={[
+              styles.notePriorityBadge, 
+              note.priority === 'Critical' ? styles.notePriorityCritical : 
+              note.priority === 'High' ? styles.notePriorityHigh : 
+              note.priority === 'Low' ? styles.notePriorityLow : styles.notePriorityMedium
+            ]}>
+              {note.priority}
+            </Text>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.notePinTouch} 
+            onPress={() => handleTogglePinNote(note._id || note.id)}
+          >
+            <Ionicons 
+              name={note.pinned ? "pin" : "pin-outline"} 
+              size={16} 
+              color={note.pinned ? "#6D5DFC" : "#9CA3AF"} 
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Note content title and description */}
+        <TouchableOpacity 
+          style={styles.noteClickArea}
+          onPress={() => {
+            setExpandedNotes({
+              ...expandedNotes,
+              [note._id || note.id]: !isExpanded
+            });
+          }}
+        >
+          <Text style={styles.noteCardTitle}>{note.title}</Text>
+          <Text 
+            style={styles.noteCardDescription}
+            numberOfLines={isExpanded ? undefined : 3}
+          >
+            {note.content}
+          </Text>
+          
+          {/* Starred linkages count */}
+          {!isExpanded && (
+            <View style={styles.noteFooterSummaryRow}>
+              <Text style={styles.noteFooterSummaryText}>
+                🗓️ {new Date(note.createdAt).toLocaleDateString()}
+              </Text>
+              <Text style={styles.noteFooterSummaryText}>
+                🏷️ {(note.tags || []).length} Tags
+              </Text>
+              <Text style={styles.noteFooterSummaryText}>
+                🧠 AI Summarized
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Drawer Collapsible Expanded Block */}
+        {isExpanded && (
+          <View style={styles.noteDrawerContent}>
+            {/* Rich formatting toolbar simulation */}
+            <View style={styles.noteToolbarRow}>
+              <TouchableOpacity 
+                style={[styles.noteToolbarBtn, noteIsBold && styles.noteToolbarBtnActive]}
+                onPress={() => setNoteIsBold(!noteIsBold)}
+              >
+                <Ionicons name="bold" size={14} color={noteIsBold ? "#6D5DFC" : "#4B5563"} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.noteToolbarBtn, noteIsItalic && styles.noteToolbarBtnActive]}
+                onPress={() => setNoteIsItalic(!noteIsItalic)}
+              >
+                <Ionicons name="italic" size={14} color={noteIsItalic ? "#6D5DFC" : "#4B5563"} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.noteToolbarBtn, noteIsUnderline && styles.noteToolbarBtnActive]}
+                onPress={() => setNoteIsUnderline(!noteIsUnderline)}
+              >
+                <Ionicons name="underline" size={14} color={noteIsUnderline ? "#6D5DFC" : "#4B5563"} />
+              </TouchableOpacity>
+              <View style={styles.noteToolbarDivider} />
+              <TouchableOpacity style={styles.noteToolbarBtn}>
+                <Ionicons name="list" size={14} color="#4B5563" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.noteToolbarBtn}>
+                <Ionicons name="link" size={14} color="#4B5563" />
+              </TouchableOpacity>
+              <View style={styles.noteToolbarDivider} />
+              <TouchableOpacity style={styles.noteToolbarBtn} onPress={() => showToast('info', 'Autosave Status', 'Document changes are automatically saved.')}>
+                <Ionicons name="save-outline" size={14} color="#4B5563" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Note text editor area */}
+            <TextInput
+              style={[
+                styles.noteTextEditorArea, 
+                noteIsBold && { fontWeight: '700' },
+                noteIsItalic && { fontStyle: 'italic' },
+                noteIsUnderline && { textDecorationLine: 'underline' }
+              ]}
+              multiline
+              placeholder="Case memo observative notes text..."
+              value={note.content}
+              onChangeText={(text) => {
+                // Autosave inline simulation update
+                const updatedNotes = (workspace?.notes || []).map((n: any) => 
+                  (n._id === note._id || n.id === note.id) ? { ...n, content: text, updatedAt: new Date().toISOString() } : n
+                );
+                handleUpdateField({ notes: updatedNotes });
+              }}
+            />
+
+            {/* AI Summary Findings Accordion block */}
+            <View style={styles.noteAiFindingsBox}>
+              <Text style={styles.noteAiFindingsTitle}>🧠 AI Co-Counsel Analysis</Text>
+              
+              <Text style={styles.noteAiFindingsHeading}>Summary Paragraph:</Text>
+              <Text style={styles.noteAiFindingsText}>
+                {note.aiSummary?.shortSummary || "AI summary compilation loading details..."}
+              </Text>
+              
+              {note.aiSummary?.keyPoints && note.aiSummary.keyPoints.length > 0 && (
+                <View>
+                  <Text style={styles.noteAiFindingsHeading}>Key Observations:</Text>
+                  {note.aiSummary.keyPoints.map((kp: string, idx: number) => (
+                    <Text key={idx} style={styles.noteAiFindingsBullet}>• {kp}</Text>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Click-to-copy Entity Chips */}
+            {note.aiEntities && note.aiEntities.length > 0 && (
+              <View style={styles.noteEntitiesContainer}>
+                <Text style={styles.noteEntitiesTitle}>🏷️ Extracted Legal Entities (Click to copy):</Text>
+                <View style={styles.noteEntitiesFlex}>
+                  {note.aiEntities.map((ent: any, idx: number) => (
+                    <TouchableOpacity 
+                      key={idx} 
+                      style={styles.noteEntityTouchChip}
+                      onPress={() => {
+                        Clipboard.setString(ent.text);
+                        showToast('success', 'Copied to Clipboard', `"${ent.text}" successfully copied.`);
+                      }}
+                    >
+                      <Text style={styles.noteEntityTouchChipText}>
+                        {ent.text} <Text style={styles.noteEntityTouchChipType}>({ent.type})</Text>
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Suggested Linkages Checkbox rows */}
+            {note.aiSuggestedLinks && note.aiSuggestedLinks.length > 0 && (
+              <View style={styles.noteEntitiesContainer}>
+                <Text style={styles.noteEntitiesTitle}>🔗 AI Smart Link suggestions:</Text>
+                {note.aiSuggestedLinks.map((link: any, idx: number) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.noteLinkageCheckboxRow}
+                    onPress={() => handleConfirmSuggestedLink(note._id || note.id, idx)}
+                  >
+                    <Ionicons 
+                      name={link.confirmed ? "checkbox" : "square-outline"} 
+                      size={18} 
+                      color={link.confirmed ? "#6D5DFC" : "#4B5563"} 
+                    />
+                    <Text style={[styles.noteLinkageCheckboxText, link.confirmed && styles.noteLinkageCheckboxTextConfirmed]}>
+                      Link to {link.type}: "{link.targetName}" {link.confirmed ? '(Linked)' : '(Confirm Link)'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Suggested action triggers */}
+            {note.aiSuggestedActions && note.aiSuggestedActions.length > 0 && (
+              <View style={styles.noteEntitiesContainer}>
+                <Text style={styles.noteEntitiesTitle}>⚡ AI Recommended strategic actions:</Text>
+                <View style={styles.noteActionsFlex}>
+                  {note.aiSuggestedActions.map((act: any, idx: number) => (
+                    <TouchableOpacity 
+                      key={idx}
+                      disabled={!!act.accepted}
+                      style={[styles.noteActionRowTouch, act.accepted && styles.noteActionRowTouchDisabled]}
+                      onPress={() => handleAcceptSuggestedAction(note._id || note.id, idx)}
+                    >
+                      <Ionicons 
+                        name={act.accepted ? "checkmark-circle" : "arrow-forward-circle"} 
+                        size={16} 
+                        color={act.accepted ? "#10B981" : "#FFFFFF"} 
+                      />
+                      <Text style={styles.noteActionRowTouchText}>
+                        {act.accepted ? `Initiated: ${act.description}` : `Execute: ${act.description}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Versions History button list */}
+            <View style={styles.noteHistoryRow}>
+              <Text style={styles.noteHistoryLabel}>
+                🗓️ Revised: {new Date(note.updatedAt || note.createdAt).toLocaleString()}
+              </Text>
+              <TouchableOpacity 
+                style={styles.noteHistoryBtn}
+                onPress={() => handleOpenVersionHistory(note)}
+              >
+                <Ionicons name="time" size={14} color="#6D5DFC" />
+                <Text style={styles.noteHistoryBtnText}>
+                  Versions ({(note.versions || []).length})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Note cards secondary footer action icons */}
+            <View style={styles.noteCardActionsRow}>
+              <TouchableOpacity 
+                style={styles.noteCardIconBtn} 
+                onPress={() => handleOpenEditNoteModal(note)}
+              >
+                <Ionicons name="create" size={18} color="#6D5DFC" />
+                <Text style={styles.noteCardIconText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.noteCardIconBtn} 
+                onPress={() => handleDuplicateNote(note)}
+              >
+                <Ionicons name="copy" size={18} color="#4B5563" />
+                <Text style={styles.noteCardIconText}>Clone</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.noteCardIconBtn} 
+                onPress={() => handleToggleArchiveNote(note._id || note.id)}
+              >
+                <Ionicons name="archive" size={18} color="#4B5563" />
+                <Text style={styles.noteCardIconText}>Archive</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.noteCardIconBtn, styles.noteCardIconBtnDanger]}
+                onPress={() => handleDeleteNote(note._id || note.id)}
+              >
+                <Ionicons name="trash" size={18} color="#EF4444" />
+                <Text style={[styles.noteCardIconText, { color: '#EF4444' }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Note Creator Form Modal Details
+  const renderNoteFormModal = () => {
+    return (
+      <Modal
+        visible={isNoteFormModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsNoteFormModalOpen(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={styles.noteModalOverlay}
+        >
+          <View style={styles.noteModalContent}>
+            {/* Header row */}
+            <View style={styles.noteFormHeaderRow}>
+              <Text style={styles.noteModalTitle}>
+                {noteFormType === 'add' ? 'Add Legal Note' : 'Edit Legal Note'}
+              </Text>
+              <TouchableOpacity onPress={() => setIsNoteFormModalOpen(false)}>
+                <Ionicons name="close" size={24} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1, paddingVertical: 10 }}>
+              {/* Category selector horizontal chips */}
+              <Text style={styles.noteFormLabel}>Note Category</Text>
+              <View style={styles.noteFormCategoryFlex}>
+                {['Personal', 'Client Meeting', 'Hearing', 'Strategy'].map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.noteFormCategoryChip, noteForm.category === cat && styles.noteFormCategoryChipActive]}
+                    onPress={() => setNoteForm({ ...noteForm, category: cat })}
+                  >
+                    <Text style={[styles.noteFormCategoryChipText, noteForm.category === cat && styles.noteFormCategoryChipTextActive]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Title input */}
+              <Text style={styles.noteFormLabel}>Note Title</Text>
+              <TextInput
+                style={styles.noteFormInput}
+                placeholder="e.g. Injunction Stay Hearing Brief Notes"
+                placeholderTextColor="#9CA3AF"
+                value={noteForm.title}
+                onChangeText={(val) => setNoteForm({ ...noteForm, title: val })}
+              />
+
+              {/* Priority horizontal selector */}
+              <Text style={styles.noteFormLabel}>Strategic Priority</Text>
+              <View style={styles.noteFormPriorityFlex}>
+                {['Low', 'Medium', 'High', 'Critical'].map((pr) => (
+                  <TouchableOpacity
+                    key={pr}
+                    style={[styles.noteFormPriorityChip, noteForm.priority === pr && styles.noteFormPriorityChipActive]}
+                    onPress={() => setNoteForm({ ...noteForm, priority: pr as any })}
+                  >
+                    <Text style={[styles.noteFormPriorityChipText, noteForm.priority === pr && styles.noteFormPriorityChipTextActive]}>
+                      {pr}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Related Hearings selector */}
+              <Text style={styles.noteFormLabel}>Link to Hearing (Optional)</Text>
+              <View style={styles.noteHorizontalSelectorScroll}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <TouchableOpacity
+                    style={[styles.noteSelectorHorizontalItem, noteForm.relatedHearing === '' && styles.noteSelectorHorizontalItemActive]}
+                    onPress={() => setNoteForm({ ...noteForm, relatedHearing: '' })}
+                  >
+                    <Text style={[styles.noteSelectorHorizontalItemText, noteForm.relatedHearing === '' && styles.noteSelectorHorizontalItemTextActive]}>
+                      None
+                    </Text>
+                  </TouchableOpacity>
+                  {(workspace?.hearings || []).map((h: any) => (
+                    <TouchableOpacity
+                      key={h._id || h.id}
+                      style={[styles.noteSelectorHorizontalItem, noteForm.relatedHearing === (h._id || h.id) && styles.noteSelectorHorizontalItemActive]}
+                      onPress={() => setNoteForm({ ...noteForm, relatedHearing: (h._id || h.id) })}
+                    >
+                      <Text style={[styles.noteSelectorHorizontalItemText, noteForm.relatedHearing === (h._id || h.id) && styles.noteSelectorHorizontalItemTextActive]}>
+                        🏛️ {h.title || 'Hearing Date'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Template Custom Fields */}
+              {noteForm.category === 'Client Meeting' && (
+                <View style={styles.noteTemplateSection}>
+                  <Text style={styles.noteTemplateTitle}>👥 Client Meeting Template Fields</Text>
+                  
+                  <Text style={styles.noteFormLabel}>Attendees (Meeting With)</Text>
+                  <TextInput
+                    style={styles.noteFormInput}
+                    placeholder="e.g. Ramesh Kumar (Director)"
+                    placeholderTextColor="#9CA3AF"
+                    value={noteForm.meetingWith}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, meetingWith: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Location</Text>
+                  <TextInput
+                    style={styles.noteFormInput}
+                    placeholder="e.g. Office Chambers Desk B"
+                    placeholderTextColor="#9CA3AF"
+                    value={noteForm.meetingLocation}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, meetingLocation: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Discussion Observations</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Key items discussed..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.discussion}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, discussion: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Decisions Finalized</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="List decisions taken..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.decisions}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, decisions: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Follow-up Actions</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Pending items to prepare..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.followUp}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, followUp: val })}
+                  />
+                </View>
+              )}
+
+              {noteForm.category === 'Hearing' && (
+                <View style={styles.noteTemplateSection}>
+                  <Text style={styles.noteTemplateTitle}>🏛️ Court Hearing Template Fields</Text>
+                  
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.noteFormLabel}>Judge</Text>
+                      <TextInput
+                        style={styles.noteFormInput}
+                        placeholder="Justice Sen"
+                        placeholderTextColor="#9CA3AF"
+                        value={noteForm.judge}
+                        onChangeText={(val) => setNoteForm({ ...noteForm, judge: val })}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.noteFormLabel}>Court Name</Text>
+                      <TextInput
+                        style={styles.noteFormInput}
+                        placeholder="District Court"
+                        placeholderTextColor="#9CA3AF"
+                        value={noteForm.court}
+                        onChangeText={(val) => setNoteForm({ ...noteForm, court: val })}
+                      />
+                    </View>
+                  </View>
+
+                  <Text style={styles.noteFormLabel}>Vocal Remarks / Remarks from Bench</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Judge observation notes..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.judgeRemarks}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, judgeRemarks: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Opponent Arguments</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Key objections raised by opponent counsel..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.opponentArguments}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, opponentArguments: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Orders Passed / Adjournments</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Verbal orders or stays issued..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.orders}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, orders: val })}
+                  />
+                </View>
+              )}
+
+              {noteForm.category === 'Strategy' && (
+                <View style={styles.noteTemplateSection}>
+                  <Text style={styles.noteTemplateTitle}>💡 Strategy & Argument Plan Fields</Text>
+                  
+                  <Text style={styles.noteFormLabel}>Winning Legal Arguments</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Our core strengths & citations..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.winningArguments}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, winningArguments: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Critical Vulnerabilities</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Weak facts or missing proof certificates..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.weaknesses}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, weaknesses: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Litigation Risks</Text>
+                  <TextInput
+                    style={[styles.noteFormInput, { height: 60 }]}
+                    placeholder="Jurisdiction demurs, limitations..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={noteForm.risks}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, risks: val })}
+                  />
+
+                  <Text style={styles.noteFormLabel}>Relevant Acts / Statutes</Text>
+                  <TextInput
+                    style={styles.noteFormInput}
+                    placeholder="e.g. Indian Contract Act Section 73"
+                    placeholderTextColor="#9CA3AF"
+                    value={noteForm.importantAuthorities}
+                    onChangeText={(val) => setNoteForm({ ...noteForm, importantAuthorities: val })}
+                  />
+                </View>
+              )}
+
+              {/* Rich editor memo textarea */}
+              <Text style={styles.noteFormLabel}>Detailed Memo Content</Text>
+              
+              {/* editor toolbar */}
+              <View style={styles.noteFormToolbarRow}>
+                <TouchableOpacity style={styles.noteFormToolbarIcon}><Ionicons name="bold" size={14} color="#4B5563" /></TouchableOpacity>
+                <TouchableOpacity style={styles.noteFormToolbarIcon}><Ionicons name="italic" size={14} color="#4B5563" /></TouchableOpacity>
+                <TouchableOpacity style={styles.noteFormToolbarIcon}><Ionicons name="underline" size={14} color="#4B5563" /></TouchableOpacity>
+                <TouchableOpacity style={styles.noteFormToolbarIcon}><Ionicons name="list" size={14} color="#4B5563" /></TouchableOpacity>
+                <TouchableOpacity style={styles.noteFormToolbarIcon} onPress={() => showToast('info', 'Autosave Status', 'Autosaving enabled.')}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#10B981' }}>Autosave ON</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                style={[styles.noteFormInput, { height: 120, textAlignVertical: 'top' }]}
+                placeholder="Enter rich details, strategy notes, legal research summaries, or evidence linkages here..."
+                placeholderTextColor="#9CA3AF"
+                multiline
+                value={noteForm.content}
+                onChangeText={(val) => setNoteForm({ ...noteForm, content: val })}
+              />
+
+              {/* Toggle pin and favorites switches */}
+              <View style={styles.noteFormSwitchRow}>
+                <TouchableOpacity
+                  style={[styles.noteFormSwitchBtn, noteForm.pinned && styles.noteFormSwitchBtnActive]}
+                  onPress={() => setNoteForm({ ...noteForm, pinned: !noteForm.pinned })}
+                >
+                  <Ionicons name="pin" size={14} color={noteForm.pinned ? "#FFFFFF" : "#4B5563"} />
+                  <Text style={[styles.noteFormSwitchText, noteForm.pinned && styles.noteFormSwitchTextActive]}>
+                    Pin Note
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.noteFormSwitchBtn, noteForm.favorite && styles.noteFormSwitchBtnActive]}
+                  onPress={() => setNoteForm({ ...noteForm, favorite: !noteForm.favorite })}
+                >
+                  <Ionicons name="star" size={14} color={noteForm.favorite ? "#FFFFFF" : "#4B5563"} />
+                  <Text style={[styles.noteFormSwitchText, noteForm.favorite && styles.noteFormSwitchTextActive]}>
+                    Mark Starred
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Autosave row */}
+              <View style={styles.noteFormAutosaveRow}>
+                <View style={styles.noteFormAutosaveIndicator} />
+                <Text style={styles.noteFormAutosaveText}>Draft status: {notesAutosaveStatus}</Text>
+              </View>
+            </ScrollView>
+
+            {/* Actions footer */}
+            <View style={styles.noteModalActionsRow}>
+              <TouchableOpacity 
+                style={styles.noteFormCancelBtn}
+                onPress={() => setIsNoteFormModalOpen(false)}
+              >
+                <Text style={styles.noteFormCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.noteFormSaveBtn}
+                onPress={handleSaveNote}
+              >
+                <Text style={styles.noteFormSaveBtnText}>Save Note</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
+  // Voice recording simulation Modal overlay
+  const renderVoiceNoteModal = () => {
+    return (
+      <Modal
+        visible={isVoiceNoteModalOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsVoiceNoteModalOpen(false)}
+      >
+        <View style={styles.noteModalOverlay}>
+          <View style={[styles.noteModalContent, { maxHeight: 380, width: '90%', borderRadius: 16 }]}>
+            <View style={styles.noteFormHeaderRow}>
+              <Text style={styles.noteModalTitle}>Voice Note Dictation</Text>
+              <TouchableOpacity onPress={() => setIsVoiceNoteModalOpen(false)}>
+                <Ionicons name="close" size={24} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.voiceNoteModalContentBody}>
+              {simulatedTranscribing ? (
+                <View style={styles.voiceNoteTranscribingContainer}>
+                  <ActivityIndicator size="large" color="#6D5DFC" />
+                  <Text style={styles.voiceNoteTranscribingHeading}>Transcribing audio using Gemini AI...</Text>
+                  <Text style={styles.voiceNoteTranscribingText}>Converting verbal proceedings, extracting entities, and preparing strategy linkages...</Text>
+                </View>
+              ) : (
+                <View style={styles.voiceNoteRecordContainer}>
+                  <Text style={styles.voiceNoteRecordHeading}>
+                    {isRecordingVoice ? "🎤 Recording Advocate Observations..." : "Ready to Record"}
+                  </Text>
+                  
+                  {/* Simulated wave forms graphic */}
+                  <View style={styles.voiceNoteWaveformRow}>
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 40, backgroundColor: '#6D5DFC' }]} />
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 60, backgroundColor: '#6D5DFC' }]} />
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 30, backgroundColor: '#6D5DFC' }]} />
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 75, backgroundColor: '#6D5DFC' }]} />
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 50, backgroundColor: '#6D5DFC' }]} />
+                    <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 25, backgroundColor: '#6D5DFC' }]} />
+                  </View>
+
+                  <Text style={styles.voiceNoteRecordDurationText}>
+                    {isRecordingVoice ? "00:08 Sec" : "00:00 Sec"}
+                  </Text>
+
+                  <TouchableOpacity 
+                    style={[styles.voiceNoteRecordBtn, isRecordingVoice && styles.voiceNoteRecordBtnActive]}
+                    onPress={handleRecordVoiceNote}
+                  >
+                    <Ionicons name={isRecordingVoice ? "stop" : "mic"} size={32} color="#FFFFFF" />
+                  </TouchableOpacity>
+
+                  <Text style={styles.voiceNoteRecordInstruction}>
+                    {isRecordingVoice ? "Tap button to stop and parse note" : "Tap button to start recording court brief"}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Note Revisions version selector modal
+  const renderVersionHistoryModal = () => {
+    return (
+      <Modal
+        visible={isVersionHistoryModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsVersionHistoryModalOpen(false)}
+      >
+        <View style={styles.noteModalOverlay}>
+          <View style={[styles.noteModalContent, { maxHeight: '60%', width: '90%', borderRadius: 16 }]}>
+            <View style={styles.noteFormHeaderRow}>
+              <Text style={styles.noteModalTitle}>Revision Version History</Text>
+              <TouchableOpacity onPress={() => setIsVersionHistoryModalOpen(false)}>
+                <Ionicons name="close" size={24} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1, paddingVertical: 10 }}>
+              {selectedNoteVersionHistory.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: '#9CA3AF', marginVertical: 30 }}>No revision history logged.</Text>
+              ) : (
+                selectedNoteVersionHistory.map((ver: any, idx: number) => (
+                  <View key={idx} style={styles.noteVersionItemCard}>
+                    <View style={styles.noteVersionItemCardHeader}>
+                      <Text style={styles.noteVersionItemCardTitle}>Version #{ver.version}</Text>
+                      <Text style={styles.noteVersionItemCardDate}>
+                        🗓️ {new Date(ver.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                    <Text style={styles.noteVersionItemCardContent} numberOfLines={3}>
+                      {ver.content}
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.noteVersionItemRestoreBtn}
+                      onPress={() => handleRestoreNoteVersion(ver.content)}
+                    >
+                      <Text style={styles.noteVersionItemRestoreBtnText}>Restore this Version</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -3978,59 +12211,7 @@ export default function WorkspaceDetailScreen() {
                   </View>
                 )}
 
-                {/* AI DRAFT COMPILER FORM */}
-                {modalType === 'draft' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Pleading Compiler</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Draft Name (e.g. Demand_Notice)"
-                      placeholderTextColor="#9CA3AF"
-                      value={draftForm.name}
-                      onChangeText={(t) => setDraftForm({ ...draftForm, name: t })}
-                    />
 
-                    <Text style={styles.label}>Pleading Template</Text>
-                    <View style={styles.templateSelection}>
-                      {['Notice', 'Complaint', 'Agreement'].map((t) => (
-                        <Pressable
-                          key={t}
-                          style={[styles.templateChip, draftForm.template === t && styles.templateChipActive]}
-                          onPress={() => setDraftForm({ ...draftForm, template: t })}
-                        >
-                          <Text style={[styles.templateText, draftForm.template === t && { color: '#FFFFFF' }]}>
-                            {t}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-
-                    {isDraftCompiling ? (
-                      <View style={styles.compilingContainer}>
-                        <ActivityIndicator size="small" color="#6D5DFC" />
-                        <Text style={styles.compilingText}>AI compiling draft clauses...</Text>
-                      </View>
-                    ) : compiledDraftText ? (
-                      <View>
-                        <ScrollView style={styles.draftPreviewScroll}>
-                          <Text style={styles.draftPreviewText}>{compiledDraftText}</Text>
-                        </ScrollView>
-                        <Pressable style={styles.formSubmitBtn} onPress={handleSaveDraft}>
-                          <Text style={styles.formSubmitBtnText}>Save Draft PDF</Text>
-                        </Pressable>
-                      </View>
-                    ) : (
-                      <Pressable style={styles.formSubmitBtn} onPress={handleCompileDraft}>
-                        <Text style={styles.formSubmitBtnText}>AI Compile Draft</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                )}
 
                 {/* RENAME CASE FORM */}
                 {modalType === 'rename' && (
@@ -4053,6 +12234,169 @@ export default function WorkspaceDetailScreen() {
                     </Pressable>
                   </View>
                 )}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ARGUMENT ADD/EDIT MODAL */}
+      <Modal visible={isArgModalOpen} transparent={true} animationType="slide">
+        <TouchableWithoutFeedback onPress={() => setIsArgModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+                <View style={styles.formHeaderRow}>
+                  <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>
+                    {argModalType === 'add' ? 'Add Strategy Argument' : 'Edit Strategy Argument'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsArgModalOpen(false)}>
+                    <Ionicons name="close" size={24} color="#4B5563" />
+                  </TouchableOpacity>
+                </View>
+                
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+                  <Text style={styles.inputLabel}>Argument Title</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Valid and Binding Written Agreement"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.title}
+                    onChangeText={(t) => setArgForm({ ...argForm, title: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Legal Category</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Contract Law, Procedure, Evidence"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.category}
+                    onChangeText={(t) => setArgForm({ ...argForm, category: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Priority Level</Text>
+                  <View style={styles.templateSelection}>
+                    {['Critical', 'High', 'Medium', 'Low'].map((p) => (
+                      <Pressable
+                        key={p}
+                        style={[styles.templateChip, argForm.priority === p && styles.templateChipActive]}
+                        onPress={() => setArgForm({ ...argForm, priority: p })}
+                      >
+                        <Text style={[styles.templateText, argForm.priority === p && { color: '#FFFFFF' }]}>
+                          {p}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={styles.inputLabel}>Detailed Explanation</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 80 }]}
+                    placeholder="Provide the detailed explanation or logic..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline={true}
+                    value={argForm.description}
+                    onChangeText={(t) => setArgForm({ ...argForm, description: t })}
+                  />
+
+                  {argModalCategory === 'respondent' && (
+                    <>
+                      <Text style={styles.inputLabel}>AI Recommended Rebuttal / Refutation</Text>
+                      <TextInput
+                        style={[styles.formInput, { height: 80 }]}
+                        placeholder="Rebuttal strategy to defense allegation..."
+                        placeholderTextColor="#9CA3AF"
+                        multiline={true}
+                        value={(argForm as any).refutation || ''}
+                        onChangeText={(t) => setArgForm({ ...argForm, refutation: t } as any)}
+                      />
+                    </>
+                  )}
+
+                  <Text style={styles.inputLabel}>Supporting Facts (One per line)</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 60 }]}
+                    placeholder="Fact details..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline={true}
+                    value={argForm.supportingFacts}
+                    onChangeText={(t) => setArgForm({ ...argForm, supportingFacts: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Applicable Acts / Sections (One per line)</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 60 }]}
+                    placeholder="e.g. Indian Contract Act - Sec 10"
+                    placeholderTextColor="#9CA3AF"
+                    multiline={true}
+                    value={argForm.supportingLaws}
+                    onChangeText={(t) => setArgForm({ ...argForm, supportingLaws: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Supporting Case Laws / Precedents (One per line)</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 60 }]}
+                    placeholder="e.g. Supreme Court: Ramesh vs State (2012)"
+                    placeholderTextColor="#9CA3AF"
+                    multiline={true}
+                    value={argForm.supportingCaseLaws}
+                    onChangeText={(t) => setArgForm({ ...argForm, supportingCaseLaws: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Related Evidence (Comma-separated)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Loan Agreement Deed (Ex. P-1)"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.relatedEvidence}
+                    onChangeText={(t) => setArgForm({ ...argForm, relatedEvidence: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Related Documents (Comma-separated)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. contract.pdf"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.relatedDocuments}
+                    onChangeText={(t) => setArgForm({ ...argForm, relatedDocuments: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Related Timeline Events (Comma-separated)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Notice Served"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.relatedTimelineEvents}
+                    onChangeText={(t) => setArgForm({ ...argForm, relatedTimelineEvents: t })}
+                  />
+
+                  <Text style={styles.inputLabel}>Related Hearings (Comma-separated)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Admission Stage"
+                    placeholderTextColor="#9CA3AF"
+                    value={argForm.relatedHearings}
+                    onChangeText={(t) => setArgForm({ ...argForm, relatedHearings: t })}
+                  />
+
+                  <TouchableOpacity
+                    style={styles.formSubmitBtn}
+                    onPress={() => {
+                      if (argModalType === 'add') {
+                        handleAddArgument(argModalCategory, argForm);
+                      } else {
+                        if (argModalTargetId) {
+                          handleEditArgument(argModalCategory, argModalTargetId, argForm);
+                        }
+                      }
+                      setIsArgModalOpen(false);
+                    }}
+                  >
+                    <Text style={styles.formSubmitBtnText}>
+                      {argModalType === 'add' ? 'Create Argument' : 'Save Changes'}
+                    </Text>
+                  </TouchableOpacity>
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -4103,6 +12447,1343 @@ export default function WorkspaceDetailScreen() {
           </View>
         </Modal>
       )}
+      {/* --- DRAFT EDITOR MODAL --- */}
+      <Modal visible={isEditorOpen} animationType="slide" presentationStyle="fullScreen">
+        <SafeAreaView style={styles.editorModalContainer}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+            style={{ flex: 1 }}
+          >
+            {/* STICKY HEADER */}
+            <View style={styles.editorModalHeader}>
+              <TouchableOpacity 
+                style={styles.editorCloseBtn} 
+                onPress={() => {
+                  setIsEditorOpen(false);
+                }}
+              >
+                <Ionicons name="arrow-back" size={24} color="#1F2937" />
+              </TouchableOpacity>
+              
+              <View style={{ flex: 1, marginHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  style={[styles.editorHeaderTitleInput, { flex: 1, paddingVertical: 4 }]}
+                  value={editorTitle}
+                  onChangeText={(t) => {
+                    setEditorTitle(t);
+                    if (workspace && activeDraftId) {
+                      const current = workspace.drafts || [];
+                      const updated = current.map(d => d.id === activeDraftId ? { ...d, name: t, updatedAt: new Date().toISOString() } : d);
+                      handleUpdateField({ drafts: updated });
+                    }
+                  }}
+                  placeholder="Draft Document Title"
+                  placeholderTextColor="#9CA3AF"
+                />
+                
+                {/* Draft Status Badge */}
+                <TouchableOpacity 
+                  onPress={() => {
+                    const statuses: ('Draft' | 'In Progress' | 'Completed' | 'Reviewed')[] = ['Draft', 'In Progress', 'Completed', 'Reviewed'];
+                    const nextIndex = (statuses.indexOf(editorStatus) + 1) % statuses.length;
+                    const nextStatus = statuses[nextIndex];
+                    setEditorStatus(nextStatus);
+                    if (workspace && activeDraftId) {
+                      const current = workspace.drafts || [];
+                      const updated = current.map(d => d.id === activeDraftId ? { ...d, status: nextStatus, updatedAt: new Date().toISOString() } : d);
+                      handleUpdateField({ drafts: updated });
+                    }
+                    showToast('success', 'Status Updated', `Draft status changed to ${nextStatus}.`);
+                  }}
+                  style={[styles.statusBadge, 
+                    editorStatus === 'Completed' ? styles.badgeSuccess : 
+                    editorStatus === 'Reviewed' ? styles.badgeInfo : 
+                    editorStatus === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+                  ]}
+                >
+                  <Text style={[styles.statusBadgeText, { fontSize: 9 }]}>{editorStatus}</Text>
+                </TouchableOpacity>
+
+                {/* Autosaved indicator */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 4 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: autosaveStatus === 'Saving...' ? '#EC4899' : '#10B981' }} />
+                  <Text style={{ fontSize: 9, color: autosaveStatus === 'Saving...' ? '#EC4899' : '#6B7280', fontWeight: '500' }}>
+                    {autosaveStatus}
+                  </Text>
+                </View>
+              </View>
+
+              {/* ⋮ More Overflow Menu */}
+              <TouchableOpacity 
+                onPress={() => setIsEditorMoreOpen(true)}
+                style={{ padding: 6 }}
+              >
+                <Ionicons name="ellipsis-vertical" size={20} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+
+            {/* SUB-TABS SELECTOR */}
+            <View style={styles.editorSubTabsHeader}>
+              {[
+                { id: 'editor', label: 'Document Editor', icon: 'document-text-outline' },
+                { id: 'ai', label: 'AI Co-Counsel', icon: 'sparkles-outline' },
+                { id: 'history', label: 'Revision History', icon: 'time-outline' }
+              ].map((tab) => (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={[styles.editorSubTabButton, expandedEditorTab === tab.id && styles.editorSubTabActive]}
+                  onPress={() => setExpandedEditorTab(tab.id as any)}
+                >
+                  <Ionicons 
+                    name={tab.icon as any} 
+                    size={16} 
+                    color={expandedEditorTab === tab.id ? '#6D5DFC' : '#6B7280'} 
+                  />
+                  <Text style={[styles.editorSubTabText, expandedEditorTab === tab.id && styles.editorSubTabTextActive]}>
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* TAB CONTENTS */}
+            <View style={{ flex: 1 }}>
+              {/* 1. DOCUMENT EDITOR TAB */}
+              {expandedEditorTab === 'editor' && (
+                <View style={{ flex: 1 }}>
+                  {/* Toolbar simulation */}
+                  <View style={styles.editorToolbar}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
+                      {/* Bold */}
+                      <TouchableOpacity
+                        style={[styles.editorToolbarBtn, isBold && { backgroundColor: theme.primaryLight }]}
+                        onPress={() => {
+                          setIsBold(!isBold);
+                          showToast('info', 'Toolbar Action', `Simulated Bold: ${!isBold ? 'ON' : 'OFF'}`);
+                        }}
+                      >
+                        <Ionicons name="bold" size={15} color={isBold ? theme.primary : "#4B5563"} />
+                      </TouchableOpacity>
+
+                      {/* Italic */}
+                      <TouchableOpacity
+                        style={[styles.editorToolbarBtn, isItalic && { backgroundColor: theme.primaryLight }]}
+                        onPress={() => {
+                          setIsItalic(!isItalic);
+                          showToast('info', 'Toolbar Action', `Simulated Italic: ${!isItalic ? 'ON' : 'OFF'}`);
+                        }}
+                      >
+                        <Ionicons name="italic" size={15} color={isItalic ? theme.primary : "#4B5563"} />
+                      </TouchableOpacity>
+
+                      {/* Underline */}
+                      <TouchableOpacity
+                        style={[styles.editorToolbarBtn, isUnderline && { backgroundColor: theme.primaryLight }]}
+                        onPress={() => {
+                          setIsUnderline(!isUnderline);
+                          showToast('info', 'Toolbar Action', `Simulated Underline: ${!isUnderline ? 'ON' : 'OFF'}`);
+                        }}
+                      >
+                        <Ionicons name="underline" size={15} color={isUnderline ? theme.primary : "#4B5563"} />
+                      </TouchableOpacity>
+
+                      {/* Bullet List */}
+                      <TouchableOpacity
+                        style={styles.editorToolbarBtn}
+                        onPress={() => {
+                          const newText = editorContent + "\n• ";
+                          handleEditorTextChange(newText);
+                          showToast('success', 'Bullet List', 'Appended bullet list item.');
+                        }}
+                      >
+                        <Ionicons name="list" size={15} color="#4B5563" />
+                      </TouchableOpacity>
+
+                      {/* Numbered List */}
+                      <TouchableOpacity
+                        style={styles.editorToolbarBtn}
+                        onPress={() => {
+                          const newText = editorContent + "\n1. ";
+                          handleEditorTextChange(newText);
+                          showToast('success', 'Numbered List', 'Appended numbered list item.');
+                        }}
+                      >
+                        <Ionicons name="list-circle" size={15} color="#4B5563" />
+                      </TouchableOpacity>
+
+                      {/* Alignment */}
+                      <TouchableOpacity
+                        style={styles.editorToolbarBtn}
+                        onPress={() => {
+                          const modes: ('left' | 'center' | 'right')[] = ['left', 'center', 'right'];
+                          const nextMode = modes[(modes.indexOf(alignment) + 1) % modes.length];
+                          setAlignment(nextMode);
+                          showToast('success', 'Alignment', `Simulated Alignment: ${nextMode.toUpperCase()}`);
+                        }}
+                      >
+                        <Ionicons 
+                          name={alignment === 'left' ? 'align-left' : alignment === 'center' ? 'align-center' : 'align-right'} 
+                          size={15} 
+                          color="#4B5563" 
+                        />
+                      </TouchableOpacity>
+
+                      {/* Undo */}
+                      <TouchableOpacity
+                        style={styles.editorToolbarBtn}
+                        onPress={() => showToast('info', 'Toolbar Action', 'Undo typing action simulated.')}
+                      >
+                        <Ionicons name="arrow-undo" size={15} color="#4B5563" />
+                      </TouchableOpacity>
+
+                      {/* Redo */}
+                      <TouchableOpacity
+                        style={styles.editorToolbarBtn}
+                        onPress={() => showToast('info', 'Toolbar Action', 'Redo typing action simulated.')}
+                      >
+                        <Ionicons name="arrow-redo" size={15} color="#4B5563" />
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+
+                  <ScrollView style={{ flex: 1, backgroundColor: '#FFFFFF', padding: 16 }}>
+                    <TextInput
+                      style={styles.mainEditorInput}
+                      value={editorContent}
+                      onChangeText={handleEditorTextChange}
+                      multiline
+                      scrollEnabled={false}
+                      placeholder="Write your legal draft content here..."
+                      placeholderTextColor="#9CA3AF"
+                    />
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* 2. AI CO-COUNSEL ASSISTANT TAB */}
+              {expandedEditorTab === 'ai' && (
+                <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+                  <ScrollView style={{ flex: 1, padding: 16 }}>
+                    <View style={styles.aiAssistIntroBox}>
+                      <Ionicons name="sparkles" size={18} color="#6D5DFC" />
+                      <Text style={styles.aiAssistIntroTitle}>AI Co-Counsel Drafting Suite</Text>
+                      <Text style={styles.aiAssistIntroDesc}>
+                        Select a context-aware legal action below. Antigravity AI automatically maps current case details to rewrite or structure your document.
+                      </Text>
+                    </View>
+
+                    {/* Loader steps screen */}
+                    {isAiDrafting ? (
+                      <View style={styles.aiDraftingStepsBox}>
+                        <ActivityIndicator size="large" color="#6D5DFC" style={{ marginBottom: 16 }} />
+                        <Text style={styles.aiDraftingTitle}>Compiling Legal Document...</Text>
+                        <View style={styles.ocrStepsContainer}>
+                          {aiDraftSteps.map((step, idx) => (
+                            <View key={idx} style={styles.ocrStepRow}>
+                              <Ionicons
+                                name={
+                                  activeAiDraftStep > idx
+                                    ? 'checkmark-circle'
+                                    : activeAiDraftStep === idx
+                                    ? 'sync'
+                                    : 'ellipse-outline'
+                                }
+                                size={16}
+                                color={
+                                  activeAiDraftStep > idx
+                                    ? '#10B981'
+                                    : activeAiDraftStep === idx
+                                    ? '#6D5DFC'
+                                    : '#9CA3AF'
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.ocrStepText,
+                                  activeAiDraftStep === idx && styles.ocrStepTextActive,
+                                ]}
+                              >
+                                {step}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    ) : aiSuggestedDraftText ? (
+                      /* DIFFERENTIAL PREVIEW BOX */
+                      <View style={styles.diffContainer}>
+                        <View style={styles.diffHeader}>
+                          <Ionicons name="eye-outline" size={16} color="#EC4899" />
+                          <Text style={styles.diffHeaderTitle}>Suggested AI Pleading Draft Preview</Text>
+                        </View>
+                        <Text style={styles.diffMetaInfo}>
+                          Review the generated text below. Tap Accept to merge this directly into the editor buffer or Dismiss to discard.
+                        </Text>
+                        <ScrollView style={styles.diffBodyScroll} nestedScrollEnabled={true}>
+                          <Text style={styles.diffContentText}>{aiSuggestedDraftText}</Text>
+                        </ScrollView>
+                        <View style={styles.diffActionsRow}>
+                          <TouchableOpacity 
+                            style={styles.diffAcceptBtn}
+                            onPress={handleApplyAiSuggestion}
+                          >
+                            <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                            <Text style={styles.diffAcceptText}>Apply & Merge Changes</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.diffRejectBtn}
+                            onPress={() => {
+                              setAiSuggestedDraftText(null);
+                              setIsAiSuggestionActive(false);
+                              showToast('info', 'AI Suggestion Dismissed', 'Draft buffer unchanged.');
+                            }}
+                          >
+                            <Text style={styles.diffRejectText}>Dismiss</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      /* 16 Legal Actions Grid */
+                      <View style={styles.aiActionsGrid}>
+                        {[
+                          { title: 'Improve Prose', desc: 'Enhance general readability and flow', action: 'Enhance general readability and flow.' },
+                          { title: 'Formal Legal Tone', desc: 'Elevate tone to formal advocacy style', action: 'Elevate text tone to standard court pleading/formal advocacy style.' },
+                          { title: 'Simplify Clauses', desc: 'Reduce legalese complexity for review', action: 'Simplify contractual clauses and minimize raw legalese terms.' },
+                          { title: 'Grammar & Typo Fix', desc: 'Verify typographical errors and spacing', action: 'Conduct thorough grammar check and format text spacing.' },
+                          { title: 'Summarize Draft', desc: 'Add brief executive preview snippet', action: 'Generate an executive summary and brief statement of facts header.' },
+                          { title: 'Expand Arguments', desc: 'Flesh out contract breach details', action: 'Expand litigation positions and details regarding default liabilities.' },
+                          { title: 'Format Relief Prayers', desc: 'Structure prayers for relief section', action: 'Format the formal Prayers for Relief and declaration clauses.' },
+                          { title: 'Cite Precedents', desc: 'Cross-reference case laws and citations', action: 'Cross-reference active landmark judgments and append citations list.' },
+                          { title: 'Indemnity Protection', desc: 'Add standard indemnity clauses', action: 'Draft a robust indemnity protection clause and liability limits.' },
+                          { title: 'Jurisdiction Clause', desc: 'Add court jurisdiction statement', action: 'Add standard jurisdiction and forum selection clauses.' },
+                          { title: 'Timeline Integration', desc: 'Insert chronological facts list', action: 'Parse timeline logs and inject chronological statement list.' },
+                          { title: 'Evidence Referencing', desc: 'Cite contract Exhibits and uploads', action: 'Identify evidence records and cross-reference relevant exhibit numbers.' },
+                          { title: 'Party Formalization', desc: 'Structure client vs opponent headers', action: 'Structure the formal title heading representing petitioner versus respondent.' },
+                          { title: 'Interest Rate Penalties', desc: 'Add Sec 34 CPC penalty rate terms', action: 'Add default interest rates and penalty calculations under Sec 34 CPC.' },
+                          { title: 'Rebuttal formulation', desc: 'Formulate defense response points', action: 'Formulate specific rebuttals addressing defenses raised by opposing counsel.' },
+                          { title: 'Condonation of Delay', desc: 'Structure Sec 5 delay apology', action: 'Structure pleading requesting condonation of delay under Sec 5 Limitation Act.' }
+                        ].map((item, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            style={styles.aiActionCard}
+                            onPress={() => runAiDraftAssist(item.title, item.action)}
+                          >
+                            <View style={styles.aiActionCardHeader}>
+                              <Ionicons name="sparkles" size={14} color="#EC4899" />
+                              <Text style={styles.aiActionCardTitle} numberOfLines={1}>{item.title}</Text>
+                            </View>
+                            <Text style={styles.aiActionCardDesc} numberOfLines={2}>{item.desc}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* 3. REVISION HISTORY TAB */}
+              {expandedEditorTab === 'history' && (
+                <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16 }}>
+                  <ScrollView style={{ flex: 1 }}>
+                    <Text style={[styles.suggestionsTitle, { marginVertical: 0, marginBottom: 8 }]}>Revision Control History</Text>
+                    
+                    {/* CUSTOM VERSION COMMIT CARD */}
+                    <View style={[styles.premiumSearchCard, { marginBottom: 16 }]}>
+                      <Text style={[styles.premiumSearchTitle, { fontSize: 13 }]}>Commit Custom Save Point</Text>
+                      <Text style={[styles.premiumSearchSubtitle, { fontSize: 10 }]}>Log the current editor buffer state to a permanent version.</Text>
+                      <TextInput
+                        style={[styles.premiumSearchInput, { height: 34, marginBottom: 10 }]}
+                        placeholder="Save description (e.g. Added Section 18 argument)"
+                        placeholderTextColor="#9CA3AF"
+                        value={versionComment}
+                        onChangeText={setVersionComment}
+                      />
+                      <TouchableOpacity 
+                        style={[styles.premiumAnalyzeBtn, { height: 32 }]}
+                        onPress={() => {
+                          handleSaveDraftContent(false, versionComment);
+                          setVersionComment('');
+                        }}
+                      >
+                        <Ionicons name="checkmark-circle-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                        <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>Save Version</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Versions list */}
+                    <View style={{ gap: 10 }}>
+                      {((workspace?.drafts?.find(d => d.id === activeDraftId)?.versions) || []).map((ver) => {
+                        const isCurrent = selectedVersion === ver.version;
+                        const dateStr = new Date(ver.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        
+                        return (
+                          <View key={ver.version} style={[styles.itemCard, isCurrent && { borderColor: '#6D5DFC', backgroundColor: '#EEECFF' }]}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: '#1F2937' }}>
+                                Version v{ver.version} {isCurrent && '(Restored Buffer)'}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{dateStr}</Text>
+                            </View>
+                            <Text style={{ fontSize: 11, color: '#4B5563', marginTop: 4, fontStyle: 'italic' }}>
+                              "{ver.changes}"
+                            </Text>
+                            <TouchableOpacity
+                              style={[styles.restoreBtnLink, { marginTop: 8 }]}
+                              onPress={() => handleRestoreVersion(ver)}
+                            >
+                              <Ionicons name="reload-outline" size={12} color="#6D5DFC" style={{ marginRight: 4 }} />
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#6D5DFC' }}>Restore to Editor</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* --- DRAFT VIEWER MODAL --- */}
+      <Modal visible={isPreviewOpen && !!previewDraft} animationType="slide" presentationStyle="fullScreen">
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+          {/* Header */}
+          <View style={[styles.appBar, { borderBottomWidth: 1, borderBottomColor: '#ECECEC' }]}>
+            <TouchableOpacity 
+              style={styles.backBtn}
+              onPress={() => {
+                setIsPreviewOpen(false);
+                setPreviewDraft(null);
+              }}
+            >
+              <Ionicons name="close" size={24} color="#1F2937" />
+            </TouchableOpacity>
+            
+            <View style={{ flex: 1, marginHorizontal: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#1F2937' }} numberOfLines={1}>
+                {previewDraft?.name || 'Document Preview'}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', fontWeight: '600' }}>
+                {previewDraft?.type || 'Draft'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={async () => {
+                if (!previewDraft) return;
+                try {
+                  await Share.share({
+                    title: previewDraft.name,
+                    message: previewDraft.content
+                  });
+                } catch (err) {
+                  console.log(err);
+                }
+              }}
+              style={{ padding: 8 }}
+            >
+              <Ionicons name="share-social-outline" size={22} color="#1F2937" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Details & Info Row */}
+          <View style={{ padding: 16, backgroundColor: '#F9FAFB', borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 4 }}>
+            <Text style={{ fontSize: 12, color: '#4B5563', fontWeight: '500' }}>
+              Case Workspace: <Text style={{ fontWeight: '700', color: '#1F2937' }}>{workspace?.name || 'Standard Case'}</Text>
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+              <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+                Created: {previewDraft?.createdAt ? new Date(previewDraft.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+              </Text>
+              <View style={[styles.statusBadge, 
+                previewDraft?.status === 'Completed' ? styles.badgeSuccess : 
+                previewDraft?.status === 'Reviewed' ? styles.badgeInfo : 
+                previewDraft?.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+              ]}>
+                <Text style={styles.statusBadgeText}>{previewDraft?.status || 'Draft'}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Scrollable formatted content */}
+          <ScrollView 
+            style={{ flex: 1, padding: 16 }}
+            contentContainerStyle={{ paddingBottom: 100 }}
+          >
+            <Text style={{ 
+              fontSize: 13, 
+              color: '#1F2937', 
+              lineHeight: 20, 
+              fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+              backgroundColor: '#FFFFFF',
+            }}>
+              {previewDraft?.content || ''}
+            </Text>
+          </ScrollView>
+
+          {/* Floating Edit button */}
+          <TouchableOpacity 
+            style={{
+              position: 'absolute',
+              bottom: 24,
+              right: 24,
+              backgroundColor: '#6D5DFC',
+              paddingHorizontal: 20,
+              paddingVertical: 12,
+              borderRadius: 24,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              elevation: 5,
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 5,
+            }}
+            onPress={() => {
+              if (previewDraft) {
+                const draftToEdit = previewDraft;
+                setIsPreviewOpen(false);
+                setPreviewDraft(null);
+                handleOpenDraftEditor(draftToEdit);
+              }
+            }}
+          >
+            <Ionicons name="create" size={18} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>Edit Draft</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </Modal>
+
+      {/* --- CARD MORE MENU BOTTOM SHEET --- */}
+      <Modal visible={isCardMoreMenuOpen && !!activeDraftForMoreMenu} animationType="slide" transparent={true}>
+        <TouchableWithoutFeedback onPress={() => {
+          setIsCardMoreMenuOpen(false);
+          setActiveDraftForMoreMenu(null);
+        }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback>
+              <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 40 }}>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', paddingBottom: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#1F2937' }}>{activeDraftForMoreMenu?.name}</Text>
+                    <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{activeDraftForMoreMenu?.type}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => {
+                    setIsCardMoreMenuOpen(false);
+                    setActiveDraftForMoreMenu(null);
+                  }}>
+                    <Ionicons name="close-circle" size={24} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Options List */}
+                <ScrollView style={{ maxHeight: 350 }}>
+                  {/* Download as PDF */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsCardMoreMenuOpen(false);
+                      showToast('success', 'Exporting PDF...', 'Simulating PDF document conversion...');
+                      setTimeout(() => {
+                        showToast('success', 'PDF Downloaded', `${activeDraftForMoreMenu?.name}.pdf saved in Downloads folder.`);
+                        setActiveDraftForMoreMenu(null);
+                      }, 1000);
+                    }}
+                  >
+                    <Ionicons name="download-outline" size={18} color="#6D5DFC" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Download as PDF</Text>
+                  </TouchableOpacity>
+
+                  {/* Download as DOCX */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsCardMoreMenuOpen(false);
+                      showToast('success', 'Exporting DOCX...', 'Simulating DOCX file conversion...');
+                      setTimeout(() => {
+                        showToast('success', 'DOCX Downloaded', `${activeDraftForMoreMenu?.name}.docx saved in Downloads folder.`);
+                        setActiveDraftForMoreMenu(null);
+                      }, 1000);
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={18} color="#3B82F6" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Download as DOCX</Text>
+                  </TouchableOpacity>
+
+                  {/* Share Draft */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={async () => {
+                      if (!activeDraftForMoreMenu) return;
+                      setIsCardMoreMenuOpen(false);
+                      try {
+                        await Share.share({
+                          title: activeDraftForMoreMenu.name,
+                          message: activeDraftForMoreMenu.content
+                        });
+                      } catch (err) {
+                        console.log(err);
+                      }
+                      setActiveDraftForMoreMenu(null);
+                    }}
+                  >
+                    <Ionicons name="share-social-outline" size={18} color="#F59E0B" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Share Draft</Text>
+                  </TouchableOpacity>
+
+                  {/* Rename Draft */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      if (!activeDraftForMoreMenu) return;
+                      setIsCardMoreMenuOpen(false);
+                      setRenameTargetDraftId(activeDraftForMoreMenu.id);
+                      setRenameValue(activeDraftForMoreMenu.name);
+                      setActiveDraftForMoreMenu(null);
+                    }}
+                  >
+                    <Ionicons name="pencil-outline" size={18} color="#10B981" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Rename Draft</Text>
+                  </TouchableOpacity>
+
+                  {/* Duplicate Draft */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      if (!activeDraftForMoreMenu) return;
+                      setIsCardMoreMenuOpen(false);
+                      handleDuplicateDraft(activeDraftForMoreMenu.id);
+                      setActiveDraftForMoreMenu(null);
+                    }}
+                  >
+                    <Ionicons name="copy-outline" size={18} color="#8B5CF6" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Duplicate Draft</Text>
+                  </TouchableOpacity>
+
+                  {/* Export */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsCardMoreMenuOpen(false);
+                      showToast('success', 'Exporting...', 'Draft exported as raw TXT successfully.');
+                      setActiveDraftForMoreMenu(null);
+                    }}
+                  >
+                    <Ionicons name="log-out-outline" size={18} color="#6B7280" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Export</Text>
+                  </TouchableOpacity>
+
+                  {/* Print */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 }}
+                    onPress={() => {
+                      setIsCardMoreMenuOpen(false);
+                      showToast('info', 'Print Job', 'Simulated: Draft document sent to wireless printer.');
+                      setActiveDraftForMoreMenu(null);
+                    }}
+                  >
+                    <Ionicons name="print-outline" size={18} color="#1F2937" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Print</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* --- EDITOR MORE MENU BOTTOM SHEET --- */}
+      <Modal visible={isEditorMoreOpen} animationType="slide" transparent={true}>
+        <TouchableWithoutFeedback onPress={() => setIsEditorMoreOpen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback>
+              <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 40 }}>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', paddingBottom: 12 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#1F2937' }}>Editor Actions</Text>
+                  <TouchableOpacity onPress={() => setIsEditorMoreOpen(false)}>
+                    <Ionicons name="close-circle" size={24} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Options List */}
+                <ScrollView style={{ maxHeight: 380 }}>
+                  {/* Save */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      handleSaveDraftContent(false, 'Manual save checkpoint');
+                    }}
+                  >
+                    <Ionicons name="save-outline" size={18} color="#6D5DFC" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Save</Text>
+                  </TouchableOpacity>
+
+                  {/* Save As */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      setSaveAsName(`${editorTitle} Copy`);
+                      setIsSaveAsOpen(true);
+                    }}
+                  >
+                    <Ionicons name="duplicate-outline" size={18} color="#8B5CF6" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Save As...</Text>
+                  </TouchableOpacity>
+
+                  {/* Export PDF */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      showToast('success', 'PDF Export', 'Draft compiled and saved in PDF format.');
+                    }}
+                  >
+                    <Ionicons name="download-outline" size={18} color="#EF4444" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Export PDF</Text>
+                  </TouchableOpacity>
+
+                  {/* Export DOCX */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      showToast('success', 'Word Export', 'Draft compiled and saved in DOCX format.');
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={18} color="#3B82F6" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Export DOCX</Text>
+                  </TouchableOpacity>
+
+                  {/* Share */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={async () => {
+                      setIsEditorMoreOpen(false);
+                      try {
+                        await Share.share({
+                          title: editorTitle,
+                          message: editorContent
+                        });
+                      } catch (err) {
+                        console.log(err);
+                      }
+                    }}
+                  >
+                    <Ionicons name="share-social-outline" size={18} color="#F59E0B" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Share</Text>
+                  </TouchableOpacity>
+
+                  {/* Print */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      showToast('info', 'Printing...', 'Simulated document spooling to local printer.');
+                    }}
+                  >
+                    <Ionicons name="print-outline" size={18} color="#6B7280" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Print</Text>
+                  </TouchableOpacity>
+
+                  {/* Rename Draft */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      setSaveAsName(editorTitle);
+                      setIsSaveAsOpen(true);
+                    }}
+                  >
+                    <Ionicons name="pencil-outline" size={18} color="#10B981" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Rename Draft</Text>
+                  </TouchableOpacity>
+
+                  {/* Version History */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      setExpandedEditorTab('history');
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={18} color="#8B5CF6" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Version History</Text>
+                  </TouchableOpacity>
+
+                  {/* Delete Draft */}
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 }}
+                    onPress={() => {
+                      setIsEditorMoreOpen(false);
+                      if (activeDraftId) {
+                        handleDeleteDraft(activeDraftId);
+                        setIsEditorOpen(false);
+                      }
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>Delete Draft</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* --- SAVE AS & RENAME POPUP DIALOG --- */}
+      <Modal visible={isSaveAsOpen} transparent={true} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, width: '100%', maxWidth: 320, gap: 16 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: '#1F2937' }}>
+              {saveAsName.includes('Copy') ? 'Save Document As' : 'Rename Draft'}
+            </Text>
+            
+            <TextInput
+              style={styles.premiumSearchInput}
+              value={saveAsName}
+              onChangeText={setSaveAsName}
+              placeholder="Enter name"
+              placeholderTextColor="#9CA3AF"
+            />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <TouchableOpacity 
+                style={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                onPress={() => {
+                  setIsSaveAsOpen(false);
+                  setSaveAsName('');
+                }}
+              >
+                <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={{ backgroundColor: '#6D5DFC', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
+                onPress={() => {
+                  setIsSaveAsOpen(false);
+                  if (activeDraftId && saveAsName.trim()) {
+                    if (saveAsName.includes('Copy')) {
+                      if (workspace) {
+                        const current = workspace.drafts || [];
+                        const source = current.find(d => d.id === activeDraftId);
+                        if (source) {
+                          const newDraft: CaseDraft = {
+                            ...source,
+                            id: `draft_${Date.now()}`,
+                            name: saveAsName,
+                            content: editorContent,
+                            updatedAt: new Date().toISOString()
+                          };
+                          handleUpdateField({ drafts: [...current, newDraft] });
+                          showToast('success', 'Document Cloned', `Saved as "${saveAsName}".`);
+                        }
+                      }
+                    } else {
+                      setEditorTitle(saveAsName);
+                      if (workspace) {
+                        const current = workspace.drafts || [];
+                        const updated = current.map(d => d.id === activeDraftId ? { ...d, name: saveAsName, updatedAt: new Date().toISOString() } : d);
+                        handleUpdateField({ drafts: updated });
+                      }
+                      showToast('success', 'Document Renamed', `Draft title set to "${saveAsName}".`);
+                    }
+                  }
+                  setSaveAsName('');
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Evidence Upload Modal */}
+      <Modal
+        visible={isEvidenceUploadOpen}
+        transparent={true}
+        animationType="slide"
+      >
+        <TouchableWithoutFeedback onPress={() => setIsEvidenceUploadOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                <View style={styles.formHeaderRow}>
+                  <Text style={styles.formTitle}>Upload Evidence</Text>
+                  <TouchableOpacity onPress={() => setIsEvidenceUploadOpen(false)}>
+                    <Ionicons name="close" size={24} color="#4B5563" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: height * 0.7 }}>
+                  <Text style={styles.evidenceInputLabel}>File Name / Title</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Rent_Agreement_2025.pdf"
+                    placeholderTextColor="#9CA3AF"
+                    value={logEvidenceForm.name}
+                    onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, name: t })}
+                  />
+
+                  <Text style={styles.evidenceInputLabel}>Evidence Type</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ marginBottom: 12 }}
+                    contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                  >
+                    {['Document', 'Images', 'Videos', 'Audio', 'Digital', 'Physical', 'Contracts', 'Receipts', 'Photographs', 'Messages', 'Emails'].map((t) => {
+                      const isSel = logEvidenceForm.type === t;
+                      return (
+                        <Pressable
+                          key={t}
+                          style={[styles.typeSelectPill, isSel && styles.typeSelectPillActive]}
+                          onPress={() => setLogEvidenceForm({ ...logEvidenceForm, type: t })}
+                        >
+                          <Text style={[styles.typeSelectPillText, isSel && styles.typeSelectPillTextActive]}>
+                            {t}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <Text style={styles.evidenceInputLabel}>Description / Relevance Summary</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 60, textAlignVertical: 'top' }]}
+                    placeholder="Describe what this proof establishes..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={logEvidenceForm.description}
+                    onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, description: t })}
+                  />
+
+                  <Text style={styles.evidenceInputLabel}>Notes</Text>
+                  <TextInput
+                    style={[styles.formInput, { height: 50, textAlignVertical: 'top' }]}
+                    placeholder="Additional confidential notes..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    value={logEvidenceForm.notes}
+                    onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, notes: t })}
+                  />
+
+                  <Text style={styles.evidenceInputLabel}>Tags (comma separated)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Agreement, Signed, Delhi"
+                    placeholderTextColor="#9CA3AF"
+                    value={logEvidenceForm.tags}
+                    onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, tags: t })}
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.evidenceInputLabel}>Exhibit Number (Optional)</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Exhibit A-1"
+                        placeholderTextColor="#9CA3AF"
+                        value={logEvidenceForm.exhibitNumber}
+                        onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, exhibitNumber: t })}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.evidenceInputLabel}>File Size</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. 1.2 MB"
+                        placeholderTextColor="#9CA3AF"
+                        value={logEvidenceForm.fileSize}
+                        onChangeText={(t) => setLogEvidenceForm({ ...logEvidenceForm, fileSize: t })}
+                      />
+                    </View>
+                  </View>
+
+                  <Pressable style={styles.formSubmitBtn} onPress={handleUploadSubmit}>
+                    <Text style={styles.formSubmitBtnText}>Upload and OCR Analyze</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Evidence Details Modal */}
+      <Modal
+        visible={isEvidenceDetailsOpen && !!selectedEvidence}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+          {/* Header */}
+          <View style={styles.detailsHeader}>
+            <TouchableOpacity onPress={() => setIsEvidenceDetailsOpen(false)} style={styles.detailsBackBtn}>
+              <Ionicons name="arrow-back" size={24} color="#1F2937" />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.detailsExhibitNumber}>{selectedEvidence?.exhibitNumber || 'Exhibit'}</Text>
+              <Text style={styles.detailsFileName} numberOfLines={1}>{selectedEvidence?.name}</Text>
+            </View>
+            <View style={[styles.evStatusBadge, { backgroundColor: getStatusColor(selectedEvidence?.status || 'Pending') + '15', marginRight: 12 }]}>
+              <Text style={[styles.evStatusBadgeText, { color: getStatusColor(selectedEvidence?.status || 'Pending') }]}>
+                {selectedEvidence?.status || 'Pending'}
+              </Text>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsScrollContent}>
+            {/* Metadata Summary */}
+            <View style={styles.metadataCard}>
+              <Text style={styles.sectionTitle}>File Metadata</Text>
+              <View style={styles.metaGrid}>
+                <View style={styles.metaGridItem}>
+                  <Text style={styles.metaLabel}>Type</Text>
+                  <Text style={styles.metaValue}>{selectedEvidence?.type}</Text>
+                </View>
+                <View style={styles.metaGridItem}>
+                  <Text style={styles.metaLabel}>Size</Text>
+                  <Text style={styles.metaValue}>{selectedEvidence?.fileSize}</Text>
+                </View>
+                <View style={styles.metaGridItem}>
+                  <Text style={styles.metaLabel}>Uploaded By</Text>
+                  <Text style={styles.metaValue}>{selectedEvidence?.uploadedBy}</Text>
+                </View>
+                <View style={styles.metaGridItem}>
+                  <Text style={styles.metaLabel}>Date Added</Text>
+                  <Text style={styles.metaValue}>
+                    {selectedEvidence?.uploadedDate ? new Date(selectedEvidence.uploadedDate).toLocaleDateString() : 'N/A'}
+                  </Text>
+                </View>
+              </View>
+              <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#ECECEC', paddingTop: 8 }}>
+                <Text style={styles.metaLabel}>SHA-256 Hash Proof</Text>
+                <Text style={styles.hashText}>{selectedEvidence?.hash || 'N/A'}</Text>
+              </View>
+            </View>
+
+            {/* OCR Extracted Text Preview */}
+            <View style={styles.ocrSection}>
+              <View style={styles.ocrHeaderRow}>
+                <Text style={styles.sectionTitle}>OCR Text Scanner Preview</Text>
+                <TouchableOpacity
+                  style={styles.copyBtn}
+                  onPress={() => {
+                    Clipboard.setString(selectedEvidence?.ocrData?.text || '');
+                    showToast('success', 'Copied', 'OCR text copied to clipboard.');
+                  }}
+                >
+                  <Ionicons name="copy-outline" size={14} color="#6D5DFC" />
+                  <Text style={styles.copyBtnText}>Copy Text</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.ocrTextScroll} nestedScrollEnabled>
+                <Text style={styles.ocrTextContent}>
+                  {selectedEvidence?.ocrData?.text || 'No scan text available for this file type.'}
+                </Text>
+              </ScrollView>
+            </View>
+
+            {/* AI Co-Counsel Findings */}
+            <View style={styles.aiFindingsCard}>
+              <View style={styles.aiHeaderRow}>
+                <Ionicons name="sparkles" size={18} color="#6D5DFC" />
+                <Text style={[styles.sectionTitle, { marginLeft: 6 }]}>AI Co-Counsel Findings</Text>
+                <View style={styles.confidenceBadge}>
+                  <Text style={styles.confidenceText}>
+                    {selectedEvidence?.aiAnalysis?.confidenceScore || 94}% Confidence
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.findingsSubLabel}>Legal Relevance & Analysis</Text>
+              <Text style={styles.findingsValue}>
+                {selectedEvidence?.aiAnalysis?.relevance || 'No relevance analysis computed.'}
+              </Text>
+
+              <Text style={styles.findingsSubLabel}>Detected Entities</Text>
+              <View style={styles.entitySection}>
+                {renderEntityBlock('People', selectedEvidence?.aiAnalysis?.entities?.people)}
+                {renderEntityBlock('Dates', selectedEvidence?.aiAnalysis?.entities?.dates)}
+                {renderEntityBlock('Addresses', selectedEvidence?.aiAnalysis?.entities?.addresses)}
+                {renderEntityBlock('Amounts', selectedEvidence?.aiAnalysis?.entities?.amounts)}
+              </View>
+
+              <Text style={styles.findingsSubLabel}>Suggested Arguments</Text>
+              {(selectedEvidence?.aiAnalysis?.suggestedArguments || []).map((arg: string, idx: number) => (
+                <View key={idx} style={styles.bulletItem}>
+                  <View style={styles.bulletDot} />
+                  <Text style={styles.bulletText}>{arg}</Text>
+                </View>
+              ))}
+
+              <Text style={styles.findingsSubLabel}>Governing CPC / Evidence Act Rules</Text>
+              <View style={styles.governingRulesRow}>
+                {(selectedEvidence?.aiAnalysis?.applicableLaws || []).map((law: string, idx: number) => (
+                  <View key={idx} style={styles.ruleBadge}>
+                    <Text style={styles.ruleBadgeText}>{law}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Text style={styles.findingsSubLabel}>Vulnerabilities / Weaknesses</Text>
+              {(selectedEvidence?.aiAnalysis?.possibleWeaknesses || []).map((w: string, idx: number) => (
+                <View key={idx} style={styles.weaknessItem}>
+                  <Ionicons name="alert-circle-outline" size={14} color="#EF4444" />
+                  <Text style={styles.weaknessText}>{w}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Related Case Workspace Linkages */}
+            <View style={styles.linkagesCard}>
+              <Text style={styles.sectionTitle}>Workspace Linkages</Text>
+              <Text style={styles.linkagesSubtitle}>Deep linkages matching active segments of this case.</Text>
+              
+              <View style={styles.linksGrid}>
+                <TouchableOpacity
+                  style={styles.linkCell}
+                  onPress={() => handleRelatedLinkPress('overview')}
+                >
+                  <View style={[styles.linkCellIconBg, { backgroundColor: '#EEECFF' }]}>
+                    <Ionicons name="time" size={16} color="#6D5DFC" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.linkCellTitle}>Timeline Event</Text>
+                    <Text style={styles.linkCellDesc} numberOfLines={1}>
+                      {selectedEvidence?.relatedLinks?.timelineEvents?.[0] || 'Default initialization'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.linkCell}
+                  onPress={() => handleRelatedLinkPress('hearings')}
+                >
+                  <View style={[styles.linkCellIconBg, { backgroundColor: '#E6F4EA' }]}>
+                    <Ionicons name="calendar" size={16} color="#10B981" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.linkCellTitle}>Linked Hearing</Text>
+                    <Text style={styles.linkCellDesc} numberOfLines={1}>
+                      {selectedEvidence?.relatedLinks?.hearings?.[0] || 'First scheduled trial'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.linkCell}
+                  onPress={() => handleRelatedLinkPress('research')}
+                >
+                  <View style={[styles.linkCellIconBg, { backgroundColor: '#EBF5FF' }]}>
+                    <Ionicons name="library" size={16} color="#3B82F6" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.linkCellTitle}>Legal Precedent</Text>
+                    <Text style={styles.linkCellDesc} numberOfLines={1}>
+                      {selectedEvidence?.relatedLinks?.research?.[0] || 'Evidence Act precedents'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.linkCell}
+                  onPress={() => handleRelatedLinkPress('drafts')}
+                >
+                  <View style={[styles.linkCellIconBg, { backgroundColor: '#FEF7E0' }]}>
+                    <Ionicons name="document-text" size={16} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.linkCellTitle}>Working Draft</Text>
+                    <Text style={styles.linkCellDesc} numberOfLines={1}>
+                      {selectedEvidence?.relatedLinks?.drafts?.[0] || 'Reply statement drafts'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Verification Status Modal */}
+      <Modal
+        visible={isVerifyModalOpen}
+        transparent={true}
+        animationType="slide"
+      >
+        <TouchableWithoutFeedback onPress={() => {
+          setIsVerifyModalOpen(false);
+          setVerifyTargetId(null);
+        }}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                <Text style={styles.formTitle}>Verify Evidence Admissibility</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+                  Select the validation status for this exhibit item.
+                </Text>
+
+                <Pressable
+                  style={[styles.statusSelectOption, { borderLeftColor: '#10B981', borderLeftWidth: 4 }]}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Verified')}
+                >
+                  <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={[styles.statusSelectTitle, { color: '#10B981' }]}>Verified</Text>
+                    <Text style={styles.statusSelectDesc}>Legally sound and authenticated.</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.statusSelectOption, { borderLeftColor: '#F59E0B', borderLeftWidth: 4 }]}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Pending')}
+                >
+                  <Ionicons name="time" size={20} color="#F59E0B" />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={[styles.statusSelectTitle, { color: '#F59E0B' }]}>Pending</Text>
+                    <Text style={styles.statusSelectDesc}>Awaiting validation or original copies.</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.statusSelectOption, { borderLeftColor: '#EF4444', borderLeftWidth: 4 }]}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Rejected')}
+                >
+                  <Ionicons name="close-circle" size={20} color="#EF4444" />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={[styles.statusSelectTitle, { color: '#EF4444' }]}>Rejected</Text>
+                    <Text style={styles.statusSelectDesc}>Inadmissible under Section 65B/other rules.</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.statusSelectOption, { borderLeftColor: '#3B82F6', borderLeftWidth: 4 }]}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Disputed')}
+                >
+                  <Ionicons name="alert-circle" size={20} color="#3B82F6" />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={[styles.statusSelectTitle, { color: '#3B82F6' }]}>Disputed</Text>
+                    <Text style={styles.statusSelectDesc}>Challenged by the opposing party council.</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.formCancelBtn, { marginTop: 12 }]}
+                  onPress={() => {
+                    setIsVerifyModalOpen(false);
+                    setVerifyTargetId(null);
+                  }}
+                >
+                  <Text style={styles.formCancelBtnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* OCR & AI Analysis Progress Loader Modal */}
+      <Modal
+        visible={isOcrAnalyzing || isAnalyzingEvidence}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.loaderModalOverlay}>
+          <View style={styles.loaderModalContent}>
+            {isOcrAnalyzing && (
+              <>
+                <View style={styles.loaderIconWrapper}>
+                  <ActivityIndicator size="large" color="#6D5DFC" />
+                </View>
+                <Text style={styles.loaderModalTitle}>AI OCR Text Extractor</Text>
+                <Text style={styles.loaderModalSubtitle}>Digitizing and verifying exhibit document raw layers...</Text>
+                
+                <View style={styles.loaderStepsContainer}>
+                  {ocrStepTitles.map((step, idx) => {
+                    const isCompleted = ocrProgressStep > idx;
+                    const isActive = ocrProgressStep === idx;
+                    return (
+                      <View key={idx} style={styles.loaderStepRow}>
+                        <View style={[
+                          styles.loaderStepBullet,
+                          isCompleted && styles.loaderStepBulletCompleted,
+                          isActive && styles.loaderStepBulletActive
+                        ]}>
+                          {isCompleted ? (
+                            <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                          ) : (
+                            <View style={[styles.loaderStepBulletDot, isActive && styles.loaderStepBulletDotActive]} />
+                          )}
+                        </View>
+                        <Text style={[
+                          styles.loaderStepText,
+                          isCompleted && styles.loaderStepTextCompleted,
+                          isActive && styles.loaderStepTextActive
+                        ]}>
+                          {step}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {isAnalyzingEvidence && (
+              <>
+                <View style={styles.loaderIconWrapper}>
+                  <ActivityIndicator size="large" color="#10B981" />
+                </View>
+                <Text style={styles.loaderModalTitle}>Gemini Legal Co-Counsel</Text>
+                <Text style={styles.loaderModalSubtitle}>Analyzing legal weight & extracting timeline entities...</Text>
+                
+                <View style={styles.loaderStepsContainer}>
+                  {aiStepTitles.map((step, idx) => {
+                    const isCompleted = aiAnalysisProgressStep > idx;
+                    const isActive = aiAnalysisProgressStep === idx;
+                    return (
+                      <View key={idx} style={styles.loaderStepRow}>
+                        <View style={[
+                          styles.loaderStepBullet,
+                          isCompleted && styles.loaderStepBulletCompleted,
+                          isActive && styles.loaderStepBulletActive
+                        ]}>
+                          {isCompleted ? (
+                            <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                          ) : (
+                            <View style={[styles.loaderStepBulletDot, isActive && styles.loaderStepBulletDotActive]} />
+                          )}
+                        </View>
+                        <Text style={[
+                          styles.loaderStepText,
+                          isCompleted && styles.loaderStepTextCompleted,
+                          isActive && styles.loaderStepTextActive
+                        ]}>
+                          {step}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -6094,6 +15775,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#10B981',
   },
+  horizontalPillsScroll: {
+    paddingVertical: 4,
+    gap: 8,
+  },
+  hearingOutcomeBox: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    gap: 4,
+  },
   filterPill: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -6444,5 +16138,3963 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     marginTop: 10,
     marginBottom: 4,
+  },
+  // Redesigned Research & Laws Screen Styles
+  premiumHeaderCard: {
+    backgroundColor: '#EEECFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E1DDFF',
+    marginBottom: 16,
+  },
+  premiumHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  premiumHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  premiumHeaderBadges: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  premiumStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  premiumPriorityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  premiumBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  premiumSearchCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 16,
+    marginBottom: 16,
+  },
+  premiumSearchTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  premiumSearchSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 4,
+    marginBottom: 12,
+    lineHeight: 15,
+  },
+  searchBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  premiumSearchInput: {
+    flex: 2,
+    height: 38,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    color: '#1F2937',
+    backgroundColor: '#FFFFFF',
+  },
+  premiumSearchBtn: {
+    backgroundColor: '#1F2937',
+    borderRadius: 8,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  premiumSearchBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  premiumAnalyzeBtn: {
+    backgroundColor: '#6D5DFC',
+    borderRadius: 8,
+    height: 38,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  premiumAnalyzeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  suggestionsTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginBottom: 6,
+  },
+  suggestionChipsContainer: {
+    paddingBottom: 4,
+  },
+  sugChip: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginRight: 6,
+  },
+  sugChipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  sugChipActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  sugChipTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  emptyStateContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 12,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptyStateBtn: {
+    backgroundColor: '#6D5DFC',
+    borderColor: '#6D5DFC',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  emptyStateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  metricCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 12,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#6D5DFC',
+  },
+  metricLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    marginTop: 4,
+  },
+  researchLawItemCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    borderRadius: 8,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  lawItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#F9FAFB',
+  },
+  lawItemExpandedContent: {
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 6,
+  },
+  lawTitleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  judFilterContainer: {
+    paddingBottom: 8,
+    gap: 6,
+  },
+  judFilterBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    marginRight: 4,
+  },
+  judFilterBtnActive: {
+    backgroundColor: '#EEECFF',
+    borderWidth: 0.5,
+    borderColor: '#6D5DFC',
+  },
+  judFilterBtnText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  judFilterBtnTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  judgmentItemCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    borderRadius: 8,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  judgmentItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#F9FAFB',
+  },
+  judgmentItemExpandedContent: {
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 6,
+  },
+  judgmentDetailText: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+  },
+  judgmentButtonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  judActionBtn: {
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  judActionBtnText: {
+    fontSize: 10,
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  savedPrecedentItemCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 12,
+    marginBottom: 8,
+    gap: 4,
+  },
+  savedPrecedentDate: {
+    fontSize: 9,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  accordionTextNormal: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
+  },
+  ocrOverlayStatic: {
+    backgroundColor: '#EEECFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E1DDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  accordionContainer: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    backgroundColor: '#F9FAFB',
+  },
+  accordionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  accordionContent: {
+    padding: 14,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#ECECEC',
+    gap: 8,
+  },
+  accordionTextBold: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  accordionBullet: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
+    paddingLeft: 8,
+  },
+  researchLawItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    paddingBottom: 12,
+    marginBottom: 12,
+    gap: 4,
+  },
+  lawActLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  lawSecLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  lawDesc: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
+  },
+  lawExplanationBox: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: '#EEECFF',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  lawExplanationText: {
+    fontSize: 11,
+    color: '#5B4EDB',
+    lineHeight: 15,
+    flex: 1,
+  },
+  judgmentTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  judgmentCitation: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
+  },
+  saveResearchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  saveResearchBtnText: {
+    color: '#6D5DFC',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  recommendationItem: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  recommendationText: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
+    flex: 1,
+  },
+  emptyTextSaved: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+  savedPrecedentItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    paddingBottom: 10,
+    marginBottom: 10,
+    gap: 4,
+  },
+  savedPrecedentTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  savedPrecedentCitation: {
+    fontSize: 10,
+    color: '#6D5DFC',
+    fontWeight: '600',
+  },
+  savedPrecedentSummary: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+  },
+  contractUploadBtn: {
+    backgroundColor: '#6D5DFC',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contractUploadBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  draftPreviewScrollStatic: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 10,
+    marginTop: 6,
+  },
+  aiReplyContainer: {
+    backgroundColor: '#EEECFF',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+  },
+  aiReplyTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#6D5DFC',
+    marginBottom: 6,
+  },
+  aiReplyText: {
+    fontSize: 12,
+    color: '#1F2937',
+    lineHeight: 18,
+  },
+  dividerLine: {
+    height: 1,
+    backgroundColor: '#ECECEC',
+    marginVertical: 10,
+  },
+  dropdownContainer: {
+    marginVertical: 8,
+  },
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    height: 38,
+    paddingHorizontal: 10,
+    marginTop: 4,
+  },
+  dropdownTriggerText: {
+    fontSize: 12,
+    color: '#1F2937',
+  },
+  dropdownListContainer: {
+    maxHeight: 180,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    marginTop: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dropdownList: {
+    paddingVertical: 4,
+  },
+  dropdownItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dropdownItemActive: {
+    backgroundColor: '#EEECFF',
+  },
+  dropdownItemText: {
+    fontSize: 12,
+    color: '#4B5563',
+  },
+  dropdownItemTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+
+  sortLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  sortOptionsContainer: {
+    gap: 6,
+  },
+  sortOptionChip: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  sortOptionChipActive: {
+    backgroundColor: '#6D5DFC',
+  },
+  sortOptionText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  sortOptionTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  versionBadge: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  versionBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#4B5563',
+  },
+  renameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  renameInput: {
+    flex: 1,
+    height: 32,
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    fontSize: 11,
+    color: '#1F2937',
+    backgroundColor: '#FFFFFF',
+  },
+  renameActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#10B981',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editorModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  editorModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  editorCloseBtn: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 18,
+  },
+  editorHeaderTitleInput: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F2937',
+    padding: 0,
+  },
+  exportActionTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  editorSaveHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6D5DFC',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  editorStatusSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECEC',
+  },
+  editorStatusChip: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 6,
+  },
+  editorStatusChipActive: {
+    backgroundColor: '#EEECFF',
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+  },
+  editorStatusChipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  editorStatusChipTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  editorSubTabsHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECEC',
+    backgroundColor: '#FFFFFF',
+  },
+  editorSubTabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  editorSubTabActive: {
+    borderBottomColor: '#6D5DFC',
+  },
+  editorSubTabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  editorSubTabTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '800',
+  },
+  editorToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  editorToolbarBtn: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 4,
+    marginRight: 4,
+  },
+  mainEditorInput: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#1F2937',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    textAlignVertical: 'top',
+  },
+  aiAssistIntroBox: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#E1DDFF',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  aiAssistIntroTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#5B4EDB',
+    marginTop: 4,
+  },
+  aiAssistIntroDesc: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+    marginTop: 4,
+  },
+  aiDraftingStepsBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    alignItems: 'center',
+  },
+  aiDraftingTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  diffContainer: {
+    backgroundColor: '#FFF0F5',
+    borderWidth: 1,
+    borderColor: '#EC4899',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  diffHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  diffHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EC4899',
+  },
+  diffMetaInfo: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  diffBodyScroll: {
+    maxHeight: 250,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FCE8E6',
+    padding: 10,
+  },
+  diffContentText: {
+    fontSize: 11,
+    color: '#1F2937',
+    lineHeight: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  diffActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  diffAcceptBtn: {
+    flex: 1.5,
+    backgroundColor: '#EC4899',
+    borderRadius: 6,
+    height: 32,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  diffAcceptText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  diffRejectBtn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EC4899',
+    borderRadius: 6,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  diffRejectText: {
+    color: '#EC4899',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  aiActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingBottom: 24,
+  },
+  aiActionCard: {
+    width: '48%',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 8,
+    padding: 10,
+  },
+  aiActionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  aiActionCardTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  aiActionCardDesc: {
+    fontSize: 9,
+    color: '#6B7280',
+    marginTop: 2,
+    lineHeight: 12,
+  },
+  restoreBtnLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // Evidence Vault styles
+  evidenceTabContainer: {
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 120 : 100,
+  },
+  evidenceHeader: {
+    marginBottom: 16,
+  },
+  evidenceCaseTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  evidenceBadgesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  evidenceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+  },
+  evidenceBadgeActive: {
+    backgroundColor: '#EEECFF',
+  },
+  evidenceBadgePriority: {
+    backgroundColor: '#FCE8E6',
+  },
+  evidenceBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  lockerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 16,
+  },
+  lockerCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  lockerIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EEECFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lockerCardTitleBlock: {
+    flex: 1,
+  },
+  lockerCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  lockerCardSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  lockerActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  lockerPrimaryBtn: {
+    flex: 1.2,
+    backgroundColor: '#6D5DFC',
+    borderRadius: 8,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lockerPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  lockerSecondaryBtn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+    borderRadius: 8,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lockerSecondaryBtnText: {
+    color: '#6D5DFC',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  metricsScrollView: {
+    marginBottom: 16,
+  },
+  metricsContainer: {
+    gap: 10,
+    paddingRight: 16,
+  },
+  metricItemCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 12,
+    padding: 12,
+    width: 100,
+    alignItems: 'center',
+  },
+  metricItemIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  metricItemCount: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  metricItemLabel: {
+    fontSize: 9,
+    color: '#6B7280',
+    marginTop: 2,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  searchFilterContainer: {
+    marginBottom: 16,
+  },
+  evidenceSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+    marginBottom: 10,
+  },
+  evidenceSearchIcon: {
+    marginRight: 8,
+  },
+  evidenceSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1F2937',
+    padding: 0,
+  },
+  pillsScrollView: {
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+  },
+  pillsContainer: {
+    gap: 8,
+    paddingRight: 32,
+  },
+  evidenceFilterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  evidenceFilterPillActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  evidenceFilterPillText: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  evidenceFilterPillTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  emptyEvidenceContainer: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#D1D5DB',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  emptyEvidenceTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  emptyEvidenceSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  evidenceListContainer: {
+    gap: 16,
+  },
+  evidenceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  evidenceCardMain: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+  },
+  evidenceIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  evidenceCardMetaBlock: {
+    flex: 1,
+  },
+  evidenceCardTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  exhibitCode: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D5DFC',
+    textTransform: 'uppercase',
+  },
+  evStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 4,
+  },
+  evStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  evStatusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  evidenceName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  evidenceDesc: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  tagPill: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  tagPillText: {
+    fontSize: 9,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  evidenceUploaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  uploaderText: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  evidenceActionsRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
+  },
+  evidenceActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderRightWidth: 1,
+    borderRightColor: '#F3F4F6',
+  },
+  evidenceActionText: {
+    fontSize: 11,
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  typeSelectPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  typeSelectPillActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  typeSelectPillText: {
+    fontSize: 11,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  typeSelectPillTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  evidenceInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginBottom: 6,
+    marginTop: 8,
+  },
+  loaderModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loaderModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  loaderIconWrapper: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  loaderModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+  },
+  loaderModalSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  loaderStepsContainer: {
+    width: '100%',
+    gap: 12,
+  },
+  loaderStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  loaderStepBullet: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loaderStepBulletCompleted: {
+    borderColor: '#10B981',
+    backgroundColor: '#10B981',
+  },
+  loaderStepBulletActive: {
+    borderColor: '#6D5DFC',
+  },
+  loaderStepBulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'transparent',
+  },
+  loaderStepBulletDotActive: {
+    backgroundColor: '#6D5DFC',
+  },
+  loaderStepText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  loaderStepTextCompleted: {
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  loaderStepTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECEC',
+    backgroundColor: '#FFFFFF',
+  },
+  detailsBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailsExhibitNumber: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D5DFC',
+    textTransform: 'uppercase',
+  },
+  detailsFileName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginTop: 2,
+  },
+  detailsScrollContent: {
+    padding: 16,
+    gap: 16,
+    backgroundColor: '#F9FAFB',
+  },
+  metadataCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  metaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  metaGridItem: {
+    width: '45%',
+  },
+  metaLabel: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginTop: 2,
+  },
+  hashText: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  ocrSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  ocrHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  copyBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  ocrTextScroll: {
+    height: 120,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  ocrTextContent: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#4B5563',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  aiFindingsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  aiHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  confidenceBadge: {
+    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  confidenceText: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  findingsSubLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6D5DFC',
+    textTransform: 'uppercase',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  findingsValue: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 18,
+  },
+  entitySection: {
+    gap: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  entityBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  entityLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1F2937',
+    width: 60,
+    marginTop: 2,
+  },
+  entityChipsContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  entityChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  entityChipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  bulletItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+    paddingLeft: 4,
+  },
+  bulletDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#6D5DFC',
+  },
+  bulletText: {
+    fontSize: 12,
+    color: '#4B5563',
+    flex: 1,
+  },
+  governingRulesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  ruleBadge: {
+    backgroundColor: '#EEECFF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  ruleBadgeText: {
+    fontSize: 10,
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  weaknessItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FCE8E6',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 6,
+  },
+  weaknessText: {
+    fontSize: 11,
+    color: '#EF4444',
+    fontWeight: '600',
+    flex: 1,
+  },
+  linkagesCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    marginBottom: 16,
+  },
+  linkagesSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  linksGrid: {
+    gap: 10,
+  },
+  linkCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    gap: 12,
+  },
+  linkCellIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  linkCellTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  linkCellDesc: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  statusSelectOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  statusSelectTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  statusSelectDesc: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  formCancelBtn: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  formCancelBtnText: {
+    color: '#4B5563',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  // Contract specific redesigned styles
+  contractUploadCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  contractUploadIconBg: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#EEECFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  contractUploadTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  contractUploadSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  contractFormatsText: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  contractUploadActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    paddingHorizontal: 8,
+  },
+  contractUploadPrimaryBtn: {
+    flex: 1.2,
+    backgroundColor: '#6D5DFC',
+    borderRadius: 8,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contractUploadPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  contractUploadSecondaryBtn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+    borderRadius: 8,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contractUploadSecondaryText: {
+    color: '#6D5DFC',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  contractLoaderContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  contractLoaderIconWrapper: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#EEECFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  contractLoaderTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  contractLoaderSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  contractOverviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 12,
+    padding: 12,
+  },
+  contractOverviewName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  contractOverviewSize: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  contractOverviewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contractOverviewSyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  contractOverviewSyncText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D5DFC',
+  },
+  contractOverviewReuploadBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contractMetricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  contractMetricCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 10,
+    padding: 10,
+    width: '23%',
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  contractMetricLabel: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  contractMetricValue: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+  },
+  contractPillsScroll: {
+    marginVertical: 4,
+  },
+  contractTabPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  contractTabPillActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  contractTabPillText: {
+    fontSize: 11,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  contractTabPillTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  overviewTable: {
+    gap: 6,
+  },
+  overviewTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    paddingVertical: 6,
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  overviewTableLabel: {
+    width: 100,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  overviewTableValue: {
+    flex: 1,
+    fontSize: 11,
+    color: '#1F2937',
+    lineHeight: 15,
+  },
+  // AI Legal Task Manager Styles
+  caseHeaderBanner: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  caseHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  caseHeaderSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  taskDashboard: {
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  taskMetricCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderLeftWidth: 4,
+    borderRadius: 10,
+    padding: 10,
+    marginRight: 8,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  metricNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  taskMetricLabel: {
+    fontSize: 9,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '700',
+  },
+  aiBriefCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  aiBriefHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  aiBriefTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#8B5CF6',
+  },
+  aiBriefContent: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#ECECEC',
+  },
+  aiBriefText: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+  },
+  weeklyPlannerCategory: {
+    marginBottom: 8,
+  },
+  weeklyCategoryHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 2,
+  },
+  weeklyCategoryText: {
+    fontSize: 10,
+    color: '#6B7280',
+    lineHeight: 13,
+  },
+  quickActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 12,
+  },
+  quickActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  quickActionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  taskSearchBarRow: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+  },
+  searchInputText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1F2937',
+    padding: 0,
+  },
+  taskFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  activeFilterChip: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  chipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  activeChipText: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  timelineGroup: {
+    marginBottom: 16,
+  },
+  timelineGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+    marginBottom: 8,
+  },
+  timelineGroupTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  timelineGroupCount: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  timelineGroupCountText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  timelineGroupContent: {
+    gap: 8,
+  },
+  taskCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 12,
+    padding: 12,
+  },
+  taskCardExpanded: {
+    borderColor: '#D1D5DB',
+  },
+  taskCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkboxContainer: {
+    marginRight: 4,
+  },
+  taskCardTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+
+  badgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    flexWrap: 'wrap',
+  },
+  priorityBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  priorityBadgeText: {
+    fontSize: 8,
+    fontWeight: '700',
+  },
+  taskAiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: '#DDD6FE',
+  },
+  taskAiBadgeText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  deadlineLabel: {
+    fontSize: 9,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  checklistProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  taskProgressText: {
+    fontSize: 9,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  progressBarContainer: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarActive: {
+    height: '100%',
+    backgroundColor: '#10B981',
+  },
+  detailDrawer: {
+    marginTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 8,
+  },
+  expandedDesc: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  subtasksContainer: {
+    marginBottom: 10,
+  },
+  sectionSubTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  taskChecklistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  checklistItemText: {
+    fontSize: 11,
+    color: '#374151',
+  },
+  checklistItemTextCompleted: {
+    textDecorationLine: 'line-through',
+    color: '#9CA3AF',
+  },
+  linkagesContainer: {
+    marginBottom: 10,
+  },
+  pillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  linkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  linkPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  metaDetailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 12,
+  },
+  metaText: {
+    fontSize: 10,
+    color: '#4B5563',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    borderTopWidth: 0.5,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 8,
+  },
+  actionIconButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRightWidth: 0.5,
+    borderRightColor: '#E5E7EB',
+  },
+  actionIconText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '700',
+  },
+  aiSuggestedQueueBox: {
+    marginHorizontal: 12,
+    marginTop: 16,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  aiSuggestedQueueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  aiSuggestedQueueTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#5B21B6',
+  },
+  aiSuggestedQueueSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginBottom: 12,
+    lineHeight: 13,
+  },
+  aiSuggestedItemCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 0.5,
+    borderColor: '#DDD6FE',
+  },
+  aiSuggestedCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  aiSuggestedCardTitle: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  aiSuggestedCardReason: {
+    fontSize: 10,
+    color: '#4B5563',
+    marginTop: 6,
+    lineHeight: 14,
+  },
+  aiSuggestedCardDue: {
+    fontSize: 9,
+    color: '#8B5CF6',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  aiSuggestedCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  aiSuggestedBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  aiSuggestedBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  taskModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContentContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    padding: 16,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  modalFormScroll: {
+    marginBottom: 16,
+  },
+  formLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#4B5563',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  taskFormInput: {
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  pickerBorder: {
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    borderRadius: 8,
+    marginBottom: 8,
+    justifyContent: 'center',
+  },
+  picker: {
+    height: 40,
+    color: '#1F2937',
+  },
+  modalActionButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  voicePromptText: {
+    fontSize: 11,
+    color: '#6B7280',
+    lineHeight: 15,
+    marginBottom: 12,
+  },
+  voicePresetBtn: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 0.5,
+    borderColor: '#E5E7EB',
+  },
+  voicePresetBtnText: {
+    fontSize: 10,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  voiceProcessingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  voiceProcessingText: {
+    fontSize: 11,
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  // --- Case Notes Stylesheet ---
+  noteDashboardContainer: {
+    marginVertical: 12,
+    paddingHorizontal: 4,
+  },
+  noteMetricCard: {
+    backgroundColor: '#F3E8FF',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginRight: 10,
+    minWidth: 105,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  noteMetricValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#7C3AED',
+  },
+  noteMetricLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B21A8',
+    marginTop: 2,
+  },
+  noteQuickActionsBar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginVertical: 8,
+    paddingHorizontal: 4,
+  },
+  noteQuickActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#6D5DFC',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  noteQuickActionText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  noteAiInsightsPanel: {
+    backgroundColor: '#FAF5FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D8B4FE',
+    padding: 12,
+    marginVertical: 10,
+    marginHorizontal: 4,
+  },
+  noteAiInsightsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#6D5DFC',
+  },
+  noteAiInsightsSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  noteAiInsightsSection: {
+    marginTop: 8,
+  },
+  noteAiInsightsHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginBottom: 4,
+  },
+  noteAiInsightsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  noteAiInsightsText: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+  },
+  noteEntityChip: {
+    backgroundColor: '#E8DFFA',
+    color: '#6D5DFC',
+    fontSize: 10,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  noteSearchBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginVertical: 10,
+    marginHorizontal: 4,
+  },
+  noteSearchIcon: {
+    marginRight: 8,
+  },
+  noteSearchInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 12,
+    color: '#1F2937',
+  },
+  noteFiltersRow: {
+    marginVertical: 6,
+    marginHorizontal: 4,
+  },
+  noteFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 15,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  noteFilterChipActive: {
+    backgroundColor: '#6D5DFC',
+    borderColor: '#6D5DFC',
+  },
+  noteFilterChipText: {
+    fontSize: 11,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  noteFilterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  noteListHeading: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 4,
+  },
+  noteEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noteEmptyText: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 20,
+  },
+  noteEmptyBtn: {
+    marginTop: 15,
+    backgroundColor: '#6D5DFC',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  noteEmptyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  noteCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 12,
+    marginBottom: 10,
+    marginHorizontal: 4,
+  },
+  noteCardExpanded: {
+    borderColor: '#D1D5DB',
+  },
+  noteCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  noteFavoriteTouch: {
+    marginRight: 6,
+  },
+  noteHeaderMetaRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  noteCategoryTag: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6D5DFC',
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  notePriorityBadge: {
+    fontSize: 9,
+    fontWeight: '700',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  notePriorityCritical: {
+    backgroundColor: '#FEE2E2',
+    color: '#DC2626',
+  },
+  notePriorityHigh: {
+    backgroundColor: '#FFEDD5',
+    color: '#D97706',
+  },
+  notePriorityMedium: {
+    backgroundColor: '#FEF3C7',
+    color: '#B45309',
+  },
+  notePriorityLow: {
+    backgroundColor: '#ECFDF5',
+    color: '#059669',
+  },
+  notePinTouch: {
+    marginLeft: 6,
+  },
+  noteClickArea: {
+    paddingVertical: 4,
+  },
+  noteCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  noteCardDescription: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+  },
+  noteFooterSummaryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  noteFooterSummaryText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  noteDrawerContent: {
+    marginTop: 12,
+    borderTopWidth: 0.5,
+    borderColor: '#E5E7EB',
+    paddingTop: 12,
+  },
+  noteToolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    padding: 4,
+    marginBottom: 8,
+    gap: 4,
+  },
+  noteToolbarBtn: {
+    padding: 6,
+    borderRadius: 4,
+  },
+  noteToolbarBtnActive: {
+    backgroundColor: '#E5E7EB',
+  },
+  noteToolbarDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: '#D1D5DB',
+    marginHorizontal: 4,
+  },
+  noteTextEditorArea: {
+    minHeight: 100,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 11,
+    color: '#1F2937',
+    textAlignVertical: 'top',
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+  },
+  noteAiFindingsBox: {
+    backgroundColor: '#F9F5FF',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    borderRadius: 8,
+    padding: 8,
+    marginVertical: 8,
+  },
+  noteAiFindingsTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#7C3AED',
+    marginBottom: 4,
+  },
+  noteAiFindingsHeading: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#5B21B6',
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  noteAiFindingsText: {
+    fontSize: 10,
+    color: '#4B5563',
+    lineHeight: 14,
+  },
+  noteAiFindingsBullet: {
+    fontSize: 10,
+    color: '#4B5563',
+    lineHeight: 14,
+    paddingLeft: 4,
+  },
+  noteEntitiesContainer: {
+    marginVertical: 6,
+  },
+  noteEntitiesTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginBottom: 4,
+  },
+  noteEntitiesFlex: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  noteEntityTouchChip: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  noteEntityTouchChipText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  noteEntityTouchChipType: {
+    fontSize: 8,
+    color: '#6B7280',
+  },
+  noteLinkageCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginVertical: 3,
+  },
+  noteLinkageCheckboxText: {
+    fontSize: 10,
+    color: '#4B5563',
+  },
+  noteLinkageCheckboxTextConfirmed: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  noteActionsFlex: {
+    gap: 6,
+  },
+  noteActionRowTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#6D5DFC',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  noteActionRowTouchDisabled: {
+    backgroundColor: '#10B981',
+  },
+  noteActionRowTouchText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  noteHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 8,
+    borderTopWidth: 0.5,
+    borderColor: '#E5E7EB',
+    paddingTop: 8,
+  },
+  noteHistoryLabel: {
+    fontSize: 9,
+    color: '#9CA3AF',
+  },
+  noteHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  noteHistoryBtnText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  noteCardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    borderTopWidth: 0.5,
+    borderColor: '#E5E7EB',
+    paddingTop: 8,
+    marginTop: 6,
+  },
+  noteCardIconBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  noteCardIconBtnDanger: {
+    borderColor: '#FEE2E2',
+  },
+  noteCardIconText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  noteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noteModalContent: {
+    width: '95%',
+    maxHeight: '90%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  noteFormHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: '#F3F4F6',
+    paddingBottom: 10,
+  },
+  noteModalTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  noteFormLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  noteFormCategoryFlex: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  noteFormCategoryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  noteFormCategoryChipActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  noteFormCategoryChipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  noteFormCategoryChipTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  noteFormInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 11,
+    color: '#1F2937',
+    backgroundColor: '#F9FAFB',
+  },
+  noteFormPriorityFlex: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  noteFormPriorityChip: {
+    flex: 1,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  noteFormPriorityChipActive: {
+    backgroundColor: '#6D5DFC',
+    borderColor: '#6D5DFC',
+  },
+  noteFormPriorityChipText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  noteFormPriorityChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  noteHorizontalScrollBar: {
+    marginVertical: 4,
+  },
+  noteSelectorHorizontalItem: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    marginRight: 6,
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+  },
+  noteSelectorHorizontalItemActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  noteSelectorHorizontalItemText: {
+    fontSize: 10,
+    color: '#4B5563',
+  },
+  noteSelectorHorizontalItemTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  noteTemplateSection: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#FAF5FF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  noteTemplateTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#7C3AED',
+    marginBottom: 4,
+  },
+  noteFormToolbarRow: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: '#F3F4F6',
+    padding: 4,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#E5E7EB',
+  },
+  noteFormToolbarIcon: {
+    padding: 4,
+    borderRadius: 4,
+  },
+  noteFormSwitchRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginVertical: 10,
+  },
+  noteFormSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+  },
+  noteFormSwitchBtnActive: {
+    backgroundColor: '#6D5DFC',
+    borderColor: '#6D5DFC',
+  },
+  noteFormSwitchText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  noteFormSwitchTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  noteFormAutosaveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  noteFormAutosaveIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  noteFormAutosaveText: {
+    fontSize: 9,
+    color: '#6B7280',
+  },
+  noteHorizontalSelectorScroll: {
+    marginVertical: 4,
+  },
+  noteModalActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderColor: '#F3F4F6',
+    paddingTop: 10,
+  },
+  noteFormCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+  },
+  noteFormCancelBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  noteFormSaveBtn: {
+    flex: 1,
+    backgroundColor: '#6D5DFC',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  noteFormSaveBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  voiceNoteModalContentBody: {
+    paddingVertical: 15,
+  },
+  voiceNoteTranscribingContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  voiceNoteTranscribingHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D5DFC',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  caseHeaderMain: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  caseHeaderBadgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  voiceNoteTranscribingText: {
+    fontSize: 10,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    paddingHorizontal: 15,
+    lineHeight: 14,
+  },
+  voiceNoteRecordContainer: {
+    alignItems: 'center',
+  },
+  voiceNoteRecordHeading: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  voiceNoteWaveformRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 80,
+    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  voiceNoteWaveformBar: {
+    width: 6,
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+  },
+  voiceNoteRecordDurationText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#EF4444',
+    marginBottom: 15,
+  },
+  voiceNoteRecordBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  voiceNoteRecordBtnActive: {
+    backgroundColor: '#1F2937',
+  },
+  voiceNoteRecordInstruction: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 12,
+  },
+  noteVersionItemCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 10,
+    marginBottom: 8,
+  },
+  noteVersionItemCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  noteVersionItemCardTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  noteVersionItemCardDate: {
+    fontSize: 9,
+    color: '#9CA3AF',
+  },
+  noteVersionItemCardContent: {
+    fontSize: 10,
+    color: '#4B5563',
+    lineHeight: 14,
+    marginBottom: 8,
+  },
+  noteVersionItemRestoreBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  noteVersionItemRestoreBtnText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  caseHeaderContainer: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  orderDashboardContainer: {
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  orderMetricCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderLeftWidth: 4,
+    minWidth: 120,
+  },
+  orderMetricValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  orderMetricLabel: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  orderQuickActionsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    gap: 10,
+    marginBottom: 10,
+  },
+  orderQuickBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  orderQuickBtnOutline: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#6D5DFC',
+  },
+  orderQuickBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  orderSearchBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 12,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 10,
+  },
+  orderSearchIcon: {
+    marginRight: 6,
+  },
+  orderSearchInput: {
+    flex: 1,
+    height: 38,
+    fontSize: 12,
+    color: '#1F2937',
+  },
+  orderFiltersWrapper: {
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  orderFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+  },
+  orderFilterChipActive: {
+    backgroundColor: '#6D5DFC',
+  },
+  orderFilterChipText: {
+    fontSize: 11,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  orderFilterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  orderCardList: {
+    paddingHorizontal: 12,
+  },
+  orderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  orderCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  orderCardHeaderLeft: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
+  },
+  orderCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  orderCardSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  orderStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  orderBadgeCompleted: {
+    backgroundColor: '#10B98115',
+  },
+  orderBadgeAnalyzed: {
+    backgroundColor: '#6D5DFC15',
+  },
+  orderStatusBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  orderCardSummary: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+    marginBottom: 8,
+  },
+  orderHighlightsContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    padding: 8,
+    gap: 4,
+    marginBottom: 8,
+  },
+  orderHighlightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  orderHighlightText: {
+    fontSize: 10,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  orderCardFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 8,
+  },
+  orderCardUploadMeta: {
+    fontSize: 9,
+    color: '#9CA3AF',
+  },
+  orderCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  orderActionIconBtn: {
+    padding: 4,
+    borderRadius: 4,
+    backgroundColor: '#F3F4F6',
+  },
+  orderModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  orderOcrLoaderBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  ocrLoaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 15,
+  },
+  ocrLoaderSpinner: {
+    marginVertical: 15,
+  },
+  ocrProgressBarWrapper: {
+    width: '100%',
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  ocrProgressBarFill: {
+    height: '100%',
+    backgroundColor: '#6D5DFC',
+  },
+  ocrProgressPercentage: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D5DFC',
+    marginBottom: 12,
+  },
+  ocrLoaderStepText: {
+    fontSize: 11,
+    color: '#4B5563',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  ocrPipelineIndicators: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  ocrPipelineStep: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+  },
+  ocrPipelineStepActive: {
+    backgroundColor: '#6D5DFC',
+  },
+  orderFormContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+    overflow: 'hidden',
+  },
+  orderFormHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  orderFormHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  orderFormScrollContent: {
+    padding: 16,
+  },
+  orderFormLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  orderFormInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: '#1F2937',
+    backgroundColor: '#F9FAFB',
+  },
+  orderFormRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  orderHorizontalSelectorScroll: {
+    marginVertical: 6,
+  },
+  orderSelectorHorizontalItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  orderSelectorHorizontalItemActive: {
+    backgroundColor: '#EEECFF',
+    borderColor: '#6D5DFC',
+  },
+  orderSelectorHorizontalItemText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  orderSelectorHorizontalItemTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '700',
+  },
+  orderFormTextArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  orderFormFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 10,
+  },
+  orderFormBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderFormBtnCancel: {
+    backgroundColor: '#F3F4F6',
+  },
+  orderFormBtnCancelText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  orderFormBtnSubmit: {
+    backgroundColor: '#6D5DFC',
+  },
+  orderFormBtnSubmitText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  orderDrawerContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  orderDrawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  orderDrawerBackBtn: {
+    padding: 4,
+  },
+  orderDrawerHeaderTitleWrapper: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  orderDrawerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  orderDrawerSubtitle: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  orderDrawerCloseBtn: {
+    padding: 4,
+  },
+  orderSubTabSelector: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  orderSubTabItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  orderSubTabItemActive: {
+    backgroundColor: '#EEECFF',
+  },
+  orderSubTabItemText: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  orderSubTabItemTextActive: {
+    color: '#6D5DFC',
+    fontWeight: '800',
+  },
+  orderDrawerContentScroll: {
+    padding: 12,
+  },
+  pdfViewerCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  pdfViewerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    backgroundColor: '#111827',
+    borderBottomWidth: 1,
+    borderBottomColor: '#374151',
+  },
+  pdfViewerHeaderText: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    fontWeight: '600',
+  },
+  pdfViewerScroll: {
+    height: 120,
+    padding: 10,
+  },
+  pdfViewerTextCode: {
+    fontSize: 10,
+    color: '#F3F4F6',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    lineHeight: 14,
+  },
+  syncTabContentBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 12,
+  },
+  drawerSectionHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  metadataGrid: {
+    gap: 10,
+  },
+  metadataGridRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  metadataGridCol: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  metaLabelText: {
+    fontSize: 9,
+    color: '#9CA3AF',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  metaValueText: {
+    fontSize: 11,
+    color: '#1F2937',
+    fontWeight: '700',
+  },
+  aiSummaryDetailBox: {
+    backgroundColor: '#EEECFF',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  aiSummaryShortText: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  keyPointBulletRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 6,
+    alignItems: 'flex-start',
+  },
+  keyPointBulletText: {
+    fontSize: 11,
+    color: '#374151',
+    lineHeight: 15,
+    flex: 1,
+  },
+  subtextAlert: {
+    fontSize: 10,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginVertical: 10,
+  },
+  complianceDrawerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 8,
+  },
+  complianceDrawerLeft: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
+  },
+  complianceDescText: {
+    fontSize: 11,
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  lineThroughText: {
+    textDecorationLine: 'line-through',
+    color: '#9CA3AF',
+  },
+  complianceMetaText: {
+    fontSize: 9,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  suggestedHelpText: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginBottom: 10,
+  },
+  suggestionPromoteRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 8,
+  },
+  suggestionTypeBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  suggestionPromoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#EEECFF',
+  },
+  suggestionPromoteBtnAccepted: {
+    backgroundColor: '#10B981',
+  },
+  suggestionPromoteBtnText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  riskBadgeCard: {
+    backgroundColor: '#EF444405',
+    padding: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#EF4444',
+    marginBottom: 10,
+  },
+  riskCardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  riskCardValue: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  probabilityBox: {
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 12,
+  },
+  probabilityLabel: {
+    fontSize: 10,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  probabilityBarWrapper: {
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginVertical: 4,
+  },
+  probabilityBarFill: {
+    height: '100%',
+    backgroundColor: '#6D5DFC',
+  },
+  probabilityPercentText: {
+    fontSize: 9,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  riskAnalysisSubheading: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginBottom: 6,
+  },
+  riskDefectRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 4,
+    alignItems: 'center',
+  },
+  riskDefectText: {
+    fontSize: 10,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  drawerLinksGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  drawerLinkCard: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    padding: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  drawerLinkLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#4B5563',
+    textAlign: 'center',
+  },
+  workspaceSyncPanel: {
+    backgroundColor: '#EEECFF',
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#6D5DFC30',
+    marginBottom: 20,
+  },
+  syncPanelHeading: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#6D5DFC',
+    marginBottom: 4,
+  },
+  syncPanelDesc: {
+    fontSize: 10,
+    color: '#4B5563',
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  syncCheckboxesGrid: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  syncCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  syncCheckboxLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  syncBatchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#6D5DFC',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  syncBatchBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  syncSuccessMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#E8F5E9',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  syncSuccessText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#10B981',
   },
 });

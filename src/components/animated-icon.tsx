@@ -37,7 +37,7 @@ export function AnimatedSplashOverlay() {
       <View style={styles.imageContainer}>
         <Image
           style={styles.logoImage}
-          source={require('@/assets/logos/Logo.svg')}
+          source={require('@/assets/images/splash-icon.png')}
           contentFit="contain"
         />
       </View>
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoImage: {
-    width: 150,
-    height: 150,
+    width: 280,
+    height: 280,
   },
 });
