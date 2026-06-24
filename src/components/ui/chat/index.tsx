@@ -28,6 +28,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useThemeContext, useToastContext } from '@/providers';
+import { useTranslation } from '@/localization';
 import { Spacing, Radius, Shadows } from '@/theme';
 import { ChatMessage, ChatAttachment, ChatMessageSource } from '@/types';
 import { formatFileSize } from '@/utils';
@@ -46,7 +47,7 @@ interface MarkdownTextProps {
  * Custom lightweight Markdown parser for high-performance React Native rendering.
  */
 export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) => {
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
   
   if (!content) return null;
 
@@ -85,8 +86,10 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
                 style={{
                   fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
                   fontSize: 13,
-                  backgroundColor: isUserText ? 'rgba(0, 0, 0, 0.06)' : 'rgba(109, 93, 252, 0.08)',
-                  color: isUserText ? '#1F2937' : '#6D5DFC',
+                  backgroundColor: isUserText 
+                    ? (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)') 
+                    : (isDark ? 'rgba(123, 97, 255, 0.15)' : 'rgba(109, 93, 252, 0.08)'),
+                  color: isUserText ? theme.textPrimary : (isDark ? theme.primary : '#6D5DFC'),
                   paddingHorizontal: 4,
                   borderRadius: 4,
                   ...bStyle,
@@ -130,8 +133,8 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
                   <Text
                     key={`${bIdx}-${itIdx}-${cIdx}-${hlIdx}-${citIdx}`}
                     style={{
-                      backgroundColor: '#FEF08A', // Soft yellow highlight
-                      color: '#1F2937',
+                      backgroundColor: isDark ? 'rgba(254, 240, 138, 0.2)' : '#FEF08A', // Soft yellow highlight
+                      color: isDark ? '#FDE047' : '#1F2937',
                       borderRadius: 2,
                       paddingHorizontal: 2,
                       fontWeight: '600',
@@ -182,10 +185,10 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
         <View
           style={{
             borderWidth: 1,
-            borderColor: '#E5E7EB',
+            borderColor: theme.border,
             borderRadius: 8,
             overflow: 'hidden',
-            backgroundColor: '#FFFFFF',
+            backgroundColor: theme.card,
           }}
         >
           {currentTableRows.map((row, rIdx) => {
@@ -196,8 +199,12 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
                 style={{
                   flexDirection: 'row',
                   borderBottomWidth: rIdx === currentTableRows.length - 1 ? 0 : 1,
-                  borderBottomColor: '#E5E7EB',
-                  backgroundColor: isHeader ? '#EEECFF' : rIdx % 2 === 1 ? '#F9FAFB' : '#FFFFFF',
+                  borderBottomColor: theme.border,
+                  backgroundColor: isHeader 
+                    ? (isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF') 
+                    : rIdx % 2 === 1 
+                      ? (isDark ? 'rgba(255, 255, 255, 0.02)' : '#F9FAFB') 
+                      : theme.card,
                   paddingVertical: 10,
                   paddingHorizontal: 12,
                   alignItems: 'center',
@@ -211,7 +218,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
                         style={{
                           fontSize: 13.5,
                           fontWeight: isHeader ? '700' : '400',
-                          color: isHeader ? '#1F2937' : '#374151',
+                          color: isHeader ? theme.textPrimary : theme.textSecondary,
                           lineHeight: 18,
                         }}
                       >
@@ -243,9 +250,11 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
           <View
             key={`code-${i}`}
             style={{
-              backgroundColor: isUser ? 'rgba(0,0,0,0.04)' : '#F3F4F6',
+              backgroundColor: isUser 
+                ? (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0,0,0,0.04)') 
+                : theme.surfaceVariant,
               borderWidth: 1,
-              borderColor: '#E5E7EB',
+              borderColor: theme.border,
               padding: 12,
               borderRadius: 8,
               marginVertical: 10,
@@ -257,7 +266,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
                 fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
                 fontSize: 13,
                 lineHeight: 18,
-                color: '#1F2937',
+                color: theme.textPrimary,
               }}
             >
               {codeText}
@@ -299,24 +308,24 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
       if (calloutMatch) {
         const type = calloutMatch[1].toUpperCase();
         const bodyText = quoteContent.replace(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, '');
-        let bgColor = '#F3F4F6';
-        let borderColor = '#9CA3AF';
-        let titleColor = '#4B5563';
+        let bgColor = isDark ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6';
+        let borderColor = isDark ? '#4B5563' : '#9CA3AF';
+        let titleColor = isDark ? '#E5E7EB' : '#4B5563';
         let icon = 'ℹ️';
         if (type === 'WARNING' || type === 'CAUTION') {
-          bgColor = '#FEF2F2';
+          bgColor = isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2';
           borderColor = '#EF4444';
-          titleColor = '#991B1B';
+          titleColor = isDark ? '#FCA5A5' : '#991B1B';
           icon = '⚠️';
         } else if (type === 'IMPORTANT') {
-          bgColor = '#EFF6FF';
+          bgColor = isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF';
           borderColor = '#3B82F6';
-          titleColor = '#1E40AF';
+          titleColor = isDark ? '#93C5FD' : '#1E40AF';
           icon = '💡';
         } else if (type === 'TIP') {
-          bgColor = '#ECFDF5';
+          bgColor = isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5';
           borderColor = '#10B981';
-          titleColor = '#065F46';
+          titleColor = isDark ? '#6EE7B7' : '#065F46';
           icon = '✨';
         }
         renderedElements.push(
@@ -332,7 +341,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
             <Text style={{ fontWeight: '800', color: titleColor, fontSize: 13, marginBottom: 4 }}>
               {icon} {type}
             </Text>
-            <Text style={{ fontSize: 14.5, lineHeight: 22, color: '#374151' }}>
+            <Text style={{ fontSize: 14.5, lineHeight: 22, color: theme.textPrimary }}>
               {parseInlineStyles(bodyText, isUser)}
             </Text>
           </View>
@@ -341,13 +350,13 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
         renderedElements.push(
           <View key={i} style={{
             borderLeftWidth: 4,
-            borderLeftColor: '#6D5DFC',
+            borderLeftColor: theme.primary,
             paddingLeft: 12,
             paddingVertical: 4,
             marginVertical: 10,
             alignSelf: 'stretch',
           }}>
-            <Text style={{ fontSize: 15, lineHeight: 24, fontStyle: 'italic', color: '#4B5563' }}>
+            <Text style={{ fontSize: 15, lineHeight: 24, fontStyle: 'italic', color: theme.textSecondary }}>
               {parseInlineStyles(quoteContent, isUser)}
             </Text>
           </View>
@@ -363,7 +372,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
           key={i}
           style={{
             height: 1,
-            backgroundColor: '#ECECEC',
+            backgroundColor: theme.border,
             marginVertical: 18,
             alignSelf: 'stretch',
           }}
@@ -377,8 +386,8 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
       const bulletContent = trimmed.slice(2);
       renderedElements.push(
         <View key={i} style={{ flexDirection: 'row', paddingLeft: 8, marginVertical: 6, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 16, color: '#6D5DFC', marginRight: 8, lineHeight: isUser ? 25 : 27.2 }}>•</Text>
-          <Text style={{ flex: 1, fontSize: isUser ? 14.5 : 16, lineHeight: isUser ? 22 : 27.2, color: '#1F2937' }}>
+          <Text style={{ fontSize: 16, color: theme.primary, marginRight: 8, lineHeight: isUser ? 25 : 27.2 }}>•</Text>
+          <Text style={{ flex: 1, fontSize: isUser ? 14.5 : 16, lineHeight: isUser ? 22 : 27.2, color: theme.textPrimary }}>
             {parseInlineStyles(bulletContent, isUser)}
           </Text>
         </View>
@@ -393,10 +402,10 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
       const listContent = numMatch[2];
       renderedElements.push(
         <View key={i} style={{ flexDirection: 'row', paddingLeft: 8, marginVertical: 6, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: isUser ? 14.5 : 16, color: '#6D5DFC', marginRight: 6, fontWeight: '700', lineHeight: isUser ? 22 : 27.2 }}>
+          <Text style={{ fontSize: isUser ? 14.5 : 16, color: theme.primary, marginRight: 6, fontWeight: '700', lineHeight: isUser ? 22 : 27.2 }}>
             {num}.
           </Text>
-          <Text style={{ flex: 1, fontSize: isUser ? 14.5 : 16, lineHeight: isUser ? 22 : 27.2, color: '#1F2937' }}>
+          <Text style={{ flex: 1, fontSize: isUser ? 14.5 : 16, lineHeight: isUser ? 22 : 27.2, color: theme.textPrimary }}>
             {parseInlineStyles(listContent, isUser)}
           </Text>
         </View>
@@ -422,7 +431,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
             marginTop,
             marginBottom,
             lineHeight,
-            color: '#111827',
+            color: theme.textPrimary,
           }}
         >
           {parseInlineStyles(headerText, isUser)}
@@ -559,7 +568,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
             fontWeight: '800',
             marginTop: 16,
             marginBottom: 8,
-            color: '#111827',
+            color: theme.textPrimary,
           }}
         >
           {parseInlineStyles(trimmed, isUser)}
@@ -578,7 +587,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, isUser }) =
             lineHeight: isUser ? 22 : 27.2, // line height 1.7x for AI responses
             marginBottom: isUser ? 10 : 18,
             marginTop: 2,
-            color: '#1F2937',
+            color: theme.textPrimary,
           }}
         >
           {parseInlineStyles(line, isUser)}
@@ -638,82 +647,65 @@ const ActionIconBtn: React.FC<ActionIconBtnProps> = ({ onPress, isActive = false
   );
 };
 
-/**
- * Premium three-dot wave loader to replace blinking vertical cursor.
- */
-export const ThinkingDots: React.FC<{ theme: any }> = ({ theme }) => {
-  const dot1 = useRef(new Animated.Value(0.3)).current;
-  const dot2 = useRef(new Animated.Value(0.3)).current;
-  const dot3 = useRef(new Animated.Value(0.3)).current;
+export const ThinkingText: React.FC<{ text?: string; style?: any; animate?: boolean }> = ({ text = 'Thinking', style, animate = true }) => {
+  const [dots, setDots] = useState('.');
 
   useEffect(() => {
-    const animateDot = (dot: Animated.Value, delay: number) => {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(dot, {
-            toValue: 1.0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(dot, {
-            toValue: 0.3,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-    };
+    if (!animate) return;
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === '...') return '.';
+        return prev + '.';
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [animate]);
 
-    const anim1 = animateDot(dot1, 0);
-    const anim2 = animateDot(dot2, 150);
-    const anim3 = animateDot(dot3, 300);
+  if (!animate) {
+    return <Text style={style}>{text}</Text>;
+  }
 
-    anim1.start();
-    anim2.start();
-    anim3.start();
+  const baseText = text.replace(/\.\.\.$/, '').replace(/\.\.$/, '').replace(/\.$/, '');
 
-    return () => {
-      anim1.stop();
-      anim2.stop();
-      anim3.stop();
-    };
-  }, [dot1, dot2, dot3]);
+  return <Text style={style}>{baseText}{dots}</Text>;
+};
 
-  return (
-    <View style={styles.thinkingDotsWrapper}>
-      <Animated.View
-        style={[
-          styles.thinkingDot,
-          {
-            backgroundColor: theme.primary || '#6D5DFC',
-            opacity: dot1,
-            transform: [{ scale: dot1 }],
-          },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.thinkingDot,
-          {
-            backgroundColor: theme.primary || '#6D5DFC',
-            opacity: dot2,
-            transform: [{ scale: dot2 }],
-          },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.thinkingDot,
-          {
-            backgroundColor: theme.primary || '#6D5DFC',
-            opacity: dot3,
-            transform: [{ scale: dot3 }],
-          },
-        ]}
-      />
-    </View>
-  );
+const getToolThinkingText = (aiName?: string) => {
+  const name = String(aiName || '').toLowerCase().trim();
+  if (name.includes('case assistant') || name.includes('case_assistant')) {
+    return "Analyzing case context...";
+  }
+  if (name.includes('research assistant') || name.includes('research_assistant')) {
+    return "Searching legal sources...";
+  }
+  if (name.includes('contract analyzer') || name.includes('contract_analyzer')) {
+    return "Reviewing contract clauses...";
+  }
+  if (name.includes('evidence analyst') || name.includes('evidence_analyst') || name.includes('evidence checker')) {
+    return "Analyzing evidence...";
+  }
+  if (name.includes('strategy engine') || name.includes('strategy_engine')) {
+    return "Building litigation strategy...";
+  }
+  if (name.includes('argument builder') || name.includes('argument_builder')) {
+    return "Building legal arguments...";
+  }
+  if (name.includes('case predictor') || name.includes('case_predictor')) {
+    return "Predicting possible outcome...";
+  }
+  if (name.includes('timeline generator') || name.includes('timeline_generator')) {
+    return "Generating timeline...";
+  }
+  if (name.includes('legal research') || name.includes('legal_research') || name.includes('research')) {
+    return "Searching statutes and judgments...";
+  }
+  if (name.includes('precedent') || name.includes('precedents') || name.includes('legal precedent')) {
+    return "Searching relevant precedents...";
+  }
+  if (name.includes('draft maker') || name.includes('draft_maker')) {
+    return "Preparing legal draft...";
+  }
+  return "Thinking...";
 };
 
 /**
@@ -733,7 +725,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
   aiName,
   aiIcon,
 }) => {
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
   const { showToast } = useToastContext();
 
   const isStreaming = message.isStreaming || message.isProcessing || false;
@@ -779,36 +771,54 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
   // Removed trailing cursor completely as requested to avoid blinking cursor/pipe (|)
   const displayContent = message.content;
 
-  const DISCLAIMER_NEW_STARS = "**⚖️ Legal Disclaimer:** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
-  const DISCLAIMER_NEW_NO_STARS = "⚖️ Legal Disclaimer: This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
-  const DISCLAIMER_OLD_STARS_1 = "⚖️ **Legal Disclaimer:** This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
-  const DISCLAIMER_OLD_STARS_2 = "**⚖️ Legal Disclaimer:** This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
-  const DISCLAIMER_OLD_NO_STARS = "⚖️ Legal Disclaimer: This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
+  const DISCLAIMER_NEW_STARS = "**\u2696\ufe0f Legal Disclaimer:** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
+  const DISCLAIMER_NEW_NO_STARS = "\u2696\ufe0f Legal Disclaimer: This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
+  const DISCLAIMER_OLD_STARS_1 = "\u2696\ufe0f **Legal Disclaimer:** This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
+  const DISCLAIMER_OLD_STARS_2 = "**\u2696\ufe0f Legal Disclaimer:** This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
+  const DISCLAIMER_OLD_NO_STARS = "\u2696\ufe0f Legal Disclaimer: This AI analysis is for informational purposes only and does not constitute professional legal advice. AI can make mistakes; always consult a qualified lawyer before making legal decisions. This tool is a senior legal assistant designed to support your legal journey with data-driven insights.";
+  const DISCLAIMER_HINDI = "**\u2696\ufe0f \u0915\u093e\u0928\u0942\u0928\u0940 \u0905\u0938\u094d\u0935\u0940\u0915\u0930\u0923:** \u092f\u0939 \u0935\u093f\u0936\u094d\u0932\u0947\u0937\u0923 \u0915\u0947\u0935\u0932 \u0938\u0942\u091a\u0928\u093e\u0924\u094d\u092e\u0915 \u0909\u0926\u094d\u0926\u0947\u0936\u094d\u092f\u094b\u0902 \u0915\u0947 \u0932\u093f\u090f \u0939\u0948 \u0914\u0930 \u0915\u093e\u0928\u0942\u0928\u0940 \u0938\u0932\u093e\u0939 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964 \u090f\u0906\u0908 \u0917\u0932\u0924\u093f\u092f\u093e\u0902 \u0915\u0930 \u0938\u0915\u0924\u093e \u0939\u0948\u0964 \u0915\u093e\u0928\u0942\u0928\u0940 \u0928\u093f\u0930\u094d\u0923\u092f \u0932\u0947\u0928\u0947 \u0938\u0947 \u092a\u0939\u0932\u0947 \u0915\u0943\u092a\u092f\u093e \u0915\u093f\u0938\u0940 \u092f\u094b\u0917\u094d\u092f \u0935\u0915\u0940\u0932 \u0938\u0947 \u092a\u0930\u093e\u092e\u0930\u094d\u0936 \u0932\u0947\u0902\u0964";
+  const DISCLAIMER_HINDI_NO_STARS = "\u2696\ufe0f \u0915\u093e\u0928\u0942\u0928\u0940 \u0905\u0938\u094d\u0935\u0940\u0915\u0930\u0923: \u092f\u0939 \u0935\u093f\u0936\u094d\u0932\u0947\u0937\u0923 \u0915\u0947\u0935\u0932 \u0938\u0942\u091a\u0928\u093e\u0924\u094d\u092e\u0915 \u0909\u0926\u094d\u0926\u0947\u0936\u094d\u092f\u094b\u0902 \u0915\u0947 \u0932\u093f\u090f \u0939\u0948 \u0914\u0930 \u0915\u093e\u0928\u0942\u0928\u0940 \u0938\u0932\u093e\u0939 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964 \u090f\u0906\u0908 \u0917\u0932\u0924\u093f\u092f\u093e\u0902 \u0915\u0930 \u0938\u0915\u0924\u093e \u0939\u0948\u0964 \u0915\u093e\u0928\u0942\u0928\u0940 \u0928\u093f\u0930\u094d\u0923\u092f \u0932\u0947\u0928\u0947 \u0938\u0947 \u092a\u0939\u0932\u0947 \u0915\u0943\u092a\u092f\u093e \u0915\u093f\u0938\u0940 \u092f\u094b\u0917\u094d\u092f \u0935\u0915\u0940\u0932 \u0938\u0947 \u092a\u0930\u093e\u092e\u0930\u094d\u0936 \u0932\u0947\u0902\u0964";
+  const DISCLAIMER_BILINGUAL = "**\u2696\ufe0f Legal Disclaimer (\u0915\u093e\u0928\u0942\u0928\u0940 \u0905\u0938\u094d\u0935\u0940\u0915\u0930\u0923):** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions. (\u092f\u0939 \u0935\u093f\u0936\u094d\u0932\u0947\u0937\u0923 \u0915\u0947\u0935\u0932 \u0938\u0942\u091a\u0928\u093e\u0924\u094d\u092e\u0915 \u0909\u0926\u094d\u0926\u0947\u0936\u094d\u092f\u094b\u0902 \u0915\u0947 \u0932\u093f\u090f \u0939\u0948 \u0914\u0930 \u0915\u093e\u0928\u0942\u0928\u0940 \u0938\u0932\u093e\u0939 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964 \u090f\u0906\u0908 \u0917\u0932\u0924\u093f\u092f\u093e\u0902 \u0915\u0930 \u0938\u0915\u0924\u093e \u0939\u0948\u0964 \u0915\u093e\u0928\u0942\u0928\u0940 \u0928\u093f\u0930\u094d\u0923\u092f \u0932\u0947\u0928\u0947 \u0938\u0947 \u092a\u0939\u0932\u0947 \u0915\u0943\u092a\u092f\u093e \u0915\u093f\u0938\u0940 \u092f\u094b\u0917\u094d\u092f \u0935\u0915\u0940\u0932 \u0938\u0947 \u092a\u0930\u093e\u092e\u0930\u094d\u0936 \u0932\u0947\u0902\u0964)";
+  const DISCLAIMER_GUJARATI = "**\u2696\ufe0f \u0a95\u0abe\u0aa8\u0ac2\u0aa8\u0ac0 \u0a85\u0ab8\u0acd\u0ab5\u0ac0\u0a95\u0ab0\u0aa3:** \u0a86 \u0ab5\u0abf\u0ab6\u0acd\u0ab2\u0ac7\u0ab7\u0a93 \u0aab\u0a95\u0acd\u0aa4 \u0aae\u0abe\u0ab9\u0abf\u0aa4\u0ac0\u0aa8\u0abe \u0ab9\u0ac7\u0aa4\u0ac1\u0a93 \u0aae\u0abe\u0a9f\u0ac7 \u0a9b\u0ac7 \u0a85\u0aa8\u0ac7 \u0a95\u0abe\u0aa8\u0ac2\u0aa8\u0ac0 \u0ab8\u0ab2\u0abe\u0ab9 \u0aa8\u0aa5\u0ac0. AI \u0aad\u0ac2\u0ab2\u0acb \u0a95\u0ab0\u0ac0 \u0ab6\u0a95\u0ac7 \u0a9b\u0ac7. \u0a95\u0abe\u0aa8\u0ac2\u0aa8\u0ac0 \u0aa8\u0abf\u0ab0\u0acd\u0aa3\u0aaf\u0acb \u0ab2\u0ac7\u0aa4\u0abe \u0aaa\u0abblocks\u0abe \u0a95\u0ac3\u0aaa\u0abe \u0a95\u0ab0\u0ac0\u0aa8\u0ac7 \u0ab2\u0abe\u0aaf\u0a95 \u0ab5\u0a95\u0ac0\u0ab2\u0aa8\u0ac0 \u0ab8\u0ab2\u0abe\u0ab9 \u0ab2\u0acb.";
+  const DISCLAIMER_MARATHI = "**\u2696\ufe0f \u0915\u093e\u092f\u0926\u0947\u0936\u0940\u0930 \u0905\u0938\u094d\u0935\u0940\u0915\u093e\u0930:** \u0939\u0947 \u0935\u093f\u0936\u094d\u0932\u0947\u0937\u0923 \u0915\u0947\u0935\u0933 \u092e\u093e\u0939\u093f\u0924\u0940\u091a\u094d\u092f\u093e \u0909\u0926\u094d\u0926\u094d\u092f\u094b\u0917\u093e\u0928\u0947 \u0906\u0939\u0947 \u0906\u0923\u093f \u0915\u093e\u092f\u0926\u0947\u0936\u0940\u0930 \u0938\u0932\u094d\u0932\u093e \u0928\u093e\u0939\u0940. AI \u091a\u0941\u0915\u093e \u0915\u0930\u0942 \u0936\u0915\u0924\u0947. \u0915\u093e\u092f\u0926\u0947\u0936\u0940\u0930 \u0928\u093f\u0930\u094d\u0923\u092f \u0918\u0947\u0923\u094d\u092f\u093e\u092a\u0942\u0930\u094d\u0935\u0940 \u0915\u0943\u092a\u092f\u093e \u092a\u093e\u0924\u094d\u0930 \u0935\u0915\u0940\u0932\u093e\u091a\u093e \u0938\u0932\u094d\u0932\u093e \u0917\u094d\u092f\u093e.";
+  const DISCLAIMER_TAMIL = "**\u2696\ufe0f \u0b9a\u0b9f\u0bcd\u0b9f\u0baa\u0bcd\u0baa\u0bc2\u0bb0\u0bcd\u0bb5 \u0bae\u0bb1\u0bc1\u0baa\u0bcd\u0baa\u0bc1:** \u0b9a\u0b9f\u0bcd\u0b9f \u0b86\u0bb2\u0bcb\u0b9a\u0ba9\u0bc8\u0baf\u0bb2\u0bcd\u0bb2. AI \u0ba4\u0bcb\u0bb2\u0bcd\u0bb5\u0bbf\u0baf\u0b9f\u0bc8\u0baf\u0bb2\u0bbe\u0bae\u0bcd. \u0b9a\u0b9f\u0bcd\u0b9f\u0baa\u0bcd\u0baa\u0bc2\u0bb0\u0bcd\u0bb5 \u0bae\u0bc1\u0b9f\u0bbf\u0bb5\u0bc1\u0b95\u0bb3\u0bcd \u0b8e\u0b9f\u0bc1\u0baa\u0bcd\u0baa\u0ba4\u0bc1\u0bb1\u0bcd\u0b95\u0bc1 \u0bae\u0bc1\u0ba9\u0bcd \u0ba4\u0b95\u0bc1\u0ba4\u0bbf\u0bb5\u0bbe\u0baf\u0bcd\u0ba8\u0bcd\u0ba4 \u0bb5\u0bb4\u0b95\u0bcd\u0b95\u0bb1\u0bbf\u0b9e\u0bb0\u0bc8 \u0b85\u0ba3\u0bc1\u0b95\u0bb5\u0bc1\u0bae\u0bcd.";
 
-  let hasDisclaimer = false;
+  const nameLower = String(aiName || message.agentName || '').toLowerCase().trim();
+  const isException = 
+    nameLower.includes('draft maker') || 
+    nameLower.includes('draft_maker') || 
+    nameLower.includes('precedent') || 
+    nameLower.includes('legal precedent') || 
+    nameLower.includes('case assistant') || 
+    nameLower.includes('case_assistant');
+
+  const isLoaderException = 
+    nameLower.includes('draft maker') || 
+    nameLower.includes('draft_maker') || 
+    nameLower.includes('precedent') || 
+    nameLower.includes('legal precedent');
+
   let mainContent = displayContent;
 
-  if (displayContent.includes(DISCLAIMER_NEW_STARS)) {
-    hasDisclaimer = true;
-    const parts = displayContent.split(DISCLAIMER_NEW_STARS);
-    mainContent = parts[0].trim();
-  } else if (displayContent.includes(DISCLAIMER_NEW_NO_STARS)) {
-    hasDisclaimer = true;
-    const parts = displayContent.split(DISCLAIMER_NEW_NO_STARS);
-    mainContent = parts[0].replace(/\*\*$/, '').trim();
-  } else if (displayContent.includes(DISCLAIMER_OLD_STARS_1)) {
-    hasDisclaimer = true;
-    const parts = displayContent.split(DISCLAIMER_OLD_STARS_1);
-    mainContent = parts[0].trim();
-  } else if (displayContent.includes(DISCLAIMER_OLD_STARS_2)) {
-    hasDisclaimer = true;
-    const parts = displayContent.split(DISCLAIMER_OLD_STARS_2);
-    mainContent = parts[0].trim();
-  } else if (displayContent.includes(DISCLAIMER_OLD_NO_STARS)) {
-    hasDisclaimer = true;
-    const parts = displayContent.split(DISCLAIMER_OLD_NO_STARS);
-    mainContent = parts[0].replace(/\*\*$/, '').trim();
-  }
+  [
+    DISCLAIMER_NEW_STARS, DISCLAIMER_NEW_NO_STARS,
+    DISCLAIMER_OLD_STARS_1, DISCLAIMER_OLD_STARS_2, DISCLAIMER_OLD_NO_STARS,
+    DISCLAIMER_HINDI, DISCLAIMER_HINDI_NO_STARS,
+    DISCLAIMER_BILINGUAL,
+    DISCLAIMER_GUJARATI,
+    DISCLAIMER_MARATHI,
+    DISCLAIMER_TAMIL
+  ].forEach(d => {
+    if (mainContent.includes(d)) {
+      const parts = mainContent.split(d);
+      mainContent = parts[0].trim();
+    }
+  });
+
+  // Strip any residual formatting stars that were left before the disclaimer
+  mainContent = mainContent.replace(/\*\*$/, '').trim();
+
+  const hasDisclaimer = !isException;
 
   // Smart Content Analyzers for Export Flags
   const hasTables = useMemo(() => {
@@ -902,10 +912,6 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
 
   return (
     <Animated.View style={[styles.aiMessageContainer, { opacity: fadeAnim }]}>
-      <View style={[styles.aiAvatar, { backgroundColor: theme.primary, marginTop: 4 }]}>
-        <Text style={styles.aiAvatarText}>{aiIcon || '✨'}</Text>
-      </View>
-
       <View style={styles.aiMessageContent}>
         <View style={styles.aiBubble}>
           {renderDots && (
@@ -915,9 +921,16 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
                   inputRange: [0, 1],
                   outputRange: [1, 0],
                 }),
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 4,
               }}
             >
-              <ThinkingDots theme={theme} />
+              <ThinkingText
+                text={getToolThinkingText(aiName || message.agentName)}
+                animate={!isLoaderException}
+                style={[styles.thinkingText, { color: theme.textSecondary, fontWeight: '600', fontStyle: 'normal' }]}
+              />
             </Animated.View>
           )}
 
@@ -925,9 +938,9 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
             <Animated.View style={{ opacity: transitionAnim }}>
               <MarkdownText content={mainContent} isUser={false} />
               {hasDisclaimer && (
-                <View style={styles.disclaimerContainer}>
-                  <Text style={styles.disclaimerText}>
-                    <Text style={styles.disclaimerBold}>⚖️ Legal Disclaimer:</Text> This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.
+                <View style={[styles.disclaimerContainer, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.disclaimerText, { color: theme.textSecondary }]}>
+                    <Text style={[styles.disclaimerBold, { color: theme.textPrimary }]}>⚖️ Legal Disclaimer:</Text> This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.
                   </Text>
                 </View>
               )}
@@ -966,14 +979,14 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
         {!isStreaming && message.id !== 'greetings' && message.content.length > 0 && (
           <View style={styles.cleanActionRow}>
             <ActionIconBtn onPress={copyMarkdown}>
-              <Ionicons name="copy-outline" size={18} color="#6B7280" />
+              <Ionicons name="copy-outline" size={18} color={theme.textSecondary} />
             </ActionIconBtn>
 
             <ActionIconBtn onPress={handleLike} isActive={isLiked}>
               <Ionicons 
                 name={isLiked ? "thumbs-up" : "thumbs-up-outline"} 
                 size={18} 
-                color={isLiked ? theme.primary : "#6B7280"} 
+                color={isLiked ? theme.primary : theme.textSecondary} 
               />
             </ActionIconBtn>
 
@@ -981,7 +994,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
               <Ionicons 
                 name={isDisliked ? "thumbs-down" : "thumbs-down-outline"} 
                 size={18} 
-                color={isDisliked ? theme.danger : "#6B7280"} 
+                color={isDisliked ? theme.danger : theme.textSecondary} 
               />
             </ActionIconBtn>
 
@@ -989,16 +1002,16 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
               <Ionicons 
                 name="volume-medium-outline" 
                 size={18} 
-                color={isPlayingAudio ? theme.primary : "#6B7280"} 
+                color={isPlayingAudio ? theme.primary : theme.textSecondary} 
               />
             </ActionIconBtn>
 
             <ActionIconBtn onPress={executeShare}>
-              <Ionicons name="share-social-outline" size={18} color="#6B7280" />
+              <Ionicons name="share-social-outline" size={18} color={theme.textSecondary} />
             </ActionIconBtn>
 
             <ActionIconBtn onPress={() => setIsMoreSheetOpen(true)}>
-              <Ionicons name="ellipsis-horizontal" size={18} color="#6B7280" />
+              <Ionicons name="ellipsis-horizontal" size={18} color={theme.textSecondary} />
             </ActionIconBtn>
           </View>
         )}
@@ -1015,108 +1028,108 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
 
-            <View style={styles.bottomSheetContainer}>
-              <View style={styles.bottomSheetDragHandle} />
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>Response Actions</Text>
+            <View style={[styles.bottomSheetContainer, { backgroundColor: theme.card }]}>
+              <View style={[styles.bottomSheetDragHandle, { backgroundColor: theme.border }]} />
+              <View style={[styles.bottomSheetHeader, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.bottomSheetTitle, { color: theme.textPrimary }]}>Response Actions</Text>
                 <TouchableOpacity onPress={() => setIsMoreSheetOpen(false)}>
-                  <Ionicons name="close" size={24} color="#1F2937" />
+                  <Ionicons name="close" size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: screenHeight * 0.6 }}>
                 {/* PDF export */}
-                <TouchableOpacity onPress={handleExportPDF} style={styles.bottomSheetItem}>
-                  <Ionicons name="document-text-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Export as PDF</Text>
+                <TouchableOpacity onPress={handleExportPDF} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="document-text-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Export as PDF</Text>
                 </TouchableOpacity>
 
                 {/* Word export */}
                 <TouchableOpacity 
                   onPress={handleExportWord} 
                   disabled={!hasRichFormat}
-                  style={[styles.bottomSheetItem, !hasRichFormat && { opacity: 0.4 }]}
+                  style={[styles.bottomSheetItem, { borderBottomColor: theme.border }, !hasRichFormat && { opacity: 0.4 }]}
                 >
-                  <Ionicons name="file-tray-full-outline" size={22} color={hasRichFormat ? "#4B5563" : "#9CA3AF"} style={styles.bottomSheetItemIcon} />
-                  <Text style={[styles.bottomSheetItemLabel, !hasRichFormat && { color: "#9CA3AF" }]}>Export as Word (.docx)</Text>
+                  <Ionicons name="file-tray-full-outline" size={22} color={hasRichFormat ? theme.textSecondary : (isDark ? theme.textMuted : "#9CA3AF")} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }, !hasRichFormat && { color: (isDark ? theme.textMuted : "#9CA3AF") }]}>Export as Word (.docx)</Text>
                 </TouchableOpacity>
 
                 {/* Excel export */}
                 <TouchableOpacity 
                   onPress={handleExportExcel} 
                   disabled={!hasTables}
-                  style={[styles.bottomSheetItem, !hasTables && { opacity: 0.4 }]}
+                  style={[styles.bottomSheetItem, { borderBottomColor: theme.border }, !hasTables && { opacity: 0.4 }]}
                 >
-                  <Ionicons name="grid-outline" size={22} color={hasTables ? "#4B5563" : "#9CA3AF"} style={styles.bottomSheetItemIcon} />
-                  <Text style={[styles.bottomSheetItemLabel, !hasTables && { color: "#9CA3AF" }]}>Export as Excel (.xlsx)</Text>
+                  <Ionicons name="grid-outline" size={22} color={hasTables ? theme.textSecondary : (isDark ? theme.textMuted : "#9CA3AF")} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }, !hasTables && { color: (isDark ? theme.textMuted : "#9CA3AF") }]}>Export as Excel (.xlsx)</Text>
                 </TouchableOpacity>
 
                 {/* Copy Markdown */}
-                <TouchableOpacity onPress={copyMarkdown} style={styles.bottomSheetItem}>
-                  <Ionicons name="clipboard-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Copy as Markdown</Text>
+                <TouchableOpacity onPress={copyMarkdown} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="clipboard-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Copy as Markdown</Text>
                 </TouchableOpacity>
 
                 {/* Copy Plain Text */}
-                <TouchableOpacity onPress={copyPlain} style={styles.bottomSheetItem}>
-                  <Ionicons name="document-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Copy as Plain Text</Text>
+                <TouchableOpacity onPress={copyPlain} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="document-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Copy as Plain Text</Text>
                 </TouchableOpacity>
 
                 {/* Save to Notes */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Saved to Notes'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="star-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Save to Notes</Text>
+                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Saved to Notes'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="star-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Notes</Text>
                 </TouchableOpacity>
 
                 {/* Save to Case */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Associated with active case'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="folder-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Save to Case</Text>
+                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Associated with active case'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="folder-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Case</Text>
                 </TouchableOpacity>
 
                 {/* Add to Evidence */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Added', 'Evidence registered successfully'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="archive-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Add to Evidence</Text>
+                <TouchableOpacity onPress={() => { showToast('success', 'Added', 'Evidence registered successfully'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="archive-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Add to Evidence</Text>
                 </TouchableOpacity>
 
                 {/* Save to Legal Research */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Research archive updated'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="library-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Save to Legal Research</Text>
+                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Research archive updated'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="library-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Legal Research</Text>
                 </TouchableOpacity>
 
                 {/* Bookmark Response */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Bookmarked', 'Response added to bookmarks'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="bookmark-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Bookmark Response</Text>
+                <TouchableOpacity onPress={() => { showToast('success', 'Bookmarked', 'Response added to bookmarks'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="bookmark-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Bookmark Response</Text>
                 </TouchableOpacity>
 
                 {/* Print */}
-                <TouchableOpacity onPress={() => { showToast('info', 'Print', 'Dispatching print payload...'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="print-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Print</Text>
+                <TouchableOpacity onPress={() => { showToast('info', 'Print', 'Dispatching print payload...'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="print-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Print</Text>
                 </TouchableOpacity>
 
                 {/* Share Response */}
-                <TouchableOpacity onPress={executeShare} style={styles.bottomSheetItem}>
-                  <Ionicons name="share-social-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Share Response</Text>
+                <TouchableOpacity onPress={executeShare} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="share-social-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Share Response</Text>
                 </TouchableOpacity>
 
                 {/* Regenerate Response */}
                 {onRegenerate && (
-                  <TouchableOpacity onPress={handleRegenerate} style={styles.bottomSheetItem}>
-                    <Ionicons name="refresh-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                    <Text style={styles.bottomSheetItemLabel}>Regenerate Response</Text>
+                  <TouchableOpacity onPress={handleRegenerate} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                    <Ionicons name="refresh-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                    <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Regenerate Response</Text>
                   </TouchableOpacity>
                 )}
 
                 {/* Translate */}
-                <TouchableOpacity onPress={() => { showToast('info', 'Translate', 'Target translation engine initialized...'); setIsMoreSheetOpen(false); }} style={styles.bottomSheetItem}>
-                  <Ionicons name="language-outline" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                  <Text style={styles.bottomSheetItemLabel}>Translate</Text>
+                <TouchableOpacity onPress={() => { showToast('info', 'Translate', 'Target translation engine initialized...'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name="language-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Translate</Text>
                 </TouchableOpacity>
 
                 {/* Cite Sources */}
@@ -1129,10 +1142,10 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
                         onCitationPress(message.sources[0]);
                       }
                     }} 
-                    style={styles.bottomSheetItem}
+                    style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}
                   >
-                    <MaterialCommunityIcons name="scale-balance" size={22} color="#4B5563" style={styles.bottomSheetItemIcon} />
-                    <Text style={styles.bottomSheetItemLabel}>Cite Sources</Text>
+                    <MaterialCommunityIcons name="scale-balance" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                    <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Cite Sources</Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>
@@ -1152,7 +1165,7 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
   onAttachmentPress,
   onEditMessage,
 }) => {
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
   const { showToast } = useToastContext();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -1240,6 +1253,8 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
     }
   }, [message.content]);
 
+  const bubbleBg = isDark ? theme.surfaceVariant : '#F3F4F6';
+
   if (isEditing) {
     return (
       <View style={[styles.bubbleContainer, styles.userAlign]}>
@@ -1247,21 +1262,21 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
           <View style={[
             styles.bubble, 
             { 
-              backgroundColor: '#F3F4F6', 
+              backgroundColor: bubbleBg, 
               borderRadius: 18, 
               alignSelf: 'stretch',
             }
           ]}>
             <TextInput
-              style={[styles.editTextInput, { backgroundColor: 'rgba(0,0,0,0.05)', color: '#1F2937' }]}
+              style={[styles.editTextInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: theme.textPrimary }]}
               value={editText}
               onChangeText={setEditText}
               multiline
               autoFocus
             />
             <View style={styles.editActionsRow}>
-              <TouchableOpacity onPress={handleCancel} style={[styles.editCancelBtn, { backgroundColor: 'rgba(0,0,0,0.06)' }]}>
-                <Text style={[styles.editCancelBtnText, { color: '#4B5563' }]}>Cancel</Text>
+              <TouchableOpacity onPress={handleCancel} style={[styles.editCancelBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                <Text style={[styles.editCancelBtnText, { color: theme.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleSave} style={[styles.editSaveBtn, { backgroundColor: theme.primary }]}>
                 <Text style={[styles.editSaveBtnText, { color: '#FFFFFF' }]}>Save & Submit</Text>
@@ -1281,7 +1296,7 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
           style={[
             styles.bubble,
             { 
-              backgroundColor: '#F3F4F6', 
+              backgroundColor: bubbleBg, 
               borderRadius: 18,
             }
           ]}
@@ -1296,11 +1311,11 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
             </View>
             {needsCollapse && !isExpanded && isMeasured && (
               <View style={styles.gradientContainer}>
-                <View style={[styles.gradientLayer, { top: 0, opacity: 0.15, backgroundColor: '#F3F4F6' }]} />
-                <View style={[styles.gradientLayer, { top: 8, opacity: 0.35, backgroundColor: '#F3F4F6' }]} />
-                <View style={[styles.gradientLayer, { top: 16, opacity: 0.60, backgroundColor: '#F3F4F6' }]} />
-                <View style={[styles.gradientLayer, { top: 24, opacity: 0.80, backgroundColor: '#F3F4F6' }]} />
-                <View style={[styles.gradientLayer, { top: 32, opacity: 1.00, backgroundColor: '#F3F4F6' }]} />
+                <View style={[styles.gradientLayer, { top: 0, opacity: 0.15, backgroundColor: bubbleBg }]} />
+                <View style={[styles.gradientLayer, { top: 8, opacity: 0.35, backgroundColor: bubbleBg }]} />
+                <View style={[styles.gradientLayer, { top: 16, opacity: 0.60, backgroundColor: bubbleBg }]} />
+                <View style={[styles.gradientLayer, { top: 24, opacity: 0.80, backgroundColor: bubbleBg }]} />
+                <View style={[styles.gradientLayer, { top: 32, opacity: 1.00, backgroundColor: bubbleBg }]} />
               </View>
             )}
           </Animated.View>
@@ -1309,11 +1324,11 @@ export const UserBubble: React.FC<MessageBubbleProps> = ({
           {showActions && (
             <View style={styles.userActionRow}>
               <TouchableOpacity onPress={handleCopy} style={styles.userActionButton}>
-                <Ionicons name="copy-outline" size={14} color="#1F2937" style={{ opacity: 0.5 }} />
+                <Ionicons name="copy-outline" size={14} color={theme.textPrimary} style={{ opacity: 0.7 }} />
               </TouchableOpacity>
               {onEditMessage && (
                 <TouchableOpacity onPress={handleEditStart} style={styles.userActionButton}>
-                  <Ionicons name="pencil-outline" size={14} color="#1F2937" style={{ opacity: 0.5 }} />
+                  <Ionicons name="pencil-outline" size={14} color={theme.textPrimary} style={{ opacity: 0.7 }} />
                 </TouchableOpacity>
               )}
             </View>
@@ -1471,14 +1486,12 @@ export const TypingIndicator: React.FC = () => {
   const { theme } = useThemeContext();
   return (
     <View style={[styles.aiMessageContainer, { flexDirection: 'row', alignItems: 'flex-start' }]}>
-      <View style={[styles.aiAvatar, { backgroundColor: theme.primary, marginTop: 4 }]}>
-        <Text style={styles.aiAvatarText}>✨</Text>
-      </View>
       <View style={styles.aiMessageContent}>
-        <View style={styles.typingDotsRow}>
-          <View style={[styles.dot, { backgroundColor: theme.primary }]} />
-          <View style={[styles.dot, { backgroundColor: theme.primary, marginHorizontal: Spacing[4] }]} />
-          <View style={[styles.dot, { backgroundColor: theme.primary }]} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 4 }}>
+          <ThinkingText
+            text="Thinking"
+            style={[styles.thinkingText, { color: theme.textSecondary, fontWeight: '600', fontStyle: 'normal' }]}
+          />
         </View>
       </View>
     </View>
@@ -1489,12 +1502,11 @@ export const ThinkingState: React.FC<{ message?: string }> = ({ message = 'AI is
   const { theme } = useThemeContext();
   return (
     <View style={[styles.aiMessageContainer, { flexDirection: 'row', alignItems: 'flex-start' }]}>
-      <View style={[styles.aiAvatar, { backgroundColor: theme.primary, marginTop: 4 }]}>
-        <Text style={styles.aiAvatarText}>✨</Text>
-      </View>
-      <View style={[styles.aiMessageContent, { flexDirection: 'row', alignItems: 'center', gap: Spacing[8], paddingTop: 4 }]}>
-        <ActivityIndicator size="small" color={theme.primary} />
-        <Text style={[styles.thinkingText, { color: theme.textSecondary }]}>{message}</Text>
+      <View style={[styles.aiMessageContent, { flexDirection: 'row', alignItems: 'center', paddingTop: 4 }]}>
+        <ThinkingText
+          text={message}
+          style={[styles.thinkingText, { color: theme.textSecondary, fontWeight: '600', fontStyle: 'normal' }]}
+        />
       </View>
     </View>
   );
@@ -1620,8 +1632,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   thinkingText: {
-    fontSize: 13.5,
-    fontStyle: 'italic',
+    fontSize: 14,
+    fontStyle: 'normal',
+    fontWeight: '600',
   },
   aiMessageContainer: {
     flexDirection: 'row',
@@ -1910,6 +1923,42 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  welcomeButtonsContainer: {
+    flexDirection: 'column',
+    alignSelf: 'stretch',
+    gap: 12,
+    marginTop: 8,
+    marginBottom: 24,
+    paddingHorizontal: 16,
+  },
+  welcomeButton: {
+    height: 48,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  welcomeButtonPrimary: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  welcomeButtonOutline: {
+    borderWidth: 1.5,
+    backgroundColor: 'transparent',
+  },
+  welcomeButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  welcomeButtonTextPrimary: {
+    color: '#FFFFFF',
+  },
+  welcomeButtonTextOutline: {
+    color: '#1F2937',
+  },
 });
 
 export interface ChatWelcomeProps {
@@ -1917,10 +1966,41 @@ export interface ChatWelcomeProps {
   subtitle: string;
   icon?: string;
   children?: React.ReactNode;
+  onSelectCase?: () => void;
+  onNewConversation?: () => void;
 }
 
-export const ChatWelcome: React.FC<ChatWelcomeProps> = ({ title, subtitle, icon = '✨', children }) => {
+export const ChatWelcome: React.FC<ChatWelcomeProps> = ({ 
+  title, 
+  subtitle, 
+  icon = '✨', 
+  children,
+  onSelectCase,
+  onNewConversation
+}) => {
   const { theme } = useThemeContext();
+  const { language } = useTranslation();
+
+  const getLabels = () => {
+    switch (language) {
+      case 'Hindi':
+        return { selectCase: 'केस चुनें', newConversation: 'नई बातचीत' };
+      case 'Gujarati':
+        return { selectCase: 'કેસ પસંદ કરો', newConversation: 'નવી વાતચીત' };
+      case 'Marathi':
+        return { selectCase: 'केस निवडा', newConversation: 'नवीन संभाषण' };
+      case 'Tamil':
+        return { selectCase: 'வழக்கைத் தேர்ந்தெடுக்கவும்', newConversation: 'புதிய உரையாடல்' };
+      case 'Bilingual':
+        return { selectCase: 'Select Case / केस चुनें', newConversation: 'New Conversation / नई बातचीत' };
+      case 'English':
+      default:
+        return { selectCase: 'Select Case', newConversation: 'New Conversation' };
+    }
+  };
+
+  const labels = getLabels();
+
   return (
     <ScrollView
       style={{ flex: 1 }}
@@ -1934,9 +2014,32 @@ export const ChatWelcome: React.FC<ChatWelcomeProps> = ({ title, subtitle, icon 
         <Text style={[styles.emptyTitle, { color: theme.textPrimary || '#1F2937' }]}>{title}</Text>
         <Text style={[styles.emptySubtitle, { color: theme.textSecondary || '#6B7280' }]}>{subtitle}</Text>
       </View>
+
+      {(onSelectCase || onNewConversation) && (
+        <View style={styles.welcomeButtonsContainer}>
+          {onSelectCase && (
+            <TouchableOpacity 
+              style={[styles.welcomeButton, styles.welcomeButtonPrimary, { backgroundColor: theme.primary }]} 
+              onPress={onSelectCase}
+            >
+              <Text style={[styles.welcomeButtonText, styles.welcomeButtonTextPrimary]}>{labels.selectCase}</Text>
+            </TouchableOpacity>
+          )}
+          {onNewConversation && (
+            <TouchableOpacity 
+              style={[styles.welcomeButton, styles.welcomeButtonOutline, { borderColor: theme.border || '#E2E8F0' }]} 
+              onPress={onNewConversation}
+            >
+              <Text style={[styles.welcomeButtonText, styles.welcomeButtonTextOutline, { color: theme.textPrimary }]}>{labels.newConversation}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {children}
     </ScrollView>
   );
 };
 
 export * from './composer';
+export * from './layout';

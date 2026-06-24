@@ -39,6 +39,8 @@ export interface ChatComposerProps {
   hasSparklesSupport?: boolean;
   isFocusMode?: boolean;
   tabHeight?: number;
+  autoFocus?: boolean;
+  ref?: React.RefObject<TextInput> | React.Ref<TextInput>;
 }
 
 const STATIC_HEIGHTS = [8, 14, 18, 12, 6, 16, 22, 28, 20, 10, 14, 24, 18, 8, 12, 22, 16, 10, 14, 8];
@@ -100,7 +102,7 @@ function VoiceWaveform({
   );
 }
 
-export const ChatComposer: React.FC<ChatComposerProps> = ({
+const ChatComposerComponent: React.FC<ChatComposerProps> = ({
   value,
   onChangeText,
   onSend,
@@ -114,13 +116,22 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   hasSparklesSupport = true,
   isFocusMode = false,
   tabHeight,
+  autoFocus = false,
+  ref,
 }) => {
   const { theme } = useThemeContext();
   const { showToast } = useToastContext();
   const insets = useSafeAreaInsets();
-  const inputRef = useRef<TextInput>(null);
+  const localInputRef = useRef<TextInput>(null);
+  const inputRef = (ref as React.RefObject<TextInput>) || localInputRef;
 
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (autoFocus && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [autoFocus]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -145,13 +156,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   }, []);
 
   const getBottomPadding = () => {
-    if (isKeyboardVisible) {
-      return 6;
-    }
-    if (isFocusMode) {
-      const basePadding = insets.bottom > 0 ? insets.bottom : 12;
-      return basePadding + (tabHeight || 0);
-    }
     return 6;
   };
 
@@ -171,7 +175,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     stopRecording,
     cancelRecording,
   } = useSpeechRecognition((transcribedText) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     if (transcribedText) {
       const fullText = savedTranscriptRef.current
         ? savedTranscriptRef.current + ' ' + transcribedText
@@ -212,14 +216,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     const wasEmpty = value.trim() === '';
     const isEmptyNow = text.trim() === '';
     if (wasEmpty !== isEmptyNow) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      // LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
     onChangeText(text);
   };
 
   // Inline Voice Input handlers
   const handleVoiceInputPress = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     shouldSendRef.current = false;
     savedTranscriptRef.current = '';
     setVoiceTranscript('');
@@ -228,7 +232,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   };
 
   const handleInlineCancel = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     cancelRecording();
     setIsVoiceActive(false);
     setVoiceTranscript('');
@@ -252,7 +256,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       if (text) {
         onSend(text);
         shouldSendRef.current = false;
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        // LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setIsVoiceActive(false);
       }
     }
@@ -264,10 +268,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   };
 
   return (
-    <View style={[styles.outerContainer, { paddingBottom: getBottomPadding() }]}>
+    <View style={[styles.outerContainer, { paddingBottom: getBottomPadding(), backgroundColor: theme.background, borderTopColor: theme.border }]}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', width: '100%' }}>
         {isVoiceActive ? (
-          <View style={styles.recordingComposerWrapper}>
+          <View style={[styles.recordingComposerWrapper, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
             {/* Left: Discard Cancel Button (X icon) */}
             <TouchableOpacity
               onPress={handleInlineCancel}
@@ -322,7 +326,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.composerWrapper}>
+          <View style={[styles.composerWrapper, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
             <View style={styles.leftIconsContainer}>
               {hasAttachmentSupport && onAddAttachment && (
                 <Pressable
@@ -372,7 +376,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                 accessibilityLabel="Stop response generation"
                 accessibilityRole="button"
               >
-                <View style={styles.innerStopCircle}>
+                <View style={[styles.innerStopCircle, { backgroundColor: theme.textPrimary }]}>
                   <View style={styles.stopSquare} />
                 </View>
               </Pressable>
@@ -402,7 +406,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                 accessibilityLabel="Send message"
                 accessibilityRole="button"
               >
-                <View style={styles.innerSendCircle}>
+                <View style={[styles.innerSendCircle, { backgroundColor: theme.primary }]}>
                   <Ionicons name="arrow-up" size={18} color="#FFFFFF" />
                 </View>
               </Pressable>
@@ -413,6 +417,23 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
     </View>
   );
+};
+
+const MemoizedChatComposer = React.memo(ChatComposerComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.sending === nextProps.sending &&
+    prevProps.placeholder === nextProps.placeholder &&
+    prevProps.autoFocus === nextProps.autoFocus &&
+    prevProps.hasAttachmentSupport === nextProps.hasAttachmentSupport &&
+    prevProps.hasSparklesSupport === nextProps.hasSparklesSupport &&
+    prevProps.isFocusMode === nextProps.isFocusMode &&
+    prevProps.tabHeight === nextProps.tabHeight
+  );
+});
+
+export const ChatComposer: React.FC<ChatComposerProps> = (props) => {
+  return <MemoizedChatComposer {...props} />;
 };
 
 const styles = StyleSheet.create({

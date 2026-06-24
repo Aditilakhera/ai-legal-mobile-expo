@@ -5,6 +5,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuthStore } from '../store/auth';
 import { useUserStore } from '../store/user';
 import { registerAuthHandlers } from '../api/client';
@@ -85,7 +86,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err) {
         console.error('[AUTH PROVIDER] Failed to hydrate authentication tokens', err);
       } finally {
-        setBiometricSupported(true);
+        try {
+          const hardware = await LocalAuthentication.hasHardwareAsync();
+          const enrolled = await LocalAuthentication.isEnrolledAsync();
+          setBiometricSupported(hardware && enrolled);
+        } catch (e) {
+          console.warn('[AUTH PROVIDER] Failed to detect biometric hardware:', e);
+          setBiometricSupported(false);
+        }
         // Delay hydration callback slightly to sync with splash screens
         setTimeout(() => {
           setIsHydrated(true);
@@ -112,6 +120,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const enableBiometricLogin = async (): Promise<boolean> => {
     try {
       console.log('[BIOMETRIC] Requesting biometric authentication opt-in');
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!hasHardware || !isEnrolled) {
+        return false;
+      }
       setBiometricEnabled(true);
       return true;
     } catch (err) {
@@ -123,7 +136,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const authenticateBiometrics = async (): Promise<boolean> => {
     try {
       console.log('[BIOMETRIC] Prompting biometric verification (FaceID/TouchID)');
-      return true;
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      
+      if (!hasHardware || !isEnrolled) {
+        console.warn('[BIOMETRIC] Hardware not available or no biometrics enrolled');
+        return false;
+      }
+      
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to unlock AI LEGAL',
+        fallbackLabel: 'Use PIN',
+        disableDeviceFallback: true,
+      });
+      
+      return result.success;
     } catch (err) {
       console.error('[BIOMETRIC] Biometric validation failed', err);
       return false;

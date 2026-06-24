@@ -27,13 +27,13 @@ export const Colors = {
 
   // Light Mode Tokens
   light: {
-    primary: '#208AEF',
+    primary: '#6C4CF1',
     secondary: '#0F172A',
-    background: '#F8FAFC',
-    surface: '#FFFFFF',
+    background: '#FFFFFF',
+    surface: '#F8F9FC',
     surfaceVariant: '#F1F5F9',
-    border: '#E2E8F0',
-    divider: '#F1F5F9',
+    border: '#ECECEC',
+    divider: '#ECECEC',
     card: '#FFFFFF',
     hover: 'rgba(15, 23, 42, 0.04)',
     pressed: 'rgba(15, 23, 42, 0.08)',
@@ -42,34 +42,38 @@ export const Colors = {
     
     // Status colors
     success: '#10B981',
+    successLight: '#E6F4EA',
     warning: '#F59E0B',
+    warningLight: '#FEF7E0',
     danger: '#EF4444',
+    dangerLight: '#FCE8E6',
     info: '#3B82F6',
+    infoLight: '#EBF5FF',
 
     // Text hierarchy
-    textPrimary: '#0F172A',
-    textSecondary: '#475569',
+    textPrimary: '#1F2937',
+    textSecondary: '#4B5563',
     textMuted: '#94A3B8',
     placeholder: '#94A3B8',
-    selection: 'rgba(32, 138, 239, 0.12)',
-    focus: '#208AEF',
+    selection: 'rgba(108, 76, 241, 0.12)',
+    focus: '#6C4CF1',
 
     // Legacy parameters (For backwards compatibility with templates)
-    text: '#0F172A',
+    text: '#1F2937',
     backgroundElement: '#FFFFFF',
     backgroundSelected: '#E2E8F0',
   },
 
   // Dark Mode Tokens
   dark: {
-    primary: '#3B82F6',
+    primary: '#7B61FF',
     secondary: '#F8FAFC',
-    background: '#0B0F19',
-    surface: '#151F32',
+    background: '#0D1117',
+    surface: '#161B22',
     surfaceVariant: '#1E293B',
-    border: '#1E293B',
-    divider: '#1E293B',
-    card: '#151F32',
+    border: '#30363D',
+    divider: '#30363D',
+    card: '#1F2937',
     hover: 'rgba(248, 250, 252, 0.04)',
     pressed: 'rgba(248, 250, 252, 0.08)',
     disabled: 'rgba(248, 250, 252, 0.38)',
@@ -77,20 +81,24 @@ export const Colors = {
     
     // Status colors
     success: '#10B981',
+    successLight: '#0E2818',
     warning: '#F59E0B',
+    warningLight: '#2C220E',
     danger: '#EF4444',
+    dangerLight: '#2D1414',
     info: '#3B82F6',
+    infoLight: '#0F2035',
 
     // Text hierarchy
-    textPrimary: '#F8FAFC',
-    textSecondary: '#94A3B8',
-    textMuted: '#64748B',
-    placeholder: '#64748B',
-    selection: 'rgba(59, 130, 246, 0.24)',
-    focus: '#3B82F6',
+    textPrimary: '#FFFFFF',
+    textSecondary: '#A1A1AA',
+    textMuted: '#6B7280',
+    placeholder: '#6B7280',
+    selection: 'rgba(123, 97, 255, 0.24)',
+    focus: '#7B61FF',
 
     // Legacy parameters (For backwards compatibility with templates)
-    text: '#ffffff',
+    text: '#FFFFFF',
     backgroundElement: '#212225',
     backgroundSelected: '#2E3135',
   },

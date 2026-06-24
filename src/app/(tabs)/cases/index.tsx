@@ -29,37 +29,8 @@ import { WorkspaceService } from '@/services/workspace.service';
 import { CaseWorkspace } from '@/types';
 import { Shadows } from '@/theme';
 import { PageHeader } from '@/components/ui';
-
-// Strict Light Theme Design Tokens
-const theme = {
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceVariant: '#F8FAFC',
-  primary: '#6D5DFC',
-  primaryDark: '#5B4EDB',
-  primaryLight: '#EEECFF',
-  accent: '#4F8CFF',
-  border: '#ECECEC',
-  divider: '#F1F5F9',
-  textPrimary: '#1F2937',
-  textSecondary: '#4B5563',
-  textMuted: '#9CA3AF',
-  placeholder: '#9CA3AF',
-  success: '#10B981',
-  successLight: '#E6F4EA',
-  successBorder: '#CEEAD6',
-  successText: '#137333',
-  warning: '#F59E0B',
-  warningLight: '#FEF7E0',
-  warningBorder: '#FFE0B2',
-  warningText: '#B06000',
-  danger: '#EF4444',
-  dangerLight: '#FCE8E6',
-  dangerBorder: '#FAD2CF',
-  dangerText: '#C5221F',
-  info: '#3B82F6',
-  overlay: 'rgba(15, 23, 42, 0.4)',
-};
+import { useThemeContext } from '@/providers/theme-provider';
+import { useTranslation } from '@/localization';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -71,8 +42,11 @@ let sessionViewMode: 'list' | 'grid' = 'list';
 export default function CasesScreen() {
   useAuthGuard();
   const router = useRouter();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const { showToast } = useToastContext();
   const { width } = useWindowDimensions();
+  const { t, language } = useTranslation();
 
   // Layout View State
   const [viewMode, setViewModeState] = useState<'list' | 'grid'>(sessionViewMode);
@@ -182,11 +156,26 @@ export default function CasesScreen() {
 
     const earliestDate = sorted[0].date;
     if (!earliestDate) return 'None';
-    return new Date(earliestDate).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+
+    let locale = 'en-US';
+    if (language === 'Hindi' || language === 'Bilingual') locale = 'hi-IN';
+    else if (language === 'Gujarati') locale = 'gu-IN';
+    else if (language === 'Marathi') locale = 'mr-IN';
+    else if (language === 'Tamil') locale = 'ta-IN';
+
+    try {
+      return new Date(earliestDate).toLocaleDateString(locale, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch (e) {
+      return new Date(earliestDate).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
   };
 
   // Archive / Restore case handler
@@ -264,17 +253,17 @@ export default function CasesScreen() {
     const errors = { clientName: '', caseType: '', otherCaseType: '' };
 
     if (!form.clientName.trim()) {
-      errors.clientName = 'Client name is required.';
+      errors.clientName = t('cases.clientNameRequired');
       isValid = false;
     }
 
     if (!form.caseType) {
-      errors.caseType = 'Case type is required.';
+      errors.caseType = t('cases.caseTypeRequired');
       isValid = false;
     }
 
     if (form.caseType === 'Other' && !form.otherCaseType.trim()) {
-      errors.otherCaseType = 'Enter custom case type.';
+      errors.otherCaseType = t('cases.enterCustomTypeErr');
       isValid = false;
     }
 
@@ -432,40 +421,55 @@ export default function CasesScreen() {
     let stylesBadge = {};
     let stylesText = {};
 
-    switch (status) {
-      case 'Active':
-        stylesBadge = { backgroundColor: theme.successLight, borderColor: theme.successBorder };
-        stylesText = { color: theme.successText };
+    const upperStatus = (status || '').toUpperCase();
+
+    switch (upperStatus) {
+      case 'ACTIVE':
+      case 'LIVE':
+        stylesBadge = { 
+          backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.08)', 
+          borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)' 
+        };
+        stylesText = { color: theme.success };
         break;
-      case 'Closed':
+      case 'CLOSED':
         stylesBadge = { backgroundColor: theme.divider, borderColor: theme.border };
         stylesText = { color: theme.textSecondary };
         break;
-      case 'Archived':
+      case 'ARCHIVED':
+      case 'PENDING':
       default:
-        stylesBadge = { backgroundColor: theme.warningLight, borderColor: theme.warningBorder };
-        stylesText = { color: theme.warningText };
+        stylesBadge = { 
+          backgroundColor: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.08)', 
+          borderColor: isDark ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.2)' 
+        };
+        stylesText = { color: theme.warning };
         break;
     }
 
+    const displayStatus = t('enums.status.' + upperStatus) || (status === 'Active' ? t('cases.active') : status === 'Closed' ? t('cases.closed') : t('cases.archived'));
+
     return (
       <View style={[styles.badge, stylesBadge]}>
-        <Text style={[styles.badgeText, stylesText]}>{status}</Text>
+        <Text style={[styles.badgeText, stylesText]}>{displayStatus}</Text>
       </View>
     );
   };
 
   // Format Priority Badge
   const renderPriorityBadge = (priority: string) => {
+    const upperPriority = (priority || '').toUpperCase();
     let badgeColor = theme.textMuted;
-    if (priority === 'Urgent') badgeColor = theme.danger;
-    else if (priority === 'High') badgeColor = theme.warning;
-    else if (priority === 'Medium') badgeColor = theme.info;
-    else if (priority === 'Low') badgeColor = theme.success;
+    if (upperPriority === 'URGENT') badgeColor = theme.danger;
+    else if (upperPriority === 'HIGH') badgeColor = theme.warning;
+    else if (upperPriority === 'MEDIUM') badgeColor = theme.info;
+    else if (upperPriority === 'LOW') badgeColor = theme.success;
+
+    const displayPriority = t('enums.priority.' + upperPriority) || (priority === 'Low' ? t('cases.priorityLow') : priority === 'Medium' ? t('cases.priorityMedium') : priority === 'High' ? t('cases.priorityHigh') : priority === 'Urgent' ? t('cases.priorityUrgent') : priority);
 
     return (
       <View style={[styles.priorityPill, { borderColor: badgeColor }]}>
-        <Text style={[styles.priorityPillText, { color: badgeColor }]}>{priority}</Text>
+        <Text style={[styles.priorityPillText, { color: badgeColor }]}>{displayPriority}</Text>
       </View>
     );
   };
@@ -510,7 +514,7 @@ export default function CasesScreen() {
 
           <View style={styles.gridCardBody}>
             <View style={styles.gridMetadataRow}>
-              <Text style={styles.gridMetaLabel}>Client</Text>
+              <Text style={styles.gridMetaLabel}>{t('cases.clientName').split('/')[0].trim()}</Text>
               <Text style={styles.gridMetaValue} numberOfLines={1}>{item.clientName || 'N/A'}</Text>
             </View>
           </View>
@@ -527,7 +531,7 @@ export default function CasesScreen() {
               accessibilityLabel={`Open workspace for ${item.name}`}
               accessibilityRole="button"
             >
-              <Text style={styles.gridOpenWorkspaceBtnText} numberOfLines={1}>Open Workspace</Text>
+              <Text style={styles.gridOpenWorkspaceBtnText} numberOfLines={1}>{t('cases.openWorkspace')}</Text>
               <Ionicons name="arrow-forward" size={12} color={theme.primary} />
             </TouchableOpacity>
           </View>
@@ -549,7 +553,7 @@ export default function CasesScreen() {
           </TouchableOpacity>
           <View style={styles.listMetadataRow}>
             <Text style={styles.listMetaText} numberOfLines={1}>
-              Client: {item.clientName || 'N/A'}  •  Court: {item.courtName || 'N/A'}
+              {t('cases.clientName').split('/')[0].trim()}: {item.clientName || 'N/A'}  •  {t('cases.presidingCourt')}: {item.courtName || 'N/A'}
             </Text>
           </View>
           <View style={styles.listBadgesRow}>
@@ -625,8 +629,8 @@ export default function CasesScreen() {
   return (
     <View style={styles.container}>
       <PageHeader
-        title="My Cases"
-        subtitle="Browse and manage litigation folders"
+        title={t('cases.title')}
+        subtitle={t('cases.subtitle')}
       />
       <SafeAreaView style={{ flex: 1 }} edges={['left', 'right']}>
         {/* Control Bar: Search Input & Filter Button */}
@@ -635,7 +639,7 @@ export default function CasesScreen() {
             <Ionicons name="search" size={18} color={theme.textMuted} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search by client, opponent, court..."
+              placeholder={t('cases.search')}
               placeholderTextColor={theme.placeholder}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -676,7 +680,7 @@ export default function CasesScreen() {
       {/* View Toggle Bar */}
       <View style={styles.viewToggleBar}>
         <Text style={styles.resultsCountText}>
-          {processedCases.length} {processedCases.length === 1 ? 'case folder' : 'case folders'}
+          {processedCases.length} {processedCases.length === 1 ? t('cases.caseFolder') : t('cases.caseFolders')}
         </Text>
         <View style={styles.toggleButtonGroup}>
           <TouchableOpacity
@@ -712,7 +716,7 @@ export default function CasesScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hudScroll}>
             {statusFilter !== 'All' ? (
               <View style={styles.chip}>
-                <Text style={styles.chipText}>Status: {statusFilter}</Text>
+                <Text style={styles.chipText}>{t('workspace.status')}: {statusFilter === 'Active' ? t('cases.active') : statusFilter === 'Closed' ? t('cases.closed') : t('cases.archived')}</Text>
                 <TouchableOpacity onPress={() => setStatusFilter('All')} style={styles.chipClose}>
                   <Ionicons name="close" size={14} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -720,7 +724,7 @@ export default function CasesScreen() {
             ) : null}
             {priorityFilter !== 'All' ? (
               <View style={styles.chip}>
-                <Text style={styles.chipText}>Priority: {priorityFilter}</Text>
+                <Text style={styles.chipText}>{t('cases.priority')}: {priorityFilter === 'Low' ? t('cases.priorityLow') : priorityFilter === 'Medium' ? t('cases.priorityMedium') : priorityFilter === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}</Text>
                 <TouchableOpacity onPress={() => setPriorityFilter('All')} style={styles.chipClose}>
                   <Ionicons name="close" size={14} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -728,7 +732,7 @@ export default function CasesScreen() {
             ) : null}
             {courtFilter !== 'All' ? (
               <View style={styles.chip}>
-                <Text style={styles.chipText}>Court: {courtFilter}</Text>
+                <Text style={styles.chipText}>{t('cases.courtLocation')}: {courtFilter}</Text>
                 <TouchableOpacity onPress={() => setCourtFilter('All')} style={styles.chipClose}>
                   <Ionicons name="close" size={14} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -736,14 +740,14 @@ export default function CasesScreen() {
             ) : null}
             {typeFilter !== 'All' ? (
               <View style={styles.chip}>
-                <Text style={styles.chipText}>Type: {typeFilter}</Text>
+                <Text style={styles.chipText}>{t('cases.litigationType')}: {typeFilter}</Text>
                 <TouchableOpacity onPress={() => setTypeFilter('All')} style={styles.chipClose}>
                   <Ionicons name="close" size={14} color={theme.textSecondary} />
                 </TouchableOpacity>
               </View>
             ) : null}
             <TouchableOpacity onPress={handleClearAllFilters} style={styles.clearAllFiltersBtn}>
-              <Text style={styles.clearAllFiltersText}>Clear All</Text>
+              <Text style={styles.clearAllFiltersText}>{t('common.clearAll')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -772,18 +776,18 @@ export default function CasesScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyEmoji}>📁</Text>
-              <Text style={styles.emptyTitle}>No Cases Found</Text>
+              <Text style={styles.emptyTitle}>{t('cases.noCasesFound')}</Text>
               <Text style={styles.emptySubtitle}>
                 {cases.length === 0
-                  ? 'Create your first litigation folder to start leveraging AI-powered legal assists.'
-                  : 'No cases match your active search or filters criteria.'}
+                  ? t('cases.emptyDesc')
+                  : t('cases.noMatchDesc')}
               </Text>
               <TouchableOpacity
                 onPress={cases.length === 0 ? handleOpenCreateModal : handleClearAllFilters}
                 style={styles.emptyActionBtn}
               >
                 <Text style={styles.emptyActionText}>
-                  {cases.length === 0 ? 'Create Case' : 'Clear Filters'}
+                  {cases.length === 0 ? t('cases.createFolder') : t('cases.clearFilters')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -799,7 +803,7 @@ export default function CasesScreen() {
               <View style={[styles.bottomSheetContainer, Shadows.modal]}>
                 <View style={styles.bottomSheetDragHandle} />
                 <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Portfolio Analytics</Text>
+                  <Text style={styles.bottomSheetTitle}>{t('cases.portfolioAnalytics')}</Text>
                   <TouchableOpacity onPress={() => setIsAnalyticsOpen(false)} style={styles.bottomSheetClose}>
                     <Ionicons name="close-circle" size={24} color={theme.textSecondary} />
                   </TouchableOpacity>
@@ -808,10 +812,10 @@ export default function CasesScreen() {
                 <View style={[styles.bottomSheetContent, { paddingBottom: 40 }]}>
                   <View style={{ marginBottom: 24 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textSecondary, marginBottom: 8 }}>
-                      Average Case Strength
+                      {t('cases.avgStrength')}
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <Text style={{ fontSize: 13, color: theme.textSecondary }}>Overall Score</Text>
+                      <Text style={{ fontSize: 13, color: theme.textSecondary }}>{t('cases.overallScore')}</Text>
                       <Text style={{ fontSize: 16, fontWeight: '800', color: theme.primary }}>{averageStrength}%</Text>
                     </View>
                     <View style={{ height: 10, width: '100%', backgroundColor: theme.divider, borderRadius: 5, overflow: 'hidden' }}>
@@ -822,7 +826,7 @@ export default function CasesScreen() {
                   {categoryAnalytics.length > 0 ? (
                     <View>
                       <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textSecondary, marginBottom: 12 }}>
-                        Category Distribution
+                        {t('cases.categoryDist')}
                       </Text>
                       {categoryAnalytics.map((cat, idx) => (
                         <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
@@ -835,7 +839,7 @@ export default function CasesScreen() {
                     </View>
                   ) : (
                     <Text style={{ fontSize: 13, color: theme.textMuted, textAlign: 'center', marginTop: 12 }}>
-                      No active cases category distribution available.
+                      {t('cases.noCategoryDist')}
                     </Text>
                   )}
                 </View>
@@ -853,7 +857,7 @@ export default function CasesScreen() {
               <View style={[styles.bottomSheetContainer, Shadows.modal]}>
                 <View style={styles.bottomSheetDragHandle} />
                 <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Case Categories</Text>
+                  <Text style={styles.bottomSheetTitle}>{t('cases.categories')}</Text>
                   <TouchableOpacity onPress={() => setIsMoreMenuOpen(false)} style={styles.bottomSheetClose}>
                     <Ionicons name="close-circle" size={24} color={theme.textSecondary} />
                   </TouchableOpacity>
@@ -880,7 +884,7 @@ export default function CasesScreen() {
                         style={styles.menuItemIcon}
                       />
                       <Text style={[styles.menuItemText, currentTab === 'recent' && styles.menuItemTextSelected]}>
-                        Recent Cases
+                        {t('cases.recentCases')}
                       </Text>
                     </View>
                     <View style={[styles.menuItemRight, currentTab === 'recent' && styles.menuItemRightSelected]}>
@@ -909,7 +913,7 @@ export default function CasesScreen() {
                         style={styles.menuItemIcon}
                       />
                       <Text style={[styles.menuItemText, currentTab === 'active' && styles.menuItemTextSelected]}>
-                        Active Cases
+                        {t('home.activeCases')}
                       </Text>
                     </View>
                     <View style={[styles.menuItemRight, currentTab === 'active' && styles.menuItemRightSelected]}>
@@ -938,7 +942,7 @@ export default function CasesScreen() {
                         style={styles.menuItemIcon}
                       />
                       <Text style={[styles.menuItemText, currentTab === 'completed' && styles.menuItemTextSelected]}>
-                        Completed Cases
+                        {t('cases.completedCases')}
                       </Text>
                     </View>
                     <View style={[styles.menuItemRight, currentTab === 'completed' && styles.menuItemRightSelected]}>
@@ -967,7 +971,7 @@ export default function CasesScreen() {
                         style={styles.menuItemIcon}
                       />
                       <Text style={[styles.menuItemText, currentTab === 'archived' && styles.menuItemTextSelected]}>
-                        Archived Cases
+                        {t('cases.archivedCases')}
                       </Text>
                     </View>
                     <View style={[styles.menuItemRight, currentTab === 'archived' && styles.menuItemRightSelected]}>
@@ -993,7 +997,7 @@ export default function CasesScreen() {
                         style={styles.menuItemIcon}
                       />
                       <Text style={styles.menuItemText}>
-                        Portfolio Analytics
+                        {t('cases.portfolioAnalytics')}
                       </Text>
                     </View>
                     <View style={styles.menuItemRight}>
@@ -1017,7 +1021,7 @@ export default function CasesScreen() {
               <View style={[styles.bottomSheetContainer, Shadows.modal]}>
                 <View style={styles.bottomSheetDragHandle} />
                 <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Filter & Sort Cases</Text>
+                  <Text style={styles.bottomSheetTitle}>{t('cases.filterSortTitle')}</Text>
                   <TouchableOpacity onPress={() => setIsFilterSheetOpen(false)} style={styles.bottomSheetClose}>
                     <Ionicons name="close-circle" size={24} color={theme.textSecondary} />
                   </TouchableOpacity>
@@ -1025,14 +1029,14 @@ export default function CasesScreen() {
 
                 <ScrollView style={styles.bottomSheetContent} showsVerticalScrollIndicator={false}>
                   {/* Sorting Section */}
-                  <Text style={styles.filterSectionTitle}>Sort Order</Text>
+                  <Text style={styles.filterSectionTitle}>{t('cases.sortOrder')}</Text>
                   <View style={styles.optionsGrid}>
                     <TouchableOpacity
                       onPress={() => setSortOption('lastUpdated')}
                       style={[styles.optionChip, sortOption === 'lastUpdated' && styles.optionChipSelected]}
                     >
                       <Text style={[styles.optionChipText, sortOption === 'lastUpdated' && styles.optionChipTextSelected]}>
-                        Last Updated
+                        {t('cases.lastUpdatedOption')}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -1040,7 +1044,7 @@ export default function CasesScreen() {
                       style={[styles.optionChip, sortOption === 'createdDate' && styles.optionChipSelected]}
                     >
                       <Text style={[styles.optionChipText, sortOption === 'createdDate' && styles.optionChipTextSelected]}>
-                        Date Created
+                        {t('cases.dateCreated')}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -1048,13 +1052,13 @@ export default function CasesScreen() {
                       style={[styles.optionChip, sortOption === 'name' && styles.optionChipSelected]}
                     >
                       <Text style={[styles.optionChipText, sortOption === 'name' && styles.optionChipTextSelected]}>
-                        Case Name
+                        {t('cases.caseNameLabel')}
                       </Text>
                     </TouchableOpacity>
                   </View>
 
                   {/* Status Section */}
-                  <Text style={styles.filterSectionTitle}>Case Status</Text>
+                  <Text style={styles.filterSectionTitle}>{t('workspace.status')}</Text>
                   <View style={styles.optionsGrid}>
                     {['All', 'Active', 'Closed', 'Archived'].map((status) => (
                       <TouchableOpacity
@@ -1063,14 +1067,14 @@ export default function CasesScreen() {
                         style={[styles.optionChip, statusFilter === status && styles.optionChipSelected]}
                       >
                         <Text style={[styles.optionChipText, statusFilter === status && styles.optionChipTextSelected]}>
-                          {status}
+                          {status === 'All' ? t('cases.all') : status === 'Active' ? t('cases.active') : status === 'Closed' ? t('cases.closed') : t('cases.archived')}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
 
                   {/* Priority Section */}
-                  <Text style={styles.filterSectionTitle}>Case Priority</Text>
+                  <Text style={styles.filterSectionTitle}>{t('cases.priority')}</Text>
                   <View style={styles.optionsGrid}>
                     {['All', 'Low', 'Medium', 'High', 'Urgent'].map((priority) => (
                       <TouchableOpacity
@@ -1079,7 +1083,7 @@ export default function CasesScreen() {
                         style={[styles.optionChip, priorityFilter === priority && styles.optionChipSelected]}
                       >
                         <Text style={[styles.optionChipText, priorityFilter === priority && styles.optionChipTextSelected]}>
-                          {priority}
+                          {priority === 'All' ? t('cases.all') : priority === 'Low' ? t('cases.priorityLow') : priority === 'Medium' ? t('cases.priorityMedium') : priority === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1088,14 +1092,14 @@ export default function CasesScreen() {
                   {/* Dynamic Court Section */}
                   {uniqueCourts.length > 0 ? (
                     <>
-                      <Text style={styles.filterSectionTitle}>Court Location</Text>
+                      <Text style={styles.filterSectionTitle}>{t('cases.courtLocation')}</Text>
                       <View style={styles.optionsGrid}>
                         <TouchableOpacity
                           onPress={() => setCourtFilter('All')}
                           style={[styles.optionChip, courtFilter === 'All' && styles.optionChipSelected]}
                         >
                           <Text style={[styles.optionChipText, courtFilter === 'All' && styles.optionChipTextSelected]}>
-                            All Courts
+                            {t('cases.allCourts')}
                           </Text>
                         </TouchableOpacity>
                         {uniqueCourts.map((court) => (
@@ -1116,27 +1120,30 @@ export default function CasesScreen() {
                   {/* Dynamic Case Type Section */}
                   {uniqueCaseTypes.length > 0 ? (
                     <>
-                      <Text style={styles.filterSectionTitle}>Litigation Type</Text>
+                      <Text style={styles.filterSectionTitle}>{t('cases.litigationType')}</Text>
                       <View style={styles.optionsGrid}>
                         <TouchableOpacity
                           onPress={() => setTypeFilter('All')}
                           style={[styles.optionChip, typeFilter === 'All' && styles.optionChipSelected]}
                         >
                           <Text style={[styles.optionChipText, typeFilter === 'All' && styles.optionChipTextSelected]}>
-                            All Types
+                            {t('cases.allTypes')}
                           </Text>
                         </TouchableOpacity>
-                        {uniqueCaseTypes.map((type) => (
-                          <TouchableOpacity
-                            key={type}
-                            onPress={() => setTypeFilter(type)}
-                            style={[styles.optionChip, typeFilter === type && styles.optionChipSelected]}
-                          >
-                            <Text style={[styles.optionChipText, typeFilter === type && styles.optionChipTextSelected]}>
-                              {type}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                        {uniqueCaseTypes.map((type) => {
+                          const displayType = type === 'Civil Case' ? t('cases.civilCase') : type === 'Criminal Case' ? t('cases.criminalCase') : type === 'Divorce Case' ? t('cases.divorceCase') : type === 'Property Dispute' ? t('cases.propertyDispute') : type === 'Corporate Legal' ? t('cases.corporateLegal') : type === 'Consumer Court' ? t('cases.consumerCourt') : type === 'Labor Dispute' ? t('cases.laborDispute') : type;
+                          return (
+                            <TouchableOpacity
+                              key={type}
+                              onPress={() => setTypeFilter(type)}
+                              style={[styles.optionChip, typeFilter === type && styles.optionChipSelected]}
+                            >
+                              <Text style={[styles.optionChipText, typeFilter === type && styles.optionChipTextSelected]}>
+                                {displayType}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </>
                   ) : null}
@@ -1145,7 +1152,7 @@ export default function CasesScreen() {
                 </ScrollView>
 
                 <TouchableOpacity onPress={() => setIsFilterSheetOpen(false)} style={styles.applyFiltersBtn}>
-                  <Text style={styles.applyFiltersBtnText}>Apply Controls</Text>
+                  <Text style={styles.applyFiltersBtnText}>{t('cases.applyControls')}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
@@ -1162,7 +1169,7 @@ export default function CasesScreen() {
                 <View style={styles.bottomSheetDragHandle} />
                 <View style={styles.bottomSheetHeader}>
                   <Text style={[styles.bottomSheetTitle, { fontSize: 16 }]} numberOfLines={1}>
-                    {selectedCase?.name || 'Case Options'}
+                    {selectedCase?.name || t('cases.actions')}
                   </Text>
                   <TouchableOpacity onPress={() => setIsActionSheetOpen(false)} style={styles.bottomSheetClose}>
                     <Ionicons name="close" size={20} color={theme.textSecondary} />
@@ -1178,7 +1185,7 @@ export default function CasesScreen() {
                     style={styles.actionItem}
                   >
                     <Text style={styles.actionItemIcon}>⚖️</Text>
-                    <Text style={styles.actionItemText}>Open Workspace</Text>
+                    <Text style={styles.actionItemText}>{t('cases.openWorkspace')}</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -1188,7 +1195,7 @@ export default function CasesScreen() {
                     style={styles.actionItem}
                   >
                     <Text style={styles.actionItemIcon}>📝</Text>
-                    <Text style={styles.actionItemText}>Edit Case Details</Text>
+                    <Text style={styles.actionItemText}>{t('cases.editDetails')}</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -1199,7 +1206,7 @@ export default function CasesScreen() {
                   >
                     <Text style={styles.actionItemIcon}>📁</Text>
                     <Text style={styles.actionItemText}>
-                      {selectedCase?.status === 'Archived' ? 'Restore to Active' : 'Archive Case'}
+                      {selectedCase?.status === 'Archived' ? t('cases.restoreCase') : t('cases.archiveCase')}
                     </Text>
                   </TouchableOpacity>
 
@@ -1211,7 +1218,7 @@ export default function CasesScreen() {
                     style={[styles.actionItem, { borderBottomWidth: 0 }]}
                   >
                     <Text style={styles.actionItemIcon}>⚠️</Text>
-                    <Text style={[styles.actionItemText, { color: theme.danger }]}>Delete Case Permanently</Text>
+                    <Text style={[styles.actionItemText, { color: theme.danger }]}>{t('cases.deleteCasePermanently')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1234,7 +1241,7 @@ export default function CasesScreen() {
                     <Ionicons name={editingCaseId ? 'create' : 'add'} size={20} color="#FFFFFF" />
                   </View>
                   <Text style={styles.formTitle}>
-                    {editingCaseId ? 'Edit Legal Case' : 'New Legal Case'}
+                    {editingCaseId ? t('cases.editCaseTitle') : t('cases.newCaseTitle')}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1252,7 +1259,7 @@ export default function CasesScreen() {
                 {/* Client Name Input */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>
-                    Client Name/ Complainant <Text style={{ color: theme.danger }}>*</Text>
+                    {t('cases.clientNameComplainant')} <Text style={{ color: theme.danger }}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, formErrors.clientName ? { borderColor: theme.danger } : {}]}
@@ -1268,7 +1275,7 @@ export default function CasesScreen() {
 
                 {/* Court Name Input */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Court / Forum</Text>
+                  <Text style={styles.inputLabel}>{t('cases.courtForum')}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Delhi High Court"
@@ -1280,7 +1287,7 @@ export default function CasesScreen() {
 
                 {/* Accused Input */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Opponent / Accused</Text>
+                  <Text style={styles.inputLabel}>{t('cases.opponentAccused')}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Mr. Ravi"
@@ -1293,7 +1300,7 @@ export default function CasesScreen() {
                 {/* Case Type Dropdown */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>
-                    Case Type <Text style={{ color: theme.danger }}>*</Text>
+                    {t('cases.caseTypeLabel')} <Text style={{ color: theme.danger }}>*</Text>
                   </Text>
                   <View style={styles.chipsSelector}>
                     {[
@@ -1305,17 +1312,20 @@ export default function CasesScreen() {
                       'Consumer Court',
                       'Labor Dispute',
                       'Other',
-                    ].map((type) => (
-                      <TouchableOpacity
-                        key={type}
-                        onPress={() => setForm({ ...form, caseType: type })}
-                        style={[styles.selectorChip, form.caseType === type && styles.selectorChipSelected]}
-                      >
-                        <Text style={[styles.selectorChipText, form.caseType === type && styles.selectorChipTextSelected]}>
-                          {type}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    ].map((type) => {
+                      const displayType = type === 'Civil Case' ? t('cases.civilCase') : type === 'Criminal Case' ? t('cases.criminalCase') : type === 'Divorce Case' ? t('cases.divorceCase') : type === 'Property Dispute' ? t('cases.propertyDispute') : type === 'Corporate Legal' ? t('cases.corporateLegal') : type === 'Consumer Court' ? t('cases.consumerCourt') : type === 'Labor Dispute' ? t('cases.laborDispute') : type === 'Other' ? t('cases.other') : type;
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          onPress={() => setForm({ ...form, caseType: type })}
+                          style={[styles.selectorChip, form.caseType === type && styles.selectorChipSelected]}
+                        >
+                          <Text style={[styles.selectorChipText, form.caseType === type && styles.selectorChipTextSelected]}>
+                            {displayType}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                   {formErrors.caseType ? (
                     <Text style={styles.inputErrorText}>{formErrors.caseType}</Text>
@@ -1326,7 +1336,7 @@ export default function CasesScreen() {
                 {form.caseType === 'Other' ? (
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>
-                      Enter Custom Case Type <Text style={{ color: theme.danger }}>*</Text>
+                      {t('cases.enterCustomType')} <Text style={{ color: theme.danger }}>*</Text>
                     </Text>
                     <TextInput
                       style={[styles.input, formErrors.otherCaseType ? { borderColor: theme.danger } : {}]}
@@ -1343,7 +1353,7 @@ export default function CasesScreen() {
 
                 {/* Priority Selection */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Case Priority</Text>
+                  <Text style={styles.inputLabel}>{t('cases.priority')}</Text>
                   <View style={styles.chipsSelector}>
                     {(['Low', 'Medium', 'High', 'Urgent'] as const).map((pr) => (
                       <TouchableOpacity
@@ -1352,7 +1362,7 @@ export default function CasesScreen() {
                         style={[styles.selectorChip, form.priority === pr && styles.selectorChipSelected]}
                       >
                         <Text style={[styles.selectorChipText, form.priority === pr && styles.selectorChipTextSelected]}>
-                          {pr}
+                          {pr === 'Low' ? t('cases.priorityLow') : pr === 'Medium' ? t('cases.priorityMedium') : pr === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1361,7 +1371,7 @@ export default function CasesScreen() {
 
                 {/* Case Summary Textarea */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Case Brief Summary</Text>
+                  <Text style={styles.inputLabel}>{t('cases.briefSummary')}</Text>
                   <TextInput
                     style={[styles.input, styles.textarea]}
                     placeholder="Brief explanation of litigation details, claims, and goals..."
@@ -1378,7 +1388,7 @@ export default function CasesScreen() {
 
               <TouchableOpacity onPress={handleSubmitForm} style={styles.formSubmitBtn}>
                 <Text style={styles.formSubmitBtnText}>
-                  {editingCaseId ? 'Update Case Folder' : 'Create Case Folder'}
+                  {editingCaseId ? t('cases.updateFolder') : t('cases.createFolder')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1393,16 +1403,16 @@ export default function CasesScreen() {
             <View style={styles.dialogIconContainer}>
               <Ionicons name="warning" size={32} color={theme.danger} />
             </View>
-            <Text style={styles.dialogTitle}>Delete Case Folder?</Text>
+            <Text style={styles.dialogTitle}>{t('cases.deleteFolderTitle')}</Text>
             <Text style={styles.dialogDescription}>
-              This action cannot be undone. All documents, AI intelligence analysis records, evidence registers, and task backlogs under this case folder will be lost permanently.
+              {t('cases.deleteFolderConfirmDesc')}
             </Text>
             <View style={styles.dialogFooter}>
               <TouchableOpacity onPress={() => setIsDeleteConfirmOpen(false)} style={styles.dialogCancelBtn}>
-                <Text style={styles.dialogCancelText}>Cancel</Text>
+                <Text style={styles.dialogCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleDeleteCase} style={styles.dialogDeleteBtn}>
-                <Text style={styles.dialogDeleteText}>Delete Permanently</Text>
+                <Text style={styles.dialogDeleteText}>{t('cases.deletePermanently')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1423,7 +1433,7 @@ export default function CasesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.background,

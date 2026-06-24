@@ -9,6 +9,23 @@ import { AppConfig } from '@/config';
 import { StorageKeys } from '@/constants';
 import { configureAxiosRetry } from './retry';
 import { parseApiError } from './errors';
+import { useUserStore } from '../store/user';
+import { useLocalLanguageStore } from '../utils/localization';
+
+export const appendLanguagePromptModifier = (message: string, language: string): string => {
+  if (language === 'Hindi') {
+    return `${message}\n\n[INSTRUCTION: Please generate the response in Hindi. All analysis, descriptions, and headings must be in Hindi. Do NOT translate client names, case numbers, evidence names, file names, phone numbers, emails, and legal section numbers. Keep them in their original form.]`;
+  } else if (language === 'Bilingual') {
+    return `${message}\n\n[INSTRUCTION: Please generate the response in Bilingual style (English + Hindi). Use English for headings, titles, and structural labels. Use Hindi for descriptions, explanations, and subtitles. Where appropriate, write in English with key sentences explained in Hindi. Do NOT translate client names, case numbers, evidence names, file names, phone numbers, emails, and legal section numbers. Keep them in their original form.]`;
+  } else if (language === 'Gujarati') {
+    return `${message}\n\n[INSTRUCTION: Please generate the response in Gujarati. All analysis, descriptions, and headings must be in Gujarati. Do NOT translate client names, case numbers, evidence names, file names, phone numbers, emails, and legal section numbers. Keep them in their original form.]`;
+  } else if (language === 'Marathi') {
+    return `${message}\n\n[INSTRUCTION: Please generate the response in Marathi. All analysis, descriptions, and headings must be in Marathi. Do NOT translate client names, case numbers, evidence names, file names, phone numbers, emails, and legal section numbers. Keep them in their original form.]`;
+  } else if (language === 'Tamil') {
+    return `${message}\n\n[INSTRUCTION: Please generate the response in Tamil. All analysis, descriptions, and headings must be in Tamil. Do NOT translate client names, case numbers, evidence names, file names, phone numbers, emails, and legal section numbers. Keep them in their original form.]`;
+  }
+  return message;
+};
 
 // Standard secure storage abstraction placeholder
 let getAuthTokenAsync: () => Promise<string | null> = async () => null;
@@ -55,9 +72,10 @@ apiClient.interceptors.request.use(
 
       // Step 3: Inject Device, App, and Correlation headers
       if (requestConfig.headers) {
+        const userLang = useUserStore.getState().profile?.personalizations?.general?.language || useLocalLanguageStore.getState().localLanguage || 'English';
         requestConfig.headers['X-Device-Platform'] = Platform.OS;
         requestConfig.headers['X-App-Version'] = AppConfig.version;
-        requestConfig.headers['X-App-Language'] = 'en';
+        requestConfig.headers['X-App-Language'] = userLang;
 
         let timeZone = 'UTC';
         try {
@@ -70,6 +88,15 @@ apiClient.interceptors.request.use(
         requestConfig.headers['X-App-Timezone'] = timeZone;
 
         requestConfig.headers['X-Correlation-Id'] = `req_${Math.random().toString(36).substring(2, 11)}`;
+
+        // Inject language instruction to prompt if request has data.message or data.content
+        if (requestConfig.data && typeof requestConfig.data === 'object') {
+          if ('message' in requestConfig.data && typeof requestConfig.data.message === 'string') {
+            requestConfig.data.message = appendLanguagePromptModifier(requestConfig.data.message, userLang);
+          } else if ('content' in requestConfig.data && typeof requestConfig.data.content === 'string') {
+            requestConfig.data.content = appendLanguagePromptModifier(requestConfig.data.content, userLang);
+          }
+        }
       }
     } catch (err) {
       console.error('[API CLIENT] Failed to inject token/headers', err);
@@ -322,7 +349,15 @@ export async function* streamAIResponse(
     });
   }
 
-  xhr.send(JSON.stringify(payload));
+  const userLang = useUserStore.getState().profile?.personalizations?.general?.language || useLocalLanguageStore.getState().localLanguage || 'English';
+  let modifiedPayload = { ...payload };
+  if (modifiedPayload.message && typeof modifiedPayload.message === 'string') {
+    modifiedPayload.message = appendLanguagePromptModifier(modifiedPayload.message, userLang);
+  } else if (modifiedPayload.content && typeof modifiedPayload.content === 'string') {
+    modifiedPayload.content = appendLanguagePromptModifier(modifiedPayload.content, userLang);
+  }
+
+  xhr.send(JSON.stringify(modifiedPayload));
   let lastYieldTime = Date.now();
   let localBuffer = '';
 
@@ -379,9 +414,30 @@ export async function* streamAIResponse(
     yield localBuffer;
   }
 
-  // Appends standard legal disclaimer to every AI response except draftMaker
-  if (payload && payload.activeTool !== 'draftMaker') {
-    yield "\n\n**⚖️ Legal Disclaimer:** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
+  // Appends standard legal disclaimer to every AI response except draftMaker, precedents, and caseAssistant
+  const activeTool = payload?.activeTool || '';
+  const isExceptionTool = 
+    activeTool === 'draftMaker' || 
+    activeTool === 'legalPrecedent' || 
+    activeTool === 'caseAssistant' ||
+    activeTool.toLowerCase().includes('precedent') ||
+    activeTool.toLowerCase().includes('draft') ||
+    activeTool.toLowerCase().includes('case');
+
+  if (payload && !isExceptionTool) {
+    let disclaimer = "\n\n**⚖️ Legal Disclaimer:** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
+    if (userLang === 'Hindi') {
+      disclaimer = "\n\n**⚖️ कानूनी अस्वीकरण:** यह विश्लेषण केवल सूचनात्मक उद्देश्यों के लिए है और कानूनी सलाह नहीं है। एआई गलतियां कर सकता है। कानूनी निर्णय लेने से पहले कृपया किसी योग्य वकील से परामर्श लें।";
+    } else if (userLang === 'Bilingual') {
+      disclaimer = "\n\n**⚖️ Legal Disclaimer (कानूनी अस्वीकरण):** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions. (यह विश्लेषण केवल सूचनात्मक उद्देश्यों के लिए है और कानूनी सलाह नहीं है। एआई गलतियां कर सकता है। कानूनी निर्णय लेने से पहले कृपया किसी योग्य वकील से परामर्श लें।)";
+    } else if (userLang === 'Gujarati') {
+      disclaimer = "\n\n**⚖️ કાનૂની અસ્વીકરણ:** આ વિશ્લેષણ ફક્ત માહિતીના હેતુઓ માટે છે અને કાનૂनी સલાહ નથી. AI ભૂલો કરી શકે છે. કાનૂની નિર્ણયો લેતા પહેલા કૃપા કરીને લાયક વકીલની સલાહ લો.";
+    } else if (userLang === 'Marathi') {
+      disclaimer = "\n\n**⚖️ कायदेशीर अस्वीकरण:** हे विश्लेषण केवळ माहितीच्या उद्देशाने आहे आणि कायदेशीर सल्ला नाही. AI चुका करू शकते. कायदेशीर निर्णय घेण्यापूर्वी कृपया पात्र वकीलाचा सल्ला घ्या.";
+    } else if (userLang === 'Tamil') {
+      disclaimer = "\n\n**⚖️ சட்டப்பூர்வ மறுப்பு:** இந்த பகுப்பாய்வு தகவல் நோக்கங்களுக்காக மட்டுமே மற்றும் சட்ட ஆலோசனையல்ல. AI தவறுகள் செய்யலாம். சட்டப்பூர்வ முடிவுகளை எடுப்பதற்கு முன் தகுதிவாய்ந்த வழக்கறிஞரை அணுகவும்.";
+    }
+    yield disclaimer;
   }
 }
 

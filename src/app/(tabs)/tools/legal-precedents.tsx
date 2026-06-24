@@ -50,7 +50,8 @@ const CASE_TYPES = [
 
 export default function LegalPrecedentsScreen() {
   const { showToast } = useToastContext();
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
+  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ caseId?: string }>();
@@ -2251,9 +2252,11 @@ export default function LegalPrecedentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: theme.background,
   },
   header: {
     flexDirection: 'row',
@@ -2262,6 +2265,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.background,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -2274,21 +2279,26 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
   headerSubtitle: {
     fontSize: 12,
     marginTop: 2,
+    color: theme.textSecondary,
   },
   modeBar: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 8,
     gap: 12,
+    backgroundColor: theme.background,
   },
   toggleContainer: {
     flexDirection: 'row',
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     padding: 3,
   },
   toggleButton: {
@@ -2307,28 +2317,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    borderColor: theme.border,
     borderRadius: 12,
     paddingVertical: 8,
     paddingHorizontal: 12,
+    backgroundColor: theme.surfaceVariant,
   },
   caseBadgeIndicator: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     marginRight: 8,
   },
   caseBadgeText: {
     flex: 1,
     fontSize: 13,
     fontWeight: '700',
+    color: theme.textPrimary,
   },
   changeCaseBtn: {
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   changeCaseBtnText: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontSize: 12,
     fontWeight: '700',
     textDecorationLine: 'underline',
@@ -2336,6 +2349,7 @@ const styles = StyleSheet.create({
   scrollContainer: {
     padding: 16,
     paddingBottom: 40,
+    backgroundColor: theme.background,
   },
   loadingContainer: {
     alignItems: 'center',
@@ -2346,11 +2360,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: 16,
+    color: theme.textPrimary,
   },
   loadingSubtext: {
     fontSize: 12,
     marginTop: 6,
     textAlign: 'center',
+    color: theme.textSecondary,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -2359,20 +2375,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     gap: 12,
   },
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
+    color: theme.textPrimary,
   },
   emptyDesc: {
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 8,
+    color: theme.textSecondary,
   },
   primaryButton: {
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 12,
@@ -2389,6 +2409,7 @@ const styles = StyleSheet.create({
   outlineButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
+    borderColor: theme.border,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 12,
@@ -2400,20 +2421,25 @@ const styles = StyleSheet.create({
   outlineButtonText: {
     fontWeight: '700',
     fontSize: 13,
+    color: theme.textSecondary,
   },
   formCard: {
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 18,
     gap: 16,
   },
   formHeaderTitle: {
     fontSize: 15,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
   formHeaderDesc: {
     fontSize: 12,
     marginTop: -12,
+    color: theme.textSecondary,
   },
   inputGroup: {
     gap: 6,
@@ -2422,13 +2448,17 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 12,
     fontWeight: '700',
+    color: theme.textSecondary,
   },
   input: {
     height: 44,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 10,
     paddingHorizontal: 12,
     fontSize: 13,
+    color: theme.textPrimary,
   },
   multilineInput: {
     height: 80,
@@ -2444,14 +2474,15 @@ const styles = StyleSheet.create({
   },
   selectOption: {
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   selectOptionText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   resultsActionsRow: {
@@ -2463,11 +2494,14 @@ const styles = StyleSheet.create({
   resultsHeaderTitle: {
     fontSize: 14,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
   actionIconButton: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -2476,9 +2510,12 @@ const styles = StyleSheet.create({
   actionIconLabel: {
     fontSize: 11,
     fontWeight: '700',
+    color: theme.primary,
   },
   resultCard: {
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     borderRadius: 12,
     padding: 12,
     gap: 8,
@@ -2493,10 +2530,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 18,
+    color: theme.textPrimary,
   },
   resultCardMeta: {
     fontSize: 11,
     fontWeight: '600',
+    color: theme.primary,
   },
   metaRow: {
     flexDirection: 'row',
@@ -2507,6 +2546,7 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 11,
     fontWeight: '600',
+    color: theme.textSecondary,
   },
   relevanceTag: {
     paddingHorizontal: 8,
@@ -2522,26 +2562,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     lineHeight: 16,
+    color: theme.textSecondary,
   },
   compactLegalBox: {
     padding: 8,
     borderRadius: 8,
     marginVertical: 2,
+    backgroundColor: theme.surfaceVariant,
   },
   legalPrincipleBox: {
     padding: 10,
     borderRadius: 10,
+    backgroundColor: isDark ? 'rgba(109, 93, 252, 0.12)' : '#F5F3FF',
   },
   legalPrincipleLabel: {
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    color: theme.primary,
   },
   legalPrincipleValue: {
     fontSize: 11,
     fontWeight: '600',
     lineHeight: 15,
+    color: isDark ? theme.textPrimary : '#4C1D95',
   },
   resultCardFooter: {
     flexDirection: 'row',
@@ -2557,10 +2602,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
+    backgroundColor: theme.surfaceVariant,
   },
   tagText: {
     fontSize: 10,
     fontWeight: '700',
+    color: theme.textSecondary,
   },
   resultActionsRow: {
     flexDirection: 'row',
@@ -2573,8 +2620,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5F3FF',
-    borderColor: '#EEECFF',
+    backgroundColor: theme.surfaceVariant,
+    borderColor: theme.border,
   },
   resultActions: {
     flexDirection: 'row',
@@ -2586,7 +2633,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: theme.surfaceVariant,
   },
   modalOverlay: {
     flex: 1,
@@ -2605,12 +2652,14 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     maxHeight: height * 0.8,
     paddingTop: 16,
+    backgroundColor: theme.card,
   },
   centerModal: {
     borderRadius: 20,
     width: '100%',
     maxHeight: height * 0.8,
     paddingTop: 16,
+    backgroundColor: theme.card,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -2622,6 +2671,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 16,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
   sheetScroll: {
     paddingHorizontal: 20,
@@ -2633,19 +2683,24 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     marginBottom: 8,
   },
   caseListTitle: {
     fontSize: 13,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
   caseListSubtitle: {
     fontSize: 11,
     marginTop: 2,
+    color: theme.textSecondary,
   },
   detailsModal: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 44 : 20,
+    backgroundColor: theme.background,
   },
   closeButton: {
     padding: 4,
@@ -2656,10 +2711,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   
-  // Premium Case Info Card styles
   caseInfoCard: {
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -2679,6 +2735,7 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     textAlign: 'center',
     letterSpacing: -0.3,
+    color: theme.textPrimary,
   },
   caseHeaderVersusText: {
     fontSize: 14,
@@ -2686,6 +2743,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     marginVertical: 2,
+    color: theme.textSecondary,
   },
   caseHeaderSingleTitleText: {
     fontSize: 22,
@@ -2694,6 +2752,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: -0.3,
     marginBottom: 14,
+    color: theme.textPrimary,
   },
   metadataChipsRow: {
     flexDirection: 'row',
@@ -2709,10 +2768,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 10,
     maxWidth: width * 0.8,
+    backgroundColor: theme.surfaceVariant,
   },
   metaChipText: {
     fontSize: 12,
     fontWeight: '600',
+    color: theme.textSecondary,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -2726,6 +2787,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
+    backgroundColor: 'rgba(217, 119, 6, 0.08)',
   },
   landmarkBadgeText: {
     color: '#D97706',
@@ -2740,6 +2802,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
   },
   relevanceChipText: {
     color: '#10B981',
@@ -2749,11 +2812,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Premium tab bar segmented controls
   premiumTabBar: {
     flexDirection: 'row',
     borderRadius: 14,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     padding: 4,
     marginHorizontal: 16,
     marginVertical: 12,
@@ -2767,7 +2831,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   activePremiumTabButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -2777,12 +2841,14 @@ const styles = StyleSheet.create({
   premiumTabButtonText: {
     fontSize: 13,
     fontWeight: '700',
+    color: theme.textSecondary,
   },
 
-  // Redesigned Section Cards
   sectionCard: {
     borderRadius: 18,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 18,
     marginBottom: 16,
     shadowColor: '#000',
@@ -2796,6 +2862,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderBottomWidth: 1,
+    borderBottomColor: theme.border,
     paddingBottom: 12,
     marginBottom: 14,
   },
@@ -2803,7 +2870,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: 'rgba(109, 93, 252, 0.06)',
+    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : 'rgba(109, 93, 252, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2814,16 +2881,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.1,
+    color: theme.textPrimary,
   },
   sectionCardContent: {
     gap: 8,
   },
 
-  // Comparison specific styles
   comparisonScoreCard: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     padding: 14,
     borderRadius: 14,
     marginBottom: 4,
@@ -2832,19 +2901,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
+    color: theme.textSecondary,
   },
   comparisonScoreCardValue: {
     fontSize: 15,
     fontWeight: '800',
+    color: theme.textPrimary,
   },
 
-  // AI actions styles
   aiSectionHeading: {
     fontSize: 15,
     fontWeight: '800',
     marginBottom: 12,
     marginTop: 8,
     paddingHorizontal: 4,
+    color: theme.textPrimary,
   },
   aiButtonsRow: {
     flexDirection: 'row',
@@ -2857,7 +2928,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#6D5DFC',
+    borderColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -2865,7 +2936,7 @@ const styles = StyleSheet.create({
   },
   aiActionButtonLabel: {
     fontSize: 12,
-    color: '#6D5DFC',
+    color: theme.primary,
     fontWeight: '700',
   },
   aiResponseBoxLoader: {
@@ -2874,7 +2945,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     borderRadius: 18,
     borderStyle: 'dashed',
     marginVertical: 16,
@@ -2883,9 +2954,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+    color: theme.textSecondary,
   },
 
-  // Rich Text Rendering components
   richBulletRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -2914,9 +2985,9 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     letterSpacing: 0.1,
     marginVertical: 5,
+    color: theme.textSecondary,
   },
 
-  // Highlight Box callouts
   calloutBox: {
     borderRadius: 12,
     borderWidth: 1.5,
@@ -2942,7 +3013,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Sticky bottom action buttons
   detailsFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2950,11 +3020,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
+    borderTopColor: theme.border,
+    backgroundColor: theme.background,
   },
   footerButtonCopy: {
     flex: 1,
     height: 48,
     borderWidth: 1.5,
+    borderColor: theme.border,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2967,7 +3040,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
   },
   footerButtonSave: {
     flex: 1,
@@ -2976,11 +3049,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5F3FF',
+    backgroundColor: theme.surfaceVariant,
   },
   footerButtonTextCopy: {
     fontSize: 13,
     fontWeight: '700',
+    color: theme.textSecondary,
   },
   footerButtonTextPDF: {
     color: '#FFFFFF',
@@ -2988,15 +3062,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   footerButtonTextSave: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontSize: 13,
     fontWeight: '700',
   },
 
-  // Skeleton Loader elements
   skeletonCard: {
     borderRadius: 18,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 18,
     marginBottom: 16,
   },
@@ -3006,15 +3081,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   skeletonBlock: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 6,
   },
 
-  // Rest of screen general elements
   searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -3032,6 +3108,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 13,
+    color: theme.textPrimary,
   },
   searchBarButton: {
     paddingHorizontal: 14,
@@ -3039,15 +3116,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
   },
   searchBarButtonText: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontWeight: '800',
     fontSize: 13,
     letterSpacing: 0.5,
   },
   caseCardSkeleton: {
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     borderRadius: 20,
     padding: 18,
     marginBottom: 16,
@@ -3085,6 +3165,8 @@ const styles = StyleSheet.create({
   },
   webCaseCard: {
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     borderRadius: 20,
     padding: 18,
     gap: 12,
@@ -3103,6 +3185,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 18,
+    color: theme.textPrimary,
   },
   webCaseCardMetaRow: {
     flexDirection: 'row',
@@ -3113,6 +3196,7 @@ const styles = StyleSheet.create({
   webCaseCardMetaText: {
     fontSize: 11,
     fontWeight: '600',
+    color: theme.textSecondary,
   },
   statusBadge: {
     paddingHorizontal: 8,
@@ -3127,10 +3211,12 @@ const styles = StyleSheet.create({
   webCaseCardDesc: {
     fontSize: 12,
     lineHeight: 16,
+    color: theme.textSecondary,
   },
   webCaseCardDivider: {
     height: 1,
     width: '100%',
+    backgroundColor: theme.border,
   },
   webCaseCardFooter: {
     flexDirection: 'column',
@@ -3163,17 +3249,18 @@ const styles = StyleSheet.create({
   webCaseCardDate: {
     fontSize: 10,
     fontWeight: '700',
+    color: theme.textMuted,
   },
   analyzeTextButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F3FF',
+    backgroundColor: theme.surfaceVariant,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
   },
   analyzeTextButtonText: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
@@ -3181,6 +3268,8 @@ const styles = StyleSheet.create({
   webNewCaseCardDashed: {
     borderWidth: 2,
     borderStyle: 'dashed',
+    borderColor: theme.primary,
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 20,
     paddingVertical: 24,
     alignItems: 'center',
@@ -3196,12 +3285,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
+    backgroundColor: theme.card,
   },
   webNewCaseCardLabel: {
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1,
+    color: theme.primary,
   },
   searchQueryBanner: {
     flexDirection: 'row',
@@ -3209,15 +3300,17 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     marginBottom: 8,
   },
   searchQueryBannerText: {
     flex: 1,
     fontSize: 11,
     lineHeight: 15,
+    color: theme.primary,
   },
 
-  // Premium header block styles
   detailsHeaderBlock: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3226,6 +3319,8 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 12,
     borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.background,
   },
   headerLeftBtn: {
     padding: 6,
@@ -3240,22 +3335,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 22,
     letterSpacing: -0.1,
+    color: theme.textPrimary,
   },
   headerCaseSubText: {
     fontSize: 11,
     fontWeight: '600',
     marginTop: 2,
+    color: theme.textSecondary,
   },
   headerRightBtn: {
     padding: 6,
     marginLeft: 6,
   },
 
-  // Premium compact segmented tab bar styles
   premiumCompactTabBar: {
     flexDirection: 'row',
     borderRadius: 10,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     padding: 3,
     marginHorizontal: 16,
     marginVertical: 10,
@@ -3270,7 +3368,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   activePremiumCompactTabButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -3281,12 +3379,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: -0.1,
+    color: theme.textSecondary,
   },
 
-  // Compact Precedent Info Card styles
   compactInfoCard: {
     borderRadius: 16,
     borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1.5 },
@@ -3338,7 +3438,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Premium equal buttons details footer sticky bottom bar
   premiumDetailsFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3346,11 +3445,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     borderTopWidth: 1,
+    borderTopColor: theme.border,
+    backgroundColor: theme.background,
   },
   footerButtonCopyEqual: {
     flex: 1,
     height: 48,
     borderWidth: 1.5,
+    borderColor: theme.border,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -3364,7 +3466,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
   },
   footerButtonSaveEqual: {
     flex: 1,
@@ -3373,10 +3475,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: theme.surfaceVariant,
   },
   footerButtonTextCopyEqual: {
     fontSize: 12,
     fontWeight: '700',
+    color: theme.textSecondary,
   },
   footerButtonTextPDFEqual: {
     color: '#FFFFFF',
@@ -3386,5 +3490,7 @@ const styles = StyleSheet.create({
   footerButtonTextSaveEqual: {
     fontSize: 12,
     fontWeight: '700',
+    color: theme.primary,
   },
-});
+  });
+}

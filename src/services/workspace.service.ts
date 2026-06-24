@@ -39,4 +39,28 @@ export class WorkspaceService {
     const response = await apiClient.get(API_ENDPOINTS.Cases.Documents(workspaceId));
     return response.data;
   }
+
+  /**
+   * Triggers comprehensive AI legal analysis workflow.
+   */
+  static async triggerCompleteAnalysis(workspaceId: string): Promise<ApiResponse<any>> {
+    const response = await apiClient.post(`${API_ENDPOINTS.Cases.Base}/${workspaceId}/analysis-trigger`);
+    return response.data;
+  }
+
+  /**
+   * Fetches the latest case analysis report.
+   */
+  static async getLatestAnalysis(workspaceId: string): Promise<ApiResponse<any>> {
+    const response = await apiClient.get(`${API_ENDPOINTS.Cases.Base}/${workspaceId}/analysis/latest`);
+    return response.data;
+  }
+
+  /**
+   * Fetches the entire analysis run history for comparison.
+   */
+  static async getAnalysisHistory(workspaceId: string): Promise<ApiResponse<any[]>> {
+    const response = await apiClient.get(`${API_ENDPOINTS.Cases.Base}/${workspaceId}/analysis/history`);
+    return response.data;
+  }
 }

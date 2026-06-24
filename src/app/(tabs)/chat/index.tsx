@@ -25,9 +25,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthGuard } from '@/navigation/guards';
-import { useToastContext } from '@/providers';
+import { useToastContext, useThemeContext } from '@/providers';
+import { useTranslation } from '@/localization';
 import { useChat } from '@/hooks/use-chat';
-import { ChatMessageBubble, TypingIndicator, ChatComposer } from '@/components/ui/chat';
+import { ChatMessageBubble, TypingIndicator, ChatComposer, KeyboardSafeChatLayout } from '@/components/ui/chat';
 import { ChatMessage, ChatAttachment } from '@/types';
 import { useChatStore } from '@/store/chat';
 import { Shadows } from '@/theme';
@@ -35,32 +36,16 @@ import { PageHeader } from '@/components/ui';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
+import { useWorkspaceStore } from '@/store/workspace';
+import { CaseService } from '@/services/case.service';
 
 const { width, height } = Dimensions.get('window');
-
-// Theme tokens for premium light mode styling
-const theme = {
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceVariant: '#F9FAFB',
-  divider: '#ECECEC',
-  border: '#ECECEC',
-  primary: '#6D5DFC',
-  primaryLight: '#EEECFF',
-  primaryDark: '#5B4EDB',
-  textPrimary: '#1F2937',
-  textSecondary: '#4B5563',
-  textMuted: '#9CA3AF',
-  danger: '#EF4444',
-  success: '#10B981',
-  warning: '#F59E0B',
-};
 
 // Available AI Tools inside general assistant
 const AI_TOOLS = [
   { id: 'legal_my_case', label: 'AI Assistant', description: 'General legal conversations', icon: '🧠' },
   { id: 'draftMaker', label: 'Draft Maker', description: 'Generate legal drafts', icon: '📄' },
-  { id: 'legalResearch', label: 'Legal Research', description: 'Find laws and precedents', icon: '🔍' },
+  { id: 'legalResearch', label: 'Legal Precedent', description: 'Find laws and precedents', icon: '🔍' },
   { id: 'contractAnalyzer', label: 'Contract Analyzer', description: 'Review contracts', icon: '📑' },
   { id: 'evidenceAnalyst', label: 'Evidence Analyst', description: 'Analyze evidence', icon: '📂' },
   { id: 'argumentBuilder', label: 'Argument Builder', description: 'Build legal arguments', icon: '⚖' },
@@ -69,16 +54,108 @@ const AI_TOOLS = [
   { id: 'researchAssistant', label: 'Research Assistant', description: 'Advanced legal research', icon: '📚' },
 ];
 
-const QUICK_SUGGESTED_PROMPTS = [
-  { text: 'Summarize my case', icon: '⚖️' },
-  { text: 'Draft legal notice', icon: '📄' },
-  { text: 'Analyze agreement', icon: '📑' },
-  { text: 'Find precedents', icon: '🔍' },
-  { text: 'Review evidence', icon: '📂' },
-  { text: 'Generate arguments', icon: '⚡' },
-  { text: 'Research laws', icon: '📚' },
-  { text: 'Explain legal section', icon: '📖' },
+const AI_ACTIONS_CATEGORIES = [
+  {
+    title: 'CASE ANALYSIS',
+    actions: [
+      { id: 'analyze_case', label: 'Analyze My Case', icon: '⚖️' },
+      { id: 'identify_issues', label: 'Identify Legal Issues', icon: '🧠' },
+    ],
+  },
+  {
+    title: 'DOCUMENT ACTIONS',
+    actions: [
+      { id: 'summarize_docs', label: 'Summarize Documents', icon: '📄' },
+      { id: 'find_missing_evidence', label: 'Find Missing Evidence', icon: '🔍' },
+    ],
+  },
+  {
+    title: 'STRATEGY',
+    actions: [
+      { id: 'suggest_strategy', label: 'Suggest Legal Strategy', icon: '🎯' },
+      { id: 'identify_weak_points', label: 'Identify Weak Points', icon: '⚠️' },
+    ],
+  },
+  {
+    title: 'ARGUMENTS',
+    actions: [
+      { id: 'generate_arguments', label: 'Generate Arguments', icon: '📝' },
+      { id: 'generate_counter_arguments', label: 'Generate Counter Arguments', icon: '🛡️' },
+    ],
+  },
+  {
+    title: 'RESEARCH',
+    actions: [
+      { id: 'find_relevant_laws', label: 'Find Relevant Laws', icon: '📚' },
+      { id: 'find_similar_judgments', label: 'Find Similar Judgments', icon: '🏛️' },
+    ],
+  },
+  {
+    title: 'RISK REVIEW',
+    actions: [
+      { id: 'risk_assessment', label: 'Legal Risk Assessment', icon: '🚨' },
+      { id: 'questions_to_ask_client', label: 'Questions To Ask Client', icon: '❓' },
+    ],
+  },
+  {
+    title: 'COURT PREPARATION',
+    actions: [
+      { id: 'prepare_hearing_notes', label: 'Prepare Hearing Notes', icon: '👨‍⚖️' },
+      { id: 'prepare_client_questions', label: 'Prepare Client Questions', icon: '🎤' },
+    ],
+  },
+  {
+    title: 'DRAFT HELP',
+    actions: [
+      { id: 'improve_draft', label: 'Improve Draft', icon: '✍️' },
+      { id: 'review_legal_notice', label: 'Review Legal Notice', icon: '📋' },
+    ],
+  },
 ];
+
+const getPromptText = (actionId: string, activeCaseName?: string | null) => {
+  const caseContext = activeCaseName ? `for the active case "${activeCaseName}"` : "of this case";
+  const caseContextStrategy = activeCaseName ? `for the active case "${activeCaseName}"` : "this case";
+  const caseContextMatter = activeCaseName ? `relevant to the active case "${activeCaseName}"` : "relevant to this matter";
+  const caseContextDoc = activeCaseName ? `documents and evidence for the active case "${activeCaseName}"` : "uploaded documents and evidence";
+  
+  switch (actionId) {
+    case 'analyze_case':
+      return `Analyze the facts ${caseContext} and identify key legal issues, risks, strengths and possible remedies.`;
+    case 'identify_issues':
+      return `Identify the core legal issues and questions of law ${activeCaseName ? `in the active case "${activeCaseName}"` : "that need to be resolved in this matter"}.`;
+    case 'summarize_docs':
+      return `Provide a clear, structured summary of the ${caseContextDoc}.`;
+    case 'find_missing_evidence':
+      return `Identify potential gaps in evidence and suggest additional documents that should be procured to strengthen ${activeCaseName ? `the active case "${activeCaseName}"` : "this case"}.`;
+    case 'suggest_strategy':
+      return `Suggest a comprehensive legal strategy ${caseContextStrategy}, including procedural steps, timing, and negotiation approaches.`;
+    case 'identify_weak_points':
+      return `Review ${activeCaseName ? `the active case "${activeCaseName}"` : "this case"} and identify weaknesses, missing evidence, legal gaps and possible challenges.`;
+    case 'generate_arguments':
+      return `Generate strong legal arguments supporting my client's position ${activeCaseName ? `in the active case "${activeCaseName}"` : ""}.`.trim();
+    case 'generate_counter_arguments':
+      return `Generate likely counter arguments from the opposing party ${activeCaseName ? `in the active case "${activeCaseName}"` : ""}.`.trim();
+    case 'find_relevant_laws':
+      return `Identify applicable statutes, sections and legal provisions ${caseContextMatter}.`;
+    case 'find_similar_judgments':
+      return `Find and summarize landmark judgments and similar case precedents ${caseContextMatter}.`;
+    case 'risk_assessment':
+      return `Conduct a detailed legal risk assessment ${caseContextStrategy}, highlighting civil, criminal, or financial liabilities and procedural pitfalls.`;
+    case 'questions_to_ask_client':
+      return `Generate a list of critical questions to ask the client to clarify facts and strengthen the case file ${activeCaseName ? `for "${activeCaseName}"` : ""}.`.trim();
+    case 'prepare_hearing_notes':
+      return `Prepare concise hearing notes for the advocate before court appearance ${activeCaseName ? `for the active case "${activeCaseName}"` : ""}.`.trim();
+    case 'prepare_client_questions':
+      return `Prepare a list of targeted questions for the client or witnesses during preparation for examination ${activeCaseName ? `in the active case "${activeCaseName}"` : ""}.`.trim();
+    case 'improve_draft':
+      return `Review the legal draft ${activeCaseName ? `for "${activeCaseName}"` : ""} and suggest improvements for language, clarity, structure, and legal citations.`;
+    case 'review_legal_notice':
+      return `Review the legal notice ${activeCaseName ? `for "${activeCaseName}"` : ""} and provide suggestions for corrections, stronger claims, and overall legal structure.`;
+    default:
+      return '';
+  }
+};
 
 
 const QUICK_ACTIONS_DATA: Record<string, string[]> = {
@@ -260,6 +337,7 @@ function VoiceWaveform({
   playbackPosition?: number;
   duration?: number;
 }) {
+  const { theme } = useThemeContext();
   const [time, setTime] = useState(0);
 
   useEffect(() => {
@@ -307,7 +385,30 @@ function VoiceWaveform({
 export default function ChatScreen() {
   useAuthGuard();
   const { showToast } = useToastContext();
+  const { theme, isDark } = useThemeContext();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+
+  const activeCaseId = useWorkspaceStore((s) => s.activeCaseId);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
+
+  useEffect(() => {
+    if (activeCaseId && !workspaces[activeCaseId]) {
+      CaseService.getCaseDetails(activeCaseId)
+        .then((res) => {
+          if (res.success && res.data) {
+            setWorkspace(activeCaseId, res.data);
+          }
+        })
+        .catch((err) => {
+          console.warn('Error preloading active case details in assistant chat:', err);
+        });
+    }
+  }, [activeCaseId]);
+
+  const activeCase = activeCaseId ? workspaces[activeCaseId] : null;
+  const activeCaseName = activeCase?.name;
 
   // Focus Mode State
   const isFocusMode = useChatStore((s) => s.isFocusMode);
@@ -685,157 +786,150 @@ export default function ChatScreen() {
   const tabHeight = 60 + (insets.bottom > 0 ? insets.bottom : 8);
 
   return (
-    <View style={[
-      styles.container,
-      isFocusMode && { marginBottom: -tabHeight }
-    ]}>
-      {/* Top Header */}
-      <PageHeader
-        title="AI Legal Assistant"
-        subtitle="Ask legal questions, analyze documents, and generate legal drafts."
-        hideNotifications={true}
-        rightActions={[
-          <Pressable
-            key="new-chat"
-            onPress={() => {
-              //@ts-ignore
-              startNewSession();
-              showToast('info', 'New Session started', 'A new conversation has been created.');
-            }}
-            style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
-            accessibilityLabel="Start New Chat"
-            accessibilityRole="button"
-          >
-            <Ionicons name="add" size={24} color={theme.textPrimary} />
-          </Pressable>,
-          <Pressable
-            key="history"
-            onPress={() => setIsHistoryOpen(true)}
-            style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
-            accessibilityLabel="Open history sidebar"
-            accessibilityRole="button"
-          >
-            <Ionicons name="time-outline" size={24} color={theme.textPrimary} />
-          </Pressable>
-        ]}
-      />
-
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* Messages flat list */}
-        <View style={styles.chatArea}>
-          {loading ? (
-            <View style={styles.centerContainer}>
-              <ActivityIndicator size="large" color={theme.primary} />
-              <Text style={styles.loadingText}>Synchronizing chat logs...</Text>
-            </View>
-          ) : isEmpty ? (
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.emptyContainer}
-              showsVerticalScrollIndicator={false}
+    <KeyboardSafeChatLayout
+      backgroundColor={theme.background}
+      hasPageHeader={true}
+      isFocusMode={isFocusMode}
+      header={
+        <PageHeader
+          title={t('home.aiLegalAssistant')}
+          subtitle={t('assistant.welcome')}
+          hideNotifications={true}
+          rightActions={[
+            <Pressable
+              key="new-chat"
+              onPress={() => {
+                //@ts-ignore
+                startNewSession();
+                showToast('info', t('assistant.newChat'), 'A new conversation has been created.');
+              }}
+              style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
+              accessibilityLabel="Start New Chat"
+              accessibilityRole="button"
             >
-              <View style={styles.emptyLogoContainer}>
-                <View style={styles.emptySparkleBg}>
-                  {renderWelcomeIcon()}
-                </View>
-                <Text style={styles.emptyTitle}>AI Legal Assistant</Text>
-                <Text style={styles.emptySubtitle}>How can I help you today?</Text>
+              <Ionicons name="add" size={24} color={theme.textPrimary} />
+            </Pressable>,
+            <Pressable
+              key="history"
+              onPress={() => setIsHistoryOpen(true)}
+              style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
+              accessibilityLabel="Open history sidebar"
+              accessibilityRole="button"
+            >
+              <Ionicons name="time-outline" size={24} color={theme.textPrimary} />
+            </Pressable>
+          ]}
+        />
+      }
+      messages={
+        loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={[styles.loadingText, { color: theme.textSecondary }]}>{t('common.loading')}</Text>
+          </View>
+        ) : isEmpty ? (
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.emptyContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.emptyLogoContainer}>
+              <View style={[styles.emptySparkleBg, { backgroundColor: theme.primaryLight }]}>
+                {renderWelcomeIcon()}
               </View>
-            </ScrollView>
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messagesList}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                if (item.role === 'system') {
-                  return (
-                    <View style={styles.systemMsgContainer}>
-                      <View style={styles.systemMsgPill}>
-                        <Text style={styles.systemMsgText}>{item.content}</Text>
-                      </View>
-                    </View>
-                  );
-                }
+              <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>{t('home.aiLegalAssistant')}</Text>
+              <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>{t('assistant.welcomeSubtitle')}</Text>
+            </View>
+          </ScrollView>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messagesList}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              if (item.role === 'system') {
                 return (
-                  <ChatMessageBubble
-                    message={item}
-                    onCopy={() => handleCopyMessage(item.content)}
-                    onShare={activeSessionId ? () => handleShareMessage(activeSessionId) : undefined}
-                    onRegenerate={() => handleSend(item.content)}
-                    onCitationPress={(src) => showToast('info', 'Citation Opened', src.title)}
-                    onExport={() => showToast('success', 'Export', 'Transcript exported to PDF successfully.')}
-                    onDownload={() => showToast('success', 'Download', 'Document downloaded successfully.')}
-                    onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-                  />
+                  <View style={styles.systemMsgContainer}>
+                    <View style={styles.systemMsgPill}>
+                      <Text style={styles.systemMsgText}>{item.content}</Text>
+                    </View>
+                  </View>
                 );
-              }}
-              ListFooterComponent={null}
-              contentContainerStyle={styles.listContent}
-              onScroll={(e) => {
-                const offset = e.nativeEvent.contentOffset.y;
-                const contentHeight = e.nativeEvent.contentSize.height;
-                const layoutHeight = e.nativeEvent.layoutMeasurement.height;
-                const distanceFromBottom = contentHeight - (offset + layoutHeight);
-                isAtBottomRef.current = distanceFromBottom <= 50;
-                
-                const isScrollingUp = offset < lastOffsetRef.current;
-                lastOffsetRef.current = offset;
+              }
+              return (
+                <ChatMessageBubble
+                  message={item}
+                  onCopy={() => handleCopyMessage(item.content)}
+                  onShare={activeSessionId ? () => handleShareMessage(activeSessionId) : undefined}
+                  onRegenerate={() => handleSend(item.content)}
+                  onCitationPress={(src) => showToast('info', 'Citation Opened', src.title)}
+                  onExport={() => showToast('success', 'Export', 'Transcript exported to PDF successfully.')}
+                  onDownload={() => showToast('success', 'Download', 'Document downloaded successfully.')}
+                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
+                />
+              );
+            }}
+            ListFooterComponent={null}
+            contentContainerStyle={styles.listContent}
+            onScroll={(e) => {
+              const offset = e.nativeEvent.contentOffset.y;
+              const contentHeight = e.nativeEvent.contentSize.height;
+              const layoutHeight = e.nativeEvent.layoutMeasurement.height;
+              const distanceFromBottom = contentHeight - (offset + layoutHeight);
+              isAtBottomRef.current = distanceFromBottom <= 50;
+              
+              const isScrollingUp = offset < lastOffsetRef.current;
+              lastOffsetRef.current = offset;
 
-                if (distanceFromBottom <= 50) {
-                  handleScrollAction(false);
-                } else {
-                  const shouldShow = isScrollingUp && 
-                                     distanceFromBottom > 100 && 
-                                     messagesList.length > 4 && 
-                                     inputVal.trim() === '' && 
-                                     !loading;
-                  handleScrollAction(shouldShow);
-                }
+              if (distanceFromBottom <= 50) {
+                handleScrollAction(false);
+              } else {
+                const shouldShow = isScrollingUp && 
+                                   distanceFromBottom > 100 && 
+                                   messagesList.length > 4 && 
+                                   inputVal.trim() === '' && 
+                                   !loading;
+                handleScrollAction(shouldShow);
+              }
+            }}
+            onContentSizeChange={() => {
+              if (isAtBottomRef.current && !sending) {
+                scrollToBottom(true);
+              }
+            }}
+            onLayout={() => {
+              if (!sending) {
+                scrollToBottom(true);
+              }
+            }}
+          />
+        )
+      }
+      scrollBtn={
+        showScrollBtn && (
+          <Animated.View
+            style={[
+              styles.scrollDownBtn,
+              {
+                opacity: scrollBtnOpacity,
+                transform: [{ scale: scrollBtnScale }]
+              }
+            ]}
+          >
+            <Pressable
+              onPress={() => {
+                handleScrollAction(false);
+                scrollToBottom(true);
               }}
-              onContentSizeChange={() => {
-                if (isAtBottomRef.current && !sending) {
-                  scrollToBottom(true);
-                }
-              }}
-              onLayout={() => {
-                if (!sending) {
-                  scrollToBottom(true);
-                }
-              }}
-            />
-          )}
-
-          {/* Floating scroll bottom button */}
-          {showScrollBtn && (
-            <Animated.View
-              style={[
-                styles.scrollDownBtn,
-                {
-                  opacity: scrollBtnOpacity,
-                  transform: [{ scale: scrollBtnScale }]
-                }
-              ]}
+              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
             >
-              <Pressable
-                onPress={() => {
-                  handleScrollAction(false);
-                  scrollToBottom(true);
-                }}
-                style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-              >
-                <Ionicons name="arrow-down" size={18} color="#000000" />
-              </Pressable>
-            </Animated.View>
-          )}
-        </View>
-
-        {/* Queue attachment chip indicator */}
-        {attachments.length > 0 && (
+              <Ionicons name="arrow-down" size={18} color="#000000" />
+            </Pressable>
+          </Animated.View>
+        )
+      }
+      attachments={
+        attachments.length > 0 && (
           <View style={styles.attachmentBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {attachments.map((a, i) => (
@@ -849,10 +943,11 @@ export default function ChatScreen() {
               ))}
             </ScrollView>
           </View>
-        )}
-
-        {/* Input composer with mic and plus options */}
+        )
+      }
+      composer={
         <ChatComposer
+          ref={inputRef}
           value={inputVal}
           onChangeText={setInputVal}
           onSend={(text) => handleSend(text)}
@@ -860,12 +955,13 @@ export default function ChatScreen() {
           onCancelStream={cancelMessageStream}
           onAddAttachment={handleAddAttachment}
           onPressSparkles={() => setIsToolPickerOpen(true)}
-          placeholder="Ask AI Legal Assistant..."
+          placeholder={t('assistant.placeholder')}
           simulatedVoiceText="What are the legal precedents for easement rights in tenant disputes?"
           isFocusMode={isFocusMode}
           tabHeight={tabHeight}
         />
-      </KeyboardAvoidingView>
+      }
+    >
 
       {/* Sliding Sidebar History modal drawer */}
       <Modal
@@ -882,45 +978,46 @@ export default function ChatScreen() {
           <View style={styles.drawerContainer}>
             <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
               <View style={styles.drawerHeader}>
-                <Text style={styles.drawerTitle}>Chat Logs History</Text>
+                <Text style={[styles.drawerTitle, { color: theme.textPrimary }]}>{t('assistant.history')}</Text>
                 <Pressable onPress={() => setIsHistoryOpen(false)}>
                   <Ionicons name="close" size={24} color={theme.textPrimary} />
                 </Pressable>
               </View>
 
               <Pressable
-                style={styles.drawerNewChatBtn}
+                style={[styles.drawerNewChatBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   startNewSession();
                   setIsHistoryOpen(false);
-                  showToast('info', 'New Session started', 'A new conversation has been created.');
+                  showToast('info', t('assistant.newChat'), 'A new conversation has been created.');
                 }}
               >
                 <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.drawerNewChatBtnText}>New Conversation</Text>
+                <Text style={styles.drawerNewChatBtnText}>{t('assistant.newChat')}</Text>
               </Pressable>
 
-              <View style={styles.drawerSearchContainer}>
+              <View style={[styles.drawerSearchContainer, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
                 <Ionicons name="search" size={16} color={theme.textMuted} style={{ marginRight: 6 }} />
                 <TextInput
-                  placeholder="Search chats..."
-                  placeholderTextColor={theme.textMuted}
+                  placeholder={t('common.search')}
+                  placeholderTextColor={theme.placeholder}
                   value={searchHistoryQuery}
                   onChangeText={setSearchHistoryQuery}
-                  style={styles.drawerSearchInput}
+                  style={[styles.drawerSearchInput, { color: theme.textPrimary }]}
                 />
               </View>
 
               <ScrollView style={styles.drawerList}>
                 {filteredSessions.length === 0 ? (
-                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
+                  <Text style={[styles.drawerEmptyText, { color: theme.textMuted }]}>{t('cases.nothingScheduled')}</Text>
                 ) : (
                   filteredSessions.map((item) => (
                     <View
                       key={item.sessionId}
                       style={[
                         styles.drawerItem,
-                        activeSessionId === item.sessionId && styles.drawerItemActive,
+                        { borderBottomColor: theme.divider },
+                        activeSessionId === item.sessionId && [styles.drawerItemActive, { backgroundColor: theme.primaryLight }],
                       ]}
                     >
                       <Pressable
@@ -939,7 +1036,7 @@ export default function ChatScreen() {
 
                         {editingSessionId === item.sessionId ? (
                           <TextInput
-                            style={styles.drawerRenameInput}
+                            style={[styles.drawerRenameInput, { color: theme.textPrimary, borderColor: theme.primary }]}
                             value={renameTitleVal}
                             onChangeText={setRenameTitleVal}
                             autoFocus={true}
@@ -951,13 +1048,14 @@ export default function ChatScreen() {
                             <Text
                               style={[
                                 styles.drawerItemText,
-                                activeSessionId === item.sessionId && styles.drawerItemTextActive,
+                                { color: theme.textPrimary },
+                                activeSessionId === item.sessionId && [styles.drawerItemTextActive, { color: theme.primary }],
                               ]}
                               numberOfLines={1}
                             >
                               {item.title}
                             </Text>
-                            <Text style={styles.drawerItemSubtext}>
+                            <Text style={[styles.drawerItemSubtext, { color: theme.textMuted }]}>
                               {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </Text>
                           </View>
@@ -1000,38 +1098,38 @@ export default function ChatScreen() {
         transparent={true}
         onRequestClose={() => setIsShareModalOpen(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Share Transcript</Text>
-            <Text style={styles.modalSubtitle}>Send full dialogue logs directly to email address:</Text>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>{t('assistant.share')}</Text>
+            <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>Send full dialogue logs directly to email address:</Text>
 
             <TextInput
               placeholder="recipient@example.com"
-              placeholderTextColor={theme.textMuted}
+              placeholderTextColor={theme.placeholder}
               value={shareEmail}
               onChangeText={setShareEmail}
               keyboardType="email-address"
               autoCapitalize="none"
-              style={styles.modalInput}
+              style={[styles.modalInput, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
             />
 
             <View style={styles.modalButtons}>
               <Pressable
                 onPress={() => setIsShareModalOpen(false)}
-                style={[styles.modalBtn, styles.modalBtnCancel]}
+                style={[styles.modalBtn, styles.modalBtnCancel, { backgroundColor: theme.surfaceVariant }]}
               >
-                <Text style={[styles.modalBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+                <Text style={[styles.modalBtnText, { color: theme.textSecondary }]}>{t('common.cancel')}</Text>
               </Pressable>
 
               <Pressable
                 onPress={executeShareSession}
-                style={[styles.modalBtn, styles.modalBtnConfirm]}
+                style={[styles.modalBtn, styles.modalBtnConfirm, { backgroundColor: theme.primary }]}
                 disabled={isSharingLoading}
               >
                 {isSharingLoading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={[styles.modalBtnText, { color: '#FFFFFF' }]}>Send Email</Text>
+                  <Text style={[styles.modalBtnText, { color: '#FFFFFF' }]}>{t('assistant.send')}</Text>
                 )}
               </Pressable>
             </View>
@@ -1039,7 +1137,7 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      {/* AI Tool Selector Bottom Sheet Modal */}
+      {/* AI Actions Selector Bottom Sheet Modal */}
       <Modal
         visible={isToolPickerOpen}
         animationType="slide"
@@ -1047,73 +1145,58 @@ export default function ChatScreen() {
         onRequestClose={() => setIsToolPickerOpen(false)}
       >
         <TouchableWithoutFeedback onPress={() => setIsToolPickerOpen(false)}>
-          <View style={styles.bottomSheetOverlay}>
+          <View style={[styles.bottomSheetOverlay, { backgroundColor: theme.overlay }]}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.bottomSheetContainer, Shadows.modal]}>
-                <View style={styles.bottomSheetDragHandle} />
-                <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Select AI Engine</Text>
+              <View style={[styles.bottomSheetContainer, { backgroundColor: theme.card }, Shadows.modal]}>
+                <View style={[styles.bottomSheetDragHandle, { backgroundColor: theme.border }]} />
+                <View style={[styles.bottomSheetHeader, { borderBottomColor: theme.border, alignItems: 'flex-start' }]}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={[styles.bottomSheetTitle, { color: theme.textPrimary }]}>AI Actions</Text>
+                    <Text style={[styles.bottomSheetSubtitle, { color: theme.textSecondary, marginTop: 4 }]}>
+                      Quick legal actions for the current conversation.
+                    </Text>
+                  </View>
                   <TouchableOpacity onPress={() => setIsToolPickerOpen(false)} style={styles.bottomSheetClose}>
                     <Ionicons name="close-circle" size={24} color={theme.textSecondary} />
                   </TouchableOpacity>
                 </View>
 
                 <ScrollView style={styles.bottomSheetContent} showsVerticalScrollIndicator={false}>
-                  {/* Quick Suggested Prompts Section */}
-                  <View style={{ marginBottom: 20 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      ⚡ Quick Actions
-                    </Text>
-                    <View style={styles.quickActionsGrid}>
-                      {QUICK_SUGGESTED_PROMPTS.map((item, idx) => (
-                        <TouchableOpacity
-                          key={idx}
-                          style={[styles.quickActionChip, { backgroundColor: theme.primaryLight, borderColor: theme.border }]}
-                          onPress={() => {
-                            handleSelectSuggestedPrompt(item.text);
-                            setIsToolPickerOpen(false);
-                          }}
-                        >
-                          <Text style={styles.quickActionChipText}>
-                            {item.icon} {item.text}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Available AI Engines
-                  </Text>
-
-                  <View style={styles.toolListContainer}>
-                    {AI_TOOLS.map((tool) => {
-                      const isActive = activeTool === tool.id;
-                      return (
-                        <TouchableOpacity
-                          key={tool.id}
-                          style={[styles.toolListItem, isActive && styles.toolListItemActive]}
-                          onPress={() => {
-                            handleSelectTool(tool.id);
-                            setIsToolPickerOpen(false);
-                          }}
-                        >
-                          <View style={styles.toolListIconContainer}>
-                            <Text style={styles.toolListIcon}>{tool.icon}</Text>
-                          </View>
-                          <View style={styles.toolListItemContent}>
-                            <Text style={[styles.toolListItemTitle, isActive && { color: theme.primary }]}>
-                              {tool.label}
+                  {AI_ACTIONS_CATEGORIES.map((category, catIdx) => (
+                    <View key={catIdx} style={{ marginBottom: 20 }}>
+                      <Text style={[styles.categoryHeading, { color: theme.primary }]}>
+                        {category.title}
+                      </Text>
+                      <View style={styles.actionGridContainer}>
+                        {category.actions.map((action) => (
+                          <TouchableOpacity
+                            key={action.id}
+                            style={[
+                              styles.actionGridItem,
+                              {
+                                backgroundColor: theme.surfaceVariant || theme.card,
+                                borderColor: theme.border,
+                              },
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              const prompt = getPromptText(action.id, activeCaseName);
+                              setInputVal(prompt);
+                              setIsToolPickerOpen(false);
+                              setTimeout(() => {
+                                inputRef.current?.focus();
+                              }, 100);
+                            }}
+                          >
+                            <Text style={styles.actionIcon}>{action.icon}</Text>
+                            <Text style={[styles.actionLabel, { color: theme.textPrimary }]} numberOfLines={2}>
+                              {action.label}
                             </Text>
-                            <Text style={styles.toolListItemDesc}>{tool.description}</Text>
-                          </View>
-                          {isActive && (
-                            <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
                   <View style={{ height: 30 }} />
                 </ScrollView>
               </View>
@@ -1133,7 +1216,7 @@ export default function ChatScreen() {
         onClose={hideCamera}
         onConfirm={handleCameraConfirm}
       />
-    </View>
+    </KeyboardSafeChatLayout>
   );
 }
 
@@ -1833,5 +1916,44 @@ const styles = StyleSheet.create({
     width: 3,
     borderRadius: 1.5,
     backgroundColor: '#D1D5DB',
+  },
+  bottomSheetSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  categoryHeading: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  actionGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  actionGridItem: {
+    width: '48.5%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  actionIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  actionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
   },
 });

@@ -24,6 +24,7 @@ import { useNotificationStore } from '@/store/notifications';
 import { useToastContext } from '@/providers';
 import { useThemeContext } from '@/providers/theme-provider';
 import { CaseService } from '@/services/case.service';
+import { useTranslation, formatRelativeDate, formatTime } from '@/localization';
 import { NotificationService } from '@/services/notification.service';
 import { CaseWorkspace, NotificationInboxItem } from '@/types';
 import { Spacing, Radius, Shadows, Colors } from '@/theme';
@@ -72,6 +73,7 @@ const DashboardCard: React.FC<DashboardCardProps> = ({
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const shadowAnim = useRef(new Animated.Value(1)).current;
+  const styles = getStyles(theme);
 
   const handlePressIn = () => {
     Animated.parallel([
@@ -142,10 +144,10 @@ const DashboardCard: React.FC<DashboardCardProps> = ({
     outputRange: [0.01, 0.04],
   });
 
-  const cardBgColor = isDark ? '#1E1E24' : '#FFFFFF';
-  const cardBorderColor = isDark ? '#2D2D35' : '#F0F0F0';
-  const labelColor = isDark ? '#9CA3AF' : '#8E8E93';
-  const helperTextColor = isDark ? '#9CA3AF' : '#6B7280';
+  const cardBgColor = theme.card;
+  const cardBorderColor = theme.border;
+  const labelColor = theme.textSecondary;
+  const helperTextColor = theme.textSecondary;
 
   return (
     <Pressable
@@ -216,10 +218,12 @@ const SkeletonCard: React.FC<{ isDark: boolean }> = ({ isDark }) => {
     ).start();
   }, [animatedOpacity]);
 
-  const cardBgColor = isDark ? '#1E1E24' : '#FFFFFF';
-  const cardBorderColor = isDark ? '#2D2D35' : '#F0F0F0';
-  const skeletonBg = isDark ? '#25252D' : '#F7F7F7';
-  const skeletonSubBg = isDark ? '#32323C' : '#EBEBEB';
+  const { theme } = useThemeContext();
+  const styles = getStyles(theme);
+  const cardBgColor = theme.card;
+  const cardBorderColor = theme.border;
+  const skeletonBg = theme.surface;
+  const skeletonSubBg = theme.divider;
 
   return (
     <Animated.View
@@ -249,8 +253,10 @@ export default function DashboardScreen() {
   useAuthGuard();
   const router = useRouter();
   const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const { showToast } = useToastContext();
   const insets = useSafeAreaInsets();
+  const { t, language } = useTranslation();
   
   const profile = useUserStore((s) => s.profile);
   const userName = profile?.name || 'Counsel';
@@ -647,12 +653,27 @@ export default function DashboardScreen() {
 
   // Format header date string
   const formatDateString = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    let locale = 'en-US';
+    if (language === 'Hindi' || language === 'Bilingual') locale = 'hi-IN';
+    else if (language === 'Gujarati') locale = 'gu-IN';
+    else if (language === 'Marathi') locale = 'mr-IN';
+    else if (language === 'Tamil') locale = 'ta-IN';
+
+    try {
+      return date.toLocaleDateString(locale, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch (e) {
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
   };
 
   const caseActionItems = useMemo(() => {
@@ -661,28 +682,28 @@ export default function DashboardScreen() {
 
     return [
       {
-        label: 'Open Workspace',
+        label: t('cases.openWorkspace'),
         icon: '⚖️',
         onPress: () => router.push(`/workspace/${selectedCaseForActions._id}` as any),
       },
       {
-        label: 'Edit Details',
+        label: t('cases.editDetails'),
         icon: '📝',
         onPress: () => setEditingCase({ ...selectedCaseForActions }),
       },
       {
-        label: isArchived ? 'Restore Case' : 'Archive Case',
+        label: isArchived ? t('cases.restoreCase') : t('cases.archiveCase'),
         icon: '📁',
         onPress: () => handleToggleArchive(selectedCaseForActions),
       },
       {
-        label: 'Delete Case',
+        label: t('cases.deleteCase'),
         icon: '🗑️',
         isDestructive: true,
         onPress: () => setCaseToDeleteId(selectedCaseForActions._id),
       },
     ];
-  }, [selectedCaseForActions, router, handleToggleArchive]);
+  }, [selectedCaseForActions, router, handleToggleArchive, t]);
 
   // Loading Screen
   // We allow the dashboard to render immediately so that we can show skeleton loader cards.
@@ -720,10 +741,10 @@ export default function DashboardScreen() {
         >
           <View style={{ flex: 1, marginRight: 16 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary, letterSpacing: 0.1 }}>
-              Good Morning,
+              {t('home.greeting')}
             </Text>
             <Text style={{ fontSize: 24, fontWeight: '800', color: theme.textPrimary, marginTop: 4, letterSpacing: -0.3 }}>
-              Advocate {userName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}
+              {t('home.advocate')} {userName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}
             </Text>
           </View>
 
@@ -806,7 +827,7 @@ export default function DashboardScreen() {
 
           {/* 2. Today's Overview */}
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{"Today's Overview"}</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('home.todaysOverview')}</Text>
             <View style={styles.statsGrid}>
               {isLoading ? (
                 <>
@@ -818,13 +839,13 @@ export default function DashboardScreen() {
               ) : (
                 <>
                   <DashboardCard
-                    title="Active Cases"
+                    title={t('home.activeCases')}
                     value={totalActiveCases}
                     iconName="briefcase-outline"
                     iconColor={isDark ? '#C084FC' : '#7C3AED'}
                     iconBgColor={isDark ? '#3B0764' : '#F5F3FF'}
-                    helperText={`${totalActiveCases} Active`}
-                    statusLabel={totalActiveCases === 0 ? 'EMPTY' : 'LIVE'}
+                    helperText={`${totalActiveCases} ${t('cases.active')}`}
+                    statusLabel={totalActiveCases === 0 ? t('cases.emptyStatus') : t('cases.liveStatus')}
                     statusType={totalActiveCases === 0 ? 'neutral' : (totalActiveCases > 5 ? 'purple' : 'primary')}
                     onPress={() => router.push('/(tabs)/cases')}
                     isDark={isDark}
@@ -832,13 +853,13 @@ export default function DashboardScreen() {
                   />
 
                   <DashboardCard
-                    title="Today's Hearings"
+                    title={t('home.todaysHearings')}
                     value={totalTodaysHearingsCount}
                     iconName="calendar-outline"
                     iconColor={isDark ? '#60A5FA' : '#2563EB'}
                     iconBgColor={isDark ? '#1E3A8A' : '#EBF5FF'}
-                    helperText={totalTodaysHearingsCount === 0 ? 'Nothing scheduled' : 'Next hearing today'}
-                    statusLabel={totalTodaysHearingsCount === 0 ? 'EMPTY' : 'TODAY'}
+                    helperText={totalTodaysHearingsCount === 0 ? t('cases.nothingScheduled') : t('cases.nextHearingToday')}
+                    statusLabel={totalTodaysHearingsCount === 0 ? t('cases.emptyStatus') : t('cases.today').toUpperCase()}
                     statusType={totalTodaysHearingsCount === 0 ? 'neutral' : 'urgent'}
                     onPress={() => router.push('/(tabs)/cases')}
                     isDark={isDark}
@@ -846,13 +867,13 @@ export default function DashboardScreen() {
                   />
 
                   <DashboardCard
-                    title="Pending Drafts"
+                    title={t('home.pendingDrafts')}
                     value={totalPendingDrafts}
                     iconName="document-text-outline"
                     iconColor={isDark ? '#F97316' : '#EA580C'}
                     iconBgColor={isDark ? '#431407' : '#FFF7ED'}
-                    helperText={totalPendingDrafts === 0 ? 'Nothing pending' : 'Requires review'}
-                    statusLabel={totalPendingDrafts === 0 ? 'UPDATED' : 'PENDING'}
+                    helperText={totalPendingDrafts === 0 ? t('cases.nothingPending') : t('cases.requiresReview')}
+                    statusLabel={totalPendingDrafts === 0 ? t('cases.upToDate').toUpperCase() : t('cases.pending').toUpperCase()}
                     statusType={totalPendingDrafts === 0 ? 'completed' : (totalPendingDrafts > 5 ? 'urgent' : 'primary')}
                     onPress={() => router.push('/(tabs)/tools')}
                     isDark={isDark}
@@ -860,13 +881,13 @@ export default function DashboardScreen() {
                   />
 
                   <DashboardCard
-                    title="Pending Research"
+                    title={t('home.pendingResearch')}
                     value={totalPendingResearch}
                     iconName="search-outline"
                     iconColor={isDark ? '#4ADE80' : '#16A34A'}
                     iconBgColor={isDark ? '#052E16' : '#F0FDF4'}
-                    helperText={totalPendingResearch === 0 ? 'Up to date' : 'Research needed'}
-                    statusLabel={totalPendingResearch === 0 ? 'UPDATED' : 'AI GENERATED'}
+                    helperText={totalPendingResearch === 0 ? t('cases.upToDate') : t('cases.researchNeeded')}
+                    statusLabel={totalPendingResearch === 0 ? t('cases.upToDate').toUpperCase() : t('cases.aiGenerated').toUpperCase()}
                     statusType={totalPendingResearch === 0 ? 'completed' : (totalPendingResearch > 5 ? 'purple' : 'primary')}
                     onPress={() => router.push('/(tabs)/tools')}
                     isDark={isDark}
@@ -880,7 +901,7 @@ export default function DashboardScreen() {
           {/* 3. Continue Working */}
           {continueWorkingCase && (
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Continue Working</Text>
+              <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('home.continueWorking')}</Text>
               <Pressable
                 onPress={() => router.push(`/workspace/${continueWorkingCase._id}` as any)}
                 style={({ pressed }) => [
@@ -892,22 +913,22 @@ export default function DashboardScreen() {
                 accessibilityLabel={`Continue working on case: ${continueWorkingCase.name}`}
               >
                 <View style={styles.continueHeader}>
-                  <Badge label="Last Updated Case" variant="info" />
+                  <Badge label={t('cases.lastUpdated')} variant="info" />
                   <Ionicons name="open-outline" size={18} color={theme.primary} />
                 </View>
                 <Text style={[styles.continueTitle, { color: theme.textPrimary }]}>{continueWorkingCase.name}</Text>
                 <Text style={[styles.continueSummary, { color: theme.textSecondary }]} numberOfLines={2}>
-                  {continueWorkingCase.summary || 'No factual summary configured yet.'}
+                  {continueWorkingCase.summary || t('cases.noSummary')}
                 </Text>
                 <View style={[styles.continueFooter, { borderTopColor: theme.divider }]}>
                   <Text style={[styles.continueInfoText, { color: theme.textSecondary }]}>
-                    Hearings: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.hearings?.length || 0}</Text>
+                    {t('cases.hearings')}: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.hearings?.length || 0}</Text>
                   </Text>
                   <Text style={[styles.continueInfoText, { color: theme.textSecondary }]}>
-                    Evidence: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.evidence?.length || 0}</Text>
+                    {t('cases.evidence')}: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.evidence?.length || 0}</Text>
                   </Text>
                   <Text style={[styles.continueInfoText, { color: theme.textSecondary }]}>
-                    Contracts: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.documents?.filter(d => d.type === 'Agreement' || d.tags?.includes('Contract'))?.length || 0}</Text>
+                    {t('cases.contracts')}: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{continueWorkingCase.documents?.filter(d => d.type === 'Agreement' || d.tags?.includes('Contract'))?.length || 0}</Text>
                   </Text>
                 </View>
               </Pressable>
@@ -916,7 +937,7 @@ export default function DashboardScreen() {
 
           {/* 4. Quick Actions */}
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Quick Actions</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('home.quickActions')}</Text>
             <Card style={styles.quickActionsCard}>
               <Pressable
                 onPress={() => setIsCreateModalOpen(true)}
@@ -927,7 +948,7 @@ export default function DashboardScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="New Case"
               >
-                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>NEW CASE</Text>
+                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>{t('home.newCase')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => router.push('/(tabs)/chat')}
@@ -938,7 +959,7 @@ export default function DashboardScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="AI Legal Assistant"
               >
-                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>AI LEGAL ASSISTANT</Text>
+                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>{t('home.aiLegalAssistant')}</Text>
               </Pressable>
             </Card>
           </View>
@@ -948,7 +969,7 @@ export default function DashboardScreen() {
         <ActionSheet
           visible={isActionSheetOpen}
           onClose={() => setIsActionSheetOpen(false)}
-          title={selectedCaseForActions?.name ? `Options: ${selectedCaseForActions.name}` : 'Case Actions'}
+          title={selectedCaseForActions?.name ? `${t('cases.actions')}: ${selectedCaseForActions.name}` : t('cases.actions')}
           items={caseActionItems}
         />
 
@@ -957,8 +978,8 @@ export default function DashboardScreen() {
           visible={caseToDeleteId !== null}
           onConfirm={handleDeleteCase}
           onCancel={() => setCaseToDeleteId(null)}
-          title="Delete Case Folder?"
-          description="Are you sure you want to permanently delete this case folder? All associated timelines, research, and drafts will be deleted."
+          title={t('cases.deleteFolderTitle')}
+          description={t('cases.deleteFolderDesc')}
         />
 
         {/* Modal: Create Case Folder */}
@@ -971,7 +992,7 @@ export default function DashboardScreen() {
           <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
             <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>CREATE CASE FOLDER</Text>
+                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>{t('cases.createFolder')}</Text>
                 <Pressable onPress={() => setIsCreateModalOpen(false)}>
                   <Text style={{ fontSize: 20, color: theme.textSecondary }}>✕</Text>
                 </Pressable>
@@ -979,7 +1000,7 @@ export default function DashboardScreen() {
 
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
                 <TextInput
-                  label="Case / Suit Name *"
+                  label={t('cases.suitName')}
                   placeholder="e.g. Rajesh Sharma vs Amit Verma"
                   value={newCaseForm.name}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, name: text })}
@@ -987,7 +1008,7 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label="Client Name"
+                  label={t('cases.clientName')}
                   placeholder="Plaintiff Name"
                   value={newCaseForm.clientName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientName: text })}
@@ -995,7 +1016,7 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label="Opponent Party"
+                  label={t('cases.opponentParty')}
                   placeholder="Defendant Name"
                   value={newCaseForm.opponentName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, opponentName: text })}
@@ -1003,7 +1024,7 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label="Legal Domain"
+                  label={t('cases.legalDomain')}
                   placeholder="e.g. Commercial Contract Law"
                   value={newCaseForm.caseType}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, caseType: text })}
@@ -1011,7 +1032,7 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label="Presiding Court"
+                  label={t('cases.presidingCourt')}
                   placeholder="e.g. Delhi High Court"
                   value={newCaseForm.courtName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, courtName: text })}
@@ -1019,7 +1040,7 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label="Case Statement Summary"
+                  label={t('cases.statementSummary')}
                   placeholder="Provide brief background facts..."
                   value={newCaseForm.summary}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, summary: text })}
@@ -1029,7 +1050,7 @@ export default function DashboardScreen() {
                 />
 
                 {/* Priority Selector buttons */}
-                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>Priority Status</Text>
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.priority')}</Text>
                 <View style={styles.priorityRow}>
                   {(['Low', 'Medium', 'High', 'Urgent'] as const).map((p) => (
                     <Pressable
@@ -1050,14 +1071,14 @@ export default function DashboardScreen() {
                           color: newCaseForm.priority === p ? '#FFFFFF' : theme.textSecondary,
                         }}
                       >
-                        {p}
+                        {p === 'Low' ? t('cases.priorityLow') : p === 'Medium' ? t('cases.priorityMedium') : p === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
                       </Text>
                     </Pressable>
                   ))}
                 </View>
 
                 <Button
-                  title="Save Case Folder"
+                  title={t('cases.saveFolder')}
                   variant="primary"
                   onPress={handleCreateCase}
                   style={{ marginTop: 24, marginBottom: 40 }}
@@ -1077,7 +1098,7 @@ export default function DashboardScreen() {
           <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
             <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>EDIT CASE DETAILS</Text>
+                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>{t('cases.editDetails')}</Text>
                 <Pressable onPress={() => setEditingCase(null)}>
                   <Text style={{ fontSize: 20, color: theme.textSecondary }}>✕</Text>
                 </Pressable>
@@ -1086,7 +1107,7 @@ export default function DashboardScreen() {
               {editingCase && (
                 <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
                   <TextInput
-                    label="Case / Suit Name *"
+                    label={t('cases.suitName')}
                     placeholder="e.g. Rajesh Sharma vs Amit Verma"
                     value={editingCase.name}
                     onChangeText={(text) => setEditingCase({ ...editingCase, name: text })}
@@ -1094,7 +1115,7 @@ export default function DashboardScreen() {
                   />
 
                   <TextInput
-                    label="Client Name"
+                    label={t('cases.clientName')}
                     placeholder="Plaintiff Name"
                     value={editingCase.clientName || ''}
                     onChangeText={(text) => setEditingCase({ ...editingCase, clientName: text })}
@@ -1102,7 +1123,7 @@ export default function DashboardScreen() {
                   />
 
                   <TextInput
-                    label="Opponent Party"
+                    label={t('cases.opponentParty')}
                     placeholder="Defendant Name"
                     value={editingCase.opponentName || ''}
                     onChangeText={(text) => setEditingCase({ ...editingCase, opponentName: text })}
@@ -1110,7 +1131,7 @@ export default function DashboardScreen() {
                   />
 
                   <TextInput
-                    label="Legal Domain"
+                    label={t('cases.legalDomain')}
                     placeholder="e.g. Commercial Contract Law"
                     value={editingCase.caseType || ''}
                     onChangeText={(text) => setEditingCase({ ...editingCase, caseType: text })}
@@ -1118,7 +1139,7 @@ export default function DashboardScreen() {
                   />
 
                   <TextInput
-                    label="Presiding Court"
+                    label={t('cases.presidingCourt')}
                     placeholder="e.g. Delhi High Court"
                     value={editingCase.courtName || ''}
                     onChangeText={(text) => setEditingCase({ ...editingCase, courtName: text })}
@@ -1126,7 +1147,7 @@ export default function DashboardScreen() {
                   />
 
                   <TextInput
-                    label="Case Statement Summary"
+                    label={t('cases.statementSummary')}
                     placeholder="Provide brief background facts..."
                     value={editingCase.summary || ''}
                     onChangeText={(text) => setEditingCase({ ...editingCase, summary: text })}
@@ -1136,7 +1157,7 @@ export default function DashboardScreen() {
                   />
 
                   {/* Priority Selector buttons */}
-                  <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>Priority Status</Text>
+                  <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.priority')}</Text>
                   <View style={styles.priorityRow}>
                     {(['Low', 'Medium', 'High', 'Urgent'] as const).map((p) => (
                       <Pressable
@@ -1157,14 +1178,14 @@ export default function DashboardScreen() {
                             color: editingCase.priority === p ? '#FFFFFF' : theme.textSecondary,
                           }}
                         >
-                          {p}
+                          {p === 'Low' ? t('cases.priorityLow') : p === 'Medium' ? t('cases.priorityMedium') : p === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
                         </Text>
                       </Pressable>
                     ))}
                   </View>
 
                   <Button
-                    title="Save Changes"
+                    title={t('cases.saveChanges')}
                     variant="primary"
                     onPress={handleUpdateCase}
                     style={{ marginTop: 24, marginBottom: 40 }}
@@ -1180,10 +1201,11 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(theme: any) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   safeArea: {
     flex: 1,
@@ -1772,3 +1794,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+}

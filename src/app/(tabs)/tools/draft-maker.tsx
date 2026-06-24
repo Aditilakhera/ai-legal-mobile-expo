@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -25,7 +25,7 @@ import { useRouter } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
-import { useToastContext } from '@/providers';
+import { useThemeContext, useToastContext } from '@/providers';
 import { streamAIResponse } from '@/api/client';
 import { Shadows } from '@/theme';
 import * as Print from 'expo-print';
@@ -33,150 +33,42 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 
-const { height } = Dimensions.get('window');
+import { useWorkspace } from '@/hooks/use-workspace';
+import { ALL_TEMPLATES, CATEGORY_DEFAULT_FIELDS, FormField, TemplateMetadata } from '@/constants/templates-data';
+import { useTranslation } from '../../../utils/localization';
+import * as DocumentPicker from 'expo-document-picker';
 
-// Form metadata definitions for intelligent fields
-interface FormField {
-  key: string;
-  label: string;
-  type: 'text' | 'multiline' | 'number' | 'date' | 'select' | 'email' | 'phone';
-  required: boolean;
-  placeholder?: string;
-  options?: string[];
-  hint?: string;
-}
+const { height, width } = Dimensions.get('window');
 
-interface TemplateMetadata {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  fields: FormField[];
-}
+const getTemplateFields = (template: TemplateMetadata | undefined): FormField[] => {
+  if (!template) return [];
+  return template.fields || CATEGORY_DEFAULT_FIELDS[template.category] || [];
+};
 
-const TEMPLATES: TemplateMetadata[] = [
-  {
-    id: 'rentAgreement',
-    title: 'Rent Agreement',
-    description: 'Residential or commercial lease deeds between landlord and tenant.',
-    icon: 'home-outline',
-    fields: [
-      { key: 'landlordName', label: 'Landlord Name', type: 'text', required: true, placeholder: 'e.g. Ramesh Kumar' },
-      { key: 'landlordAddress', label: 'Landlord Address', type: 'text', required: true, placeholder: 'e.g. Flat 101, Sector 15, Delhi' },
-      { key: 'tenantName', label: 'Tenant Name', type: 'text', required: true, placeholder: 'e.g. Vikram Aditya' },
-      { key: 'tenantAddress', label: 'Tenant Address', type: 'text', required: true, placeholder: 'e.g. H-12, Sector 2, Delhi' },
-      { key: 'propertyAddress', label: 'Property Address to Lease', type: 'text', required: true, placeholder: 'e.g. Flat 302, Pocket B, Delhi' },
-      { key: 'monthlyRent', label: 'Monthly Rent Amount (INR)', type: 'number', required: true, placeholder: 'e.g. 15000' },
-      { key: 'securityDeposit', label: 'Security Deposit Amount (INR)', type: 'number', required: true, placeholder: 'e.g. 30000' },
-      { key: 'startDate', label: 'Agreement Start Date', type: 'date', required: true, placeholder: 'YYYY-MM-DD' },
-      { key: 'duration', label: 'Agreement Duration', type: 'select', required: true, options: ['11 Months', '1 Year', '2 Years', '3 Years'], placeholder: 'Select duration' },
-      { key: 'noticePeriod', label: 'Notice Period required', type: 'select', required: true, options: ['1 Month', '2 Months', '3 Months'], placeholder: 'Select notice period' },
-      { key: 'maintenance', label: 'Maintenance Responsibility', type: 'select', required: true, options: ['Landlord', 'Tenant', 'Shared'], placeholder: 'Select responsibility' },
-      { key: 'jurisdiction', label: 'Governing Jurisdiction / Court', type: 'text', required: true, placeholder: 'e.g. Delhi Courts' },
-    ]
-  },
-  {
-    id: 'fir',
-    title: 'First Information Report (FIR)',
-    description: 'Draft complaints for criminal offenses to be filed at local police stations.',
-    icon: 'alert-circle-outline',
-    fields: [
-      { key: 'policeStation', label: 'Police Station Name', type: 'text', required: true, placeholder: 'e.g. Saket Police Station' },
-      { key: 'complainantName', label: 'Complainant Full Name', type: 'text', required: true, placeholder: 'e.g. Suresh Prasad' },
-      { key: 'guardianName', label: "Father's / Husband's Name", type: 'text', required: true, placeholder: 'e.g. Om Prasad' },
-      { key: 'complainantAddress', label: 'Contact Address', type: 'text', required: true, placeholder: 'e.g. B-40, Saket, Delhi' },
-      { key: 'complainantPhone', label: 'Mobile Number', type: 'phone', required: true, placeholder: '10-digit number' },
-      { key: 'incidentDate', label: 'Incident Date', type: 'date', required: true, placeholder: 'YYYY-MM-DD' },
-      { key: 'incidentTime', label: 'Incident Time', type: 'text', required: true, placeholder: 'e.g. Around 4:30 PM' },
-      { key: 'incidentLocation', label: 'Incident Location', type: 'text', required: true, placeholder: 'e.g. Saket Metro Market, Delhi' },
-      { key: 'accusedName', label: 'Accused Name (if known)', type: 'text', required: false, placeholder: 'e.g. Unknown' },
-      { key: 'incidentDescription', label: 'Description of Incident', type: 'multiline', required: true, placeholder: 'Describe the series of events in detail...' },
-      { key: 'evidence', label: 'Evidence Available (if any)', type: 'text', required: false, placeholder: 'e.g. CCTV Footage, Phone Logs' },
-      { key: 'reliefRequested', label: 'Relief/Action Requested', type: 'text', required: true, placeholder: 'e.g. Request to register FIR and recover stolen items' },
-    ]
-  },
-  {
-    id: 'legalNotice',
-    title: 'Legal Notice',
-    description: 'Formal notices demanding compliance, payments, or claims.',
-    icon: 'mail-open-outline',
-    fields: [
-      { key: 'senderName', label: 'Sender Name', type: 'text', required: true, placeholder: 'e.g. ABC Tech Solutions' },
-      { key: 'senderAddress', label: 'Sender Address', type: 'text', required: true, placeholder: 'e.g. 504, Nehru Place, Delhi' },
-      { key: 'receiverName', label: 'Receiver Name (Opponent)', type: 'text', required: true, placeholder: 'e.g. XYZ Enterprises' },
-      { key: 'receiverAddress', label: 'Receiver Address', type: 'text', required: true, placeholder: 'e.g. Plot 12, Phase 3, Noida' },
-      { key: 'subject', label: 'Subject of Legal Notice', type: 'text', required: true, placeholder: 'e.g. Notice for Recovery of Outstanding Dues' },
-      { key: 'facts', label: 'Facts of the Matter', type: 'multiline', required: true, placeholder: 'Explain the background, dates, agreements, and breach...' },
-      { key: 'grounds', label: 'Legal Grounds / Violation sections', type: 'multiline', required: true, placeholder: 'e.g. Violation of Section 73 of Indian Contract Act...' },
-      { key: 'reliefRequested', label: 'Action/Relief Demanded', type: 'text', required: true, placeholder: 'e.g. Pay outstanding amount of INR 5,00,000' },
-      { key: 'compliancePeriod', label: 'Compliance Time Limit', type: 'select', required: true, options: ['15 Days', '30 Days', '45 Days'], placeholder: 'Select limit' },
-      { key: 'jurisdiction', label: 'Court Jurisdiction', type: 'text', required: true, placeholder: 'e.g. Courts of Delhi' },
-    ]
-  },
-  {
-    id: 'affidavit',
-    title: 'Affidavit',
-    description: 'Sworn oath declarations to prove facts before authorities.',
-    icon: 'document-text-outline',
-    fields: [
-      { key: 'deponentName', label: 'Deponent Full Name', type: 'text', required: true, placeholder: 'e.g. Priya Sharma' },
-      { key: 'guardianName', label: "Father's / Husband's Name", type: 'text', required: true, placeholder: 'e.g. Anil Sharma' },
-      { key: 'deponentAddress', label: 'Residential Address', type: 'text', required: true, placeholder: 'e.g. C-15, GK, Delhi' },
-      { key: 'deponentOccupation', label: 'Occupation', type: 'text', required: true, placeholder: 'e.g. Business Executive' },
-      { key: 'purpose', label: 'Purpose of Affidavit', type: 'text', required: true, placeholder: 'e.g. Application for Name change' },
-      { key: 'declarations', label: 'Declaration Statements (One per point)', type: 'multiline', required: true, placeholder: '1. I state that I have changed my name...\n2. I state that...' },
-      { key: 'verificationPlace', label: 'Place of Verification', type: 'text', required: true, placeholder: 'e.g. New Delhi' },
-    ]
-  },
-  {
-    id: 'consumerComplaint',
-    title: 'Consumer Complaint',
-    description: 'Draft legal applications for consumer dispute redressal commissions.',
-    icon: 'basket-outline',
-    fields: [
-      { key: 'complainantName', label: 'Complainant Name', type: 'text', required: true, placeholder: 'e.g. Nitin Gupta' },
-      { key: 'oppositeParty', label: 'Opposite Party Name (Vendor/Seller)', type: 'text', required: true, placeholder: 'e.g. E-Commerce Retailer Pvt Ltd' },
-      { key: 'productService', label: 'Product / Service Name', type: 'text', required: true, placeholder: 'e.g. Premium Smart Phone' },
-      { key: 'purchaseDate', label: 'Purchase/Order Date', type: 'date', required: true, placeholder: 'YYYY-MM-DD' },
-      { key: 'invoiceNumber', label: 'Invoice / Order Number', type: 'text', required: true, placeholder: 'e.g. INV-2026-9081' },
-      { key: 'complaintDetails', label: 'Details of Defect / Grievance', type: 'multiline', required: true, placeholder: 'Describe product defect or service deficiency...' },
-      { key: 'compensation', label: 'Compensation Requested (INR)', type: 'number', required: true, placeholder: 'e.g. 50000' },
-    ]
-  },
-  {
-    id: 'powerOfAttorney',
-    title: 'Power of Attorney',
-    description: 'Appoint trusted representatives to handle assets and legal matters.',
-    icon: 'people-outline',
-    fields: [
-      { key: 'principalName', label: 'Principal Full Name (Owner)', type: 'text', required: true, placeholder: 'e.g. Devendra Singh' },
-      { key: 'attorneyName', label: 'Attorney Full Name (Agent)', type: 'text', required: true, placeholder: 'e.g. Rajendra Singh' },
-      { key: 'relationship', label: 'Agent Relationship to Principal', type: 'text', required: true, placeholder: 'e.g. Brother' },
-      { key: 'powers', label: 'Powers and Acts Granted', type: 'multiline', required: true, placeholder: 'e.g. To manage bank accounts and sign deeds...' },
-      { key: 'effectiveDate', label: 'Effective Date', type: 'date', required: true, placeholder: 'YYYY-MM-DD' },
-      { key: 'validity', label: 'Validity Period', type: 'text', required: true, placeholder: 'e.g. Revocable at will' },
-      { key: 'revocation', label: 'Revocation Conditions', type: 'text', required: true, placeholder: 'e.g. Revocable by principal return' },
-    ]
-  },
-  {
-    id: 'customDraft',
-    title: 'Custom Legal Document',
-    description: 'Define your own terms to draft custom contracts or petitions.',
-    icon: 'create-outline',
-    fields: [
-      { key: 'docTitle', label: 'Document Title', type: 'text', required: true, placeholder: 'e.g. Service Agreement' },
-      { key: 'parties', label: 'Parties Involved', type: 'text', required: true, placeholder: 'e.g. Client A and Developer B' },
-      { key: 'purpose', label: 'Primary Purpose / Objective', type: 'multiline', required: true, placeholder: 'Define what this agreement is about...' },
-      { key: 'terms', label: 'Key Terms & Conditions', type: 'multiline', required: true, placeholder: 'List specific rules, payment milestones...' },
-    ]
-  }
-];
 
 export default function DraftMakerScreen() {
   useAuthGuard();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const { showToast } = useToastContext();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t, language } = useTranslation();
+
+  const getTmplTitle = (item: any) => {
+    if (!item) return '';
+    return t(item.id, item.title);
+  };
+
+  const getTmplDesc = (item: any) => {
+    if (!item) return '';
+    return t(item.id + '_desc', item.description);
+  };
+
+  const getDraftDisplayTitle = (item: SavedDraft) => {
+    const tmpl = ALL_TEMPLATES.find(t => t.id === item.documentType || t.title === item.title);
+    return tmpl ? getTmplTitle(tmpl) : item.title;
+  };
 
   type Step = 'SELECT' | 'FORM' | 'PREVIEW' | 'GENERATING' | 'RESULT';
 
@@ -223,6 +115,49 @@ export default function DraftMakerScreen() {
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState('');
 
+  // Enterprise Legal Drafting Suite states
+  const { workspace } = useWorkspace();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string>('All');
+  const [templateUsageCount, setTemplateUsageCount] = useState<Record<string, number>>({});
+
+  // Custom template / custom draft creation states
+  const [personalTemplates, setPersonalTemplates] = useState<TemplateMetadata[]>([]);
+  const [customDraftTitle, setCustomDraftTitle] = useState('');
+  const [customDraftType, setCustomDraftType] = useState('Agreement');
+  const [customDraftDesc, setCustomDraftDesc] = useState('');
+  interface CustomOptionalDetails {
+    client: string;
+    opponent: string;
+    court: string;
+    jurisdiction: string;
+    language: string;
+    applicableLaw: string;
+    specialInstructions: string;
+    [key: string]: string;
+  }
+
+  const [customOptionalDetails, setCustomOptionalDetails] = useState<CustomOptionalDetails>({
+    client: '',
+    opponent: '',
+    court: '',
+    jurisdiction: '',
+    language: 'English',
+    applicableLaw: 'Indian Law',
+    specialInstructions: '',
+  });
+  const [customDocs, setCustomDocs] = useState<string[]>([]);
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
+
+  // Custom briefing question/answer states
+  const [customStep, setCustomStep] = useState<'INPUT' | 'QUESTIONS' | 'GENERATING' | 'RESULT'>('INPUT');
+  const [aiQuestions, setAiQuestions] = useState<string[]>([]);
+  const [aiAnswers, setAiAnswers] = useState<Record<string, string>>({});
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
+
   interface ExportStatus {
     visible: boolean;
     type: 'PDF' | 'DOCX' | null;
@@ -250,10 +185,29 @@ export default function DraftMakerScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
 
-  // Check for auto-saved draft on mount
+  // Check for auto-saved draft and load local settings on mount
   useEffect(() => {
     checkSavedDraft();
     loadHistoryDrafts();
+
+    const loadLocalSettings = async () => {
+      try {
+        const favs = await AsyncStorage.getItem('@DraftMaker:favorites');
+        if (favs) setFavorites(JSON.parse(favs));
+
+        const searches = await AsyncStorage.getItem('@DraftMaker:recent_searches');
+        if (searches) setRecentSearches(JSON.parse(searches));
+
+        const counts = await AsyncStorage.getItem('@DraftMaker:usage_counts');
+        if (counts) setTemplateUsageCount(JSON.parse(counts));
+
+        const customTemplatesStr = await AsyncStorage.getItem('@DraftMaker:personal_templates');
+        if (customTemplatesStr) setPersonalTemplates(JSON.parse(customTemplatesStr));
+      } catch (e) {
+        console.warn('Error loading local storage workspace configs:', e);
+      }
+    };
+    loadLocalSettings();
   }, []);
 
   // Save progress dynamically
@@ -282,6 +236,128 @@ export default function DraftMakerScreen() {
     return `${tmplTitle} for ${keyPerson}`;
   };
 
+  // Helper mapping to automatically pre-fill workspace case details into form variables
+  const getPreFilledValue = (fieldKey: string, fieldLabel: string, ws: any) => {
+    if (!ws) return '';
+    const labelLower = fieldLabel.toLowerCase();
+    const keyLower = fieldKey.toLowerCase();
+
+    // Client Name
+    if (
+      labelLower.includes('client') ||
+      labelLower.includes('complainant') ||
+      labelLower.includes('deponent') ||
+      labelLower.includes('principal') ||
+      labelLower.includes('sender') ||
+      labelLower.includes('landlord') ||
+      labelLower.includes('petitioner') ||
+      labelLower.includes('party 1') ||
+      labelLower.includes('first party') ||
+      keyLower.includes('sender') ||
+      keyLower.includes('landlord') ||
+      keyLower.includes('complainant') ||
+      keyLower.includes('petitioner')
+    ) {
+      return ws.clientName || '';
+    }
+
+    // Opposite Party Name
+    if (
+      labelLower.includes('opponent') ||
+      labelLower.includes('opposite party') ||
+      labelLower.includes('accused') ||
+      labelLower.includes('receiver') ||
+      labelLower.includes('agent') ||
+      labelLower.includes('attorney') ||
+      labelLower.includes('tenant') ||
+      labelLower.includes('respondent') ||
+      labelLower.includes('party 2') ||
+      labelLower.includes('second party') ||
+      keyLower.includes('receiver') ||
+      keyLower.includes('tenant') ||
+      keyLower.includes('accused') ||
+      keyLower.includes('respondent')
+    ) {
+      return ws.opponentName || '';
+    }
+
+    // Court or Jurisdiction
+    if (
+      labelLower.includes('court') ||
+      labelLower.includes('jurisdiction') ||
+      labelLower.includes('police station') ||
+      keyLower.includes('court') ||
+      keyLower.includes('jurisdiction') ||
+      keyLower.includes('policestation')
+    ) {
+      return ws.courtName || '';
+    }
+
+    // Facts or Incident Description or Case Summary
+    if (
+      labelLower.includes('facts') ||
+      labelLower.includes('incident') ||
+      labelLower.includes('description') ||
+      labelLower.includes('purpose') ||
+      keyLower.includes('facts') ||
+      keyLower.includes('description') ||
+      keyLower.includes('summary')
+    ) {
+      return ws.caseSummary || ws.summary || '';
+    }
+
+    return '';
+  };
+
+  const incrementTemplateUsage = async (templateId: string) => {
+    try {
+      const updatedCounts = { ...templateUsageCount };
+      updatedCounts[templateId] = (updatedCounts[templateId] || 0) + 1;
+      setTemplateUsageCount(updatedCounts);
+      await AsyncStorage.setItem('@DraftMaker:usage_counts', JSON.stringify(updatedCounts));
+    } catch (e) {
+      console.warn('Error saving usage counts:', e);
+    }
+  };
+
+  const toggleFavorite = async (templateId: string) => {
+    try {
+      let updated: string[];
+      if (favorites.includes(templateId)) {
+        updated = favorites.filter(id => id !== templateId);
+        showToast('success', 'Removed from Favorites', 'Template removed from your bookmarks.');
+      } else {
+        updated = [...favorites, templateId];
+        showToast('success', 'Added to Favorites', 'Template added to your bookmarks.');
+      }
+      setFavorites(updated);
+      await AsyncStorage.setItem('@DraftMaker:favorites', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Error saving favorites list:', e);
+    }
+  };
+
+  const addRecentSearch = async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    try {
+      const updated = [trimmed, ...recentSearches.filter(q => q.toLowerCase() !== trimmed.toLowerCase())].slice(0, 8);
+      setRecentSearches(updated);
+      await AsyncStorage.setItem('@DraftMaker:recent_searches', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Error saving recent search list:', e);
+    }
+  };
+
+  const clearRecentSearches = async () => {
+    try {
+      setRecentSearches([]);
+      await AsyncStorage.removeItem('@DraftMaker:recent_searches');
+    } catch (e) {
+      console.warn('Error clearing recent searches:', e);
+    }
+  };
+
   const saveOrUpdateDraft = async (
     content: string,
     form: Record<string, string>,
@@ -291,15 +367,16 @@ export default function DraftMakerScreen() {
     try {
       const existingStr = await AsyncStorage.getItem('@DraftMaker:saved_drafts');
       const existing: SavedDraft[] = existingStr ? JSON.parse(existingStr) : [];
-      
-      const tmpl = TEMPLATES.find(t => t.id === activeTemplateId);
-      const title = tmpl?.title || 'Legal Draft';
+
+      const tmpl = ALL_TEMPLATES.find(t => t.id === activeTemplateId) || personalTemplates.find(t => t.id === activeTemplateId);
+      const title = tmpl?.title || customDraftTitle || 'Legal Draft';
       const draftName = getAutoDraftName(title, form);
       const timestamp = new Date().toISOString();
       const finalId = optDraftId || activeDraftId || `draft_${Date.now()}`;
-      
+
       const idx = existing.findIndex(d => d.id === finalId);
       const now = Date.now();
+
       
       if (idx > -1) {
         // Update existing draft
@@ -372,8 +449,372 @@ export default function DraftMakerScreen() {
     setActiveTemplateId(draft.documentType);
     setFormData(draft.formData || {});
     setCustomClauses(draft.customClauses || []);
-    setStep('FORM');
+    
+    if (draft.documentType && (draft.documentType.startsWith('custom_') || draft.documentType === 'customDraft')) {
+      setCustomDraftTitle(draft.title);
+      setCustomDraftType(draft.formData?.['documentType'] || 'Agreement');
+      setCustomDraftDesc(draft.formData?.['description'] || '');
+      setCustomOptionalDetails({
+        client: draft.formData?.['client'] || '',
+        opponent: draft.formData?.['opponent'] || '',
+        court: draft.formData?.['court'] || '',
+        jurisdiction: draft.formData?.['jurisdiction'] || '',
+        language: draft.formData?.['language'] || 'English',
+        applicableLaw: draft.formData?.['applicableLaw'] || 'Indian Law',
+        specialInstructions: draft.formData?.['specialInstructions'] || '',
+      });
+      setActiveCategory('✨ Custom');
+      setCustomStep('INPUT');
+      setStep('SELECT');
+    } else {
+      setStep('FORM');
+    }
     setIsHistoryOpen(false);
+  };
+
+  // Prefill details from case workspace when workspace loads
+  useEffect(() => {
+    if (workspace) {
+      setCustomOptionalDetails(prev => ({
+        ...prev,
+        client: workspace.clientName || prev.client,
+        opponent: workspace.opponentName || prev.opponent,
+        court: workspace.courtName || prev.court,
+        jurisdiction: workspace.courtName || prev.jurisdiction,
+      }));
+    }
+  }, [workspace]);
+
+  // Support document uploads using expo-document-picker
+  const handlePickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const name = result.assets[0].name;
+        setCustomDocs(prev => [...prev, name]);
+        showToast('success', 'Document Attached', `${name} attached successfully.`);
+      }
+    } catch (err) {
+      showToast('error', 'Pick Failed', 'Could not open document picker.');
+    }
+  };
+  
+  const handleRemoveDocument = (idx: number) => {
+    setCustomDocs(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Compile prompt and evaluate custom draft creation parameters (evaluates for missing facts)
+  const handleGenerateCustomDraft = async () => {
+    if (!customDraftTitle.trim()) {
+      showToast('error', 'Required Field', 'Please enter a draft title.');
+      return;
+    }
+    if (!customDraftDesc.trim()) {
+      showToast('error', 'Required Field', 'Please describe the document requirements.');
+      return;
+    }
+    
+    setCustomStep('GENERATING');
+    setDraftContent('');
+    setAiQuestions([]);
+    
+    let caseContextPrompt = '';
+    if (workspace) {
+      caseContextPrompt = `
+      CASE CONTEXT:
+      - Case Name: ${workspace.name || ''}
+      - Client Full Name: ${workspace.clientName || ''}
+      - Opposing Party Full Name: ${workspace.opponentName || ''}
+      - Court Name: ${workspace.courtName || ''}
+      - Case Summary/Brief: ${workspace.caseSummary || workspace.summary || ''}
+      \n\n`;
+    }
+    
+    const payloadText = `${caseContextPrompt}You are an expert Indian legal counsel drafting a document.
+    
+    REQUEST DETAIL:
+    - Document Title: ${customDraftTitle}
+    - Document Type: ${customDraftType}
+    - Requirements/Description: ${customDraftDesc}
+    - Client Name: ${customOptionalDetails.client || 'Not specified'}
+    - Opponent Name: ${customOptionalDetails.opponent || 'Not specified'}
+    - Court: ${customOptionalDetails.court || 'Not specified'}
+    - Jurisdiction: ${customOptionalDetails.jurisdiction || 'Not specified'}
+    - Language: ${customOptionalDetails.language || 'English'}
+    - Applicable Law: ${customOptionalDetails.applicableLaw || 'Indian Law'}
+    - Special Instructions: ${customOptionalDetails.specialInstructions || 'None'}
+    - Attached Support Docs: ${customDocs.join(', ') || 'None'}
+    
+    EVALUATION INSTRUCTION:
+    Evaluate the above information.
+    1. If critical variables (e.g. governing law, dates, payment terms, or vital obligations) are missing, you MUST reply EXACTLY with prefix "QUESTIONS:" followed by a list of 2-5 numbered, clear, concise follow-up questions for the lawyer. Example output format:
+       QUESTIONS:
+       1. Question one?
+       2. Question two?
+    2. If the details are sufficient, reply EXACTLY with prefix "DRAFT:" followed by the complete professionally formatted legal document draft.
+    
+    Strictly output either the QUESTIONS: block or the DRAFT: block, nothing else.`;
+    
+    try {
+      const payload = {
+        content: payloadText,
+        sessionId: `custom_evaluate_${Date.now()}`,
+        activeTool: 'draftMaker',
+        stream: true,
+        history: [],
+      };
+      
+      const stream = streamAIResponse('/chat', payload);
+      let accumulated = '';
+      let detectedPrefix: 'DRAFT' | 'QUESTIONS' | null = null;
+      
+      for await (const token of stream) {
+        accumulated += token;
+        
+        if (!detectedPrefix) {
+          const upperAcc = accumulated.toUpperCase();
+          if (upperAcc.startsWith('DRAFT:')) {
+            detectedPrefix = 'DRAFT';
+            setStep('RESULT');
+            setCustomStep('RESULT');
+            setDraftContent(accumulated.slice(6).replace(/^\s+/, ''));
+          } else if (upperAcc.startsWith('QUESTIONS:')) {
+            detectedPrefix = 'QUESTIONS';
+          } else if (accumulated.length >= 25) {
+            detectedPrefix = 'DRAFT';
+            setStep('RESULT');
+            setCustomStep('RESULT');
+            setDraftContent(accumulated);
+          }
+        } else if (detectedPrefix === 'DRAFT') {
+          setDraftContent(accumulated.replace(/^DRAFT:/i, '').replace(/^\s+/, ''));
+        }
+      }
+      
+      if (detectedPrefix === 'QUESTIONS') {
+        const questionsStr = accumulated.replace(/^QUESTIONS:/i, '').trim();
+        const parsedQ = questionsStr
+          .split(/\n+/)
+          .map(q => q.replace(/^\d+[\.\)\-]\s*/, '').trim())
+          .filter(q => q.length > 0);
+        
+        if (parsedQ.length > 0) {
+          setAiQuestions(parsedQ);
+          setAiAnswers({});
+          setCurrentQuestionIdx(0);
+          setCustomStep('QUESTIONS');
+        } else {
+          // fallback if parsing failed
+          setStep('RESULT');
+          setCustomStep('RESULT');
+          const cleanText = accumulated.replace(/^QUESTIONS:/i, '').trim();
+          setDraftContent(cleanText);
+          processGeneratedText(cleanText);
+          await saveOrUpdateCustomDraft(cleanText);
+        }
+      } else {
+        const finalText = accumulated.replace(/^DRAFT:/i, '').replace(/^\s+/, '');
+        setDraftContent(finalText);
+        processGeneratedText(finalText);
+        await saveOrUpdateCustomDraft(finalText);
+        showToast('success', 'Custom Draft Compiled', 'Document generated successfully.');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('error', 'Compilation Offline', 'Failed to reach legal compiler.');
+      setCustomStep('INPUT');
+    }
+  };
+
+  // Compile answers to follow-up questions and generate the final custom draft
+  const handleAnswerQuestionSubmit = async () => {
+    setCustomStep('GENERATING');
+    setDraftContent('');
+    
+    let caseContextPrompt = '';
+    if (workspace) {
+      caseContextPrompt = `
+      CASE CONTEXT:
+      - Case Name: ${workspace.name || ''}
+      - Client Full Name: ${workspace.clientName || ''}
+      - Opposing Party Full Name: ${workspace.opponentName || ''}
+      - Court Name: ${workspace.courtName || ''}
+      - Case Summary/Brief: ${workspace.caseSummary || workspace.summary || ''}
+      \n\n`;
+    }
+    
+    const qaContext = aiQuestions.map((q) => {
+      const ans = aiAnswers[q] || 'Not provided';
+      return `Question: ${q}\nAnswer: ${ans}`;
+    }).join('\n\n');
+    
+    const payloadText = `${caseContextPrompt}I need you to draft the final complete legal document for: ${customDraftTitle}.
+    
+    Here is the initial document specification:
+    - Document Type: ${customDraftType}
+    - Initial Requirements: ${customDraftDesc}
+    - Client Name: ${customOptionalDetails.client || 'Not specified'}
+    - Opponent Name: ${customOptionalDetails.opponent || 'Not specified'}
+    - Court: ${customOptionalDetails.court || 'Not specified'}
+    - Jurisdiction: ${customOptionalDetails.jurisdiction || 'Not specified'}
+    - Language: ${customOptionalDetails.language || 'English'}
+    - Applicable Law: ${customOptionalDetails.applicableLaw || 'Indian Law'}
+    - Special Instructions: ${customOptionalDetails.specialInstructions || 'None'}
+    - Supporting Documents Attached: ${customDocs.join(', ') || 'None'}
+    
+    Here are the answers to your follow-up clarifying questions:
+    ${qaContext}
+    
+    Please compile this into a complete, professional legal document with standard legal headings, preamble, terms, signature lines, date, and place. Start directly with the document title in brackets (e.g., [TITLE] ... [INTRODUCTION] etc.). Deliver only the final complete text.`;
+    
+    try {
+      const payload = {
+        content: payloadText,
+        sessionId: `custom_compile_${Date.now()}`,
+        activeTool: 'draftMaker',
+        stream: true,
+        history: [],
+      };
+      
+      const stream = streamAIResponse('/chat', payload);
+      let text = '';
+      setStep('RESULT');
+      setCustomStep('RESULT');
+      
+      for await (const token of stream) {
+        text += token;
+        setDraftContent(text);
+      }
+      
+      processGeneratedText(text);
+      await saveOrUpdateCustomDraft(text);
+      showToast('success', 'Custom Draft Compiled', 'Document generated successfully.');
+    } catch (e) {
+      showToast('error', 'Draft Generation Failed', 'Legal AI compiler offline.');
+      setCustomStep('INPUT');
+    }
+  };
+
+  // Save generated custom draft as historical item
+  const saveOrUpdateCustomDraft = async (content: string) => {
+    try {
+      const existingStr = await AsyncStorage.getItem('@DraftMaker:saved_drafts');
+      const existing: SavedDraft[] = existingStr ? JSON.parse(existingStr) : [];
+      
+      const title = customDraftTitle || 'Custom Legal Draft';
+      const draftName = `${title} (Custom)`;
+      const timestamp = new Date().toISOString();
+      const finalId = activeDraftId || `draft_custom_${Date.now()}`;
+      const idx = existing.findIndex(d => d.id === finalId);
+      const now = Date.now();
+      
+      const mappedFormData: Record<string, string> = {
+        title,
+        documentType: customDraftType,
+        description: customDraftDesc,
+        client: customOptionalDetails.client,
+        opponent: customOptionalDetails.opponent,
+        court: customOptionalDetails.court,
+        jurisdiction: customOptionalDetails.jurisdiction,
+        language: customOptionalDetails.language,
+        applicableLaw: customOptionalDetails.applicableLaw,
+        specialInstructions: customOptionalDetails.specialInstructions,
+        attachedDocs: customDocs.join(', '),
+      };
+      
+      if (idx > -1) {
+        existing[idx] = {
+          ...existing[idx],
+          content,
+          formData: mappedFormData,
+          lastEditedTime: timestamp,
+          updatedAt: now,
+        };
+      } else {
+        const newDraftItem: SavedDraft = {
+          id: finalId,
+          title,
+          documentType: `custom_${customDraftType}`,
+          draftName,
+          content,
+          lastEditedTime: timestamp,
+          createdAt: now,
+          updatedAt: now,
+          status: 'Draft',
+          formData: mappedFormData,
+          customClauses: [],
+        };
+        existing.push(newDraftItem);
+        setActiveDraftId(finalId);
+      }
+      
+      await AsyncStorage.setItem('@DraftMaker:saved_drafts', JSON.stringify(existing));
+      await loadHistoryDrafts();
+    } catch (err) {
+      console.error('[DraftMaker] Save custom draft error:', err);
+    }
+  };
+
+  // Save Custom configuration as Personal Reusable Template
+  const handleSaveAsPersonalTemplate = async () => {
+    try {
+      const templateTitle = customDraftTitle || 'Custom Legal Template';
+      const templateDesc = customDraftDesc || 'Custom template created by user.';
+      const newTemplate: TemplateMetadata = {
+        id: `personal_${Date.now()}`,
+        title: templateTitle,
+        description: templateDesc.slice(0, 100) + (templateDesc.length > 100 ? '...' : ''),
+        icon: 'sparkles-outline',
+        category: 'Miscellaneous',
+        estimatedTime: '3 Minutes',
+        difficulty: 'Medium',
+        rating: 5,
+        aiReady: true,
+        keywords: ['personal', 'custom', templateTitle.toLowerCase()],
+        fields: [
+          { key: 'description', label: 'Requirements', type: 'multiline', required: true, placeholder: templateDesc },
+          { key: 'documentType', label: 'Document Type', type: 'text', required: true, placeholder: customDraftType },
+          { key: 'client', label: 'Client', type: 'text', required: false, placeholder: customOptionalDetails.client },
+          { key: 'opponent', label: 'Opposing Party', type: 'text', required: false, placeholder: customOptionalDetails.opponent },
+          { key: 'court', label: 'Court', type: 'text', required: false, placeholder: customOptionalDetails.court },
+          { key: 'jurisdiction', label: 'Jurisdiction', type: 'text', required: false, placeholder: customOptionalDetails.jurisdiction },
+          { key: 'language', label: 'Language', type: 'text', required: false, placeholder: customOptionalDetails.language },
+          { key: 'applicableLaw', label: 'Applicable Law', type: 'text', required: false, placeholder: customOptionalDetails.applicableLaw },
+          { key: 'specialInstructions', label: 'Special Instructions', type: 'multiline', required: false, placeholder: customOptionalDetails.specialInstructions },
+        ]
+      };
+      
+      const updated = [...personalTemplates, newTemplate];
+      setPersonalTemplates(updated);
+      await AsyncStorage.setItem('@DraftMaker:personal_templates', JSON.stringify(updated));
+      showToast('success', 'Template Saved', 'Successfully saved as a Personal Template!');
+    } catch (e) {
+      console.warn('Error saving personal template:', e);
+      showToast('error', 'Save Failed', 'Could not save personal template.');
+    }
+  };
+
+  const handleDeletePersonalTemplate = async (templateId: string) => {
+    Alert.alert(
+      'Delete Template',
+      'Are you sure you want to delete this personal template?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const updated = personalTemplates.filter(t => t.id !== templateId);
+            setPersonalTemplates(updated);
+            await AsyncStorage.setItem('@DraftMaker:personal_templates', JSON.stringify(updated));
+            showToast('success', 'Template Deleted', 'Personal template removed.');
+          }
+        }
+      ]
+    );
   };
 
   const handleDuplicateDraft = async (draft: SavedDraft) => {
@@ -456,13 +897,102 @@ export default function DraftMakerScreen() {
     return [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
   }, [historyDrafts, historySearchQuery]);
 
+  const filteredTemplates = useMemo(() => {
+    // 1. First filter by activeCategory (All, Civil, Criminal, etc.)
+    let list = [...ALL_TEMPLATES, ...personalTemplates];
+    
+    if (activeCategory === 'Favorites') {
+      list = list.filter(t => favorites.includes(t.id));
+    } else if (activeCategory === 'Recently Used') {
+      const uniqueRecentIds = Array.from(new Set(historyDrafts.map(d => d.documentType)));
+      list = list.filter(t => uniqueRecentIds.includes(t.id));
+    } else if (activeCategory === 'Appeals') {
+      list = list.filter(t => 
+        t.title.toLowerCase().includes('appeal') || 
+        t.title.toLowerCase().includes('revision') || 
+        t.title.toLowerCase().includes('petition') ||
+        t.keywords.some(k => k.toLowerCase().includes('appeal') || k.toLowerCase().includes('petition') || k.toLowerCase().includes('revision'))
+      );
+    } else if (activeCategory === '✨ Custom') {
+      list = personalTemplates;
+    } else if (activeCategory !== 'All' && activeCategory !== '') {
+      list = list.filter(t => t.category === activeCategory);
+    }
+
+    // 2. Then filter by searchQuery
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      // Pin favorites to the top if no search query and category is not already Favorites
+      if (activeCategory !== 'Favorites') {
+        const favList = list.filter(t => favorites.includes(t.id));
+        const nonFavList = list.filter(t => !favorites.includes(t.id));
+        return [...favList, ...nonFavList];
+      }
+      return list;
+    }
+
+    const searchFiltered = list.filter((item: TemplateMetadata) => {
+      const titleLower = item.title.toLowerCase();
+      const descLower = item.description.toLowerCase();
+      const transTitle = getTmplTitle(item).toLowerCase();
+      const transDesc = getTmplDesc(item).toLowerCase();
+      
+      if (
+        titleLower.includes(query) || 
+        descLower.includes(query) ||
+        transTitle.includes(query) ||
+        transDesc.includes(query)
+      ) {
+        return true;
+      }
+      
+      if (item.keywords.some(kw => kw.toLowerCase().includes(query))) {
+        return true;
+      }
+
+      // Check cross-language synonyms
+      const synonyms: Record<string, string[]> = {
+        'notice': ['नोटिस', 'सूचना', 'legalnotice', 'demandnotice', 'evictionnotice', 'recoverynotice'],
+        'नोटिस': ['notice', 'legal notice', 'legalnotice', 'demandnotice', 'evictionnotice', 'recoverynotice'],
+        'agreement': ['समझौता', 'अनुबंध', 'करार', 'rentagreement', 'leaseagreement', 'saleagreement'],
+        'समझौता': ['agreement', 'contract', 'rent agreement', 'lease agreement', 'rentagreement'],
+        'contract': ['अनुबंध', 'अनुबंधक', 'contractanalyzer', 'nda', 'mou'],
+        'अनुबंध': ['contract', 'agreement', 'nda', 'mou'],
+        'evidence': ['साक्ष्य', 'सबूत', 'प्रमाण', 'evidenceanalyst'],
+        'साक्ष्य': ['evidence', 'proof', 'evidence analyst'],
+        'timeline': ['समयरेखा', 'घटनाक्रम', 'timeline'],
+        'समयरेखा': ['timeline'],
+      };
+
+      for (const [key, values] of Object.entries(synonyms)) {
+        if (query.includes(key) || key.includes(query)) {
+          if (values.some(v => item.id.toLowerCase().includes(v) || titleLower.includes(v) || transTitle.includes(v))) {
+            return true;
+          }
+        }
+      }
+
+      if (query === 'fir' && item.id === 'fir') return true;
+      if (query === '138' && item.id === 'chequeBounceNotice') return true;
+      if (query === 'poa' && item.id === 'powerOfAttorney') return true;
+      if (query === 'nda' && item.id === 'nda') return true;
+      if (query === 'mou' && item.id === 'mou') return true;
+      
+      return false;
+    });
+
+    const favList = searchFiltered.filter(t => favorites.includes(t.id));
+    const nonFavList = searchFiltered.filter(t => !favorites.includes(t.id));
+    return [...favList, ...nonFavList];
+  }, [searchQuery, activeCategory, favorites, historyDrafts, personalTemplates]);
+
   const checkSavedDraft = async () => {
     try {
       const saved = await AsyncStorage.getItem('@DraftMaker:draft_state');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.activeTemplateId && parsed.formData) {
-          const tmpl = TEMPLATES.find((t) => t.id === parsed.activeTemplateId);
+          const tmpl = ALL_TEMPLATES.find((t) => t.id === parsed.activeTemplateId);
           if (tmpl) {
             setSavedTemplateName(tmpl.title);
             setHasSavedDraft(true);
@@ -514,14 +1044,63 @@ export default function DraftMakerScreen() {
   };
 
   const handleSelectTemplate = (templateId: string) => {
+    if (templateId.startsWith('personal_')) {
+      const pt = personalTemplates.find(t => t.id === templateId);
+      if (pt && pt.fields) {
+        setCustomDraftTitle(pt.title);
+        
+        const docTypeField = pt.fields.find(f => f.key === 'documentType');
+        const descField = pt.fields.find(f => f.key === 'description');
+        const clientField = pt.fields.find(f => f.key === 'client');
+        const opponentField = pt.fields.find(f => f.key === 'opponent');
+        const courtField = pt.fields.find(f => f.key === 'court');
+        const jurisField = pt.fields.find(f => f.key === 'jurisdiction');
+        const langField = pt.fields.find(f => f.key === 'language');
+        const appLawField = pt.fields.find(f => f.key === 'applicableLaw');
+        const specField = pt.fields.find(f => f.key === 'specialInstructions');
+        
+        setCustomDraftType(docTypeField?.placeholder || 'Agreement');
+        setCustomDraftDesc(descField?.placeholder || '');
+        setCustomOptionalDetails({
+          client: clientField?.placeholder || '',
+          opponent: opponentField?.placeholder || '',
+          court: courtField?.placeholder || '',
+          jurisdiction: jurisField?.placeholder || '',
+          language: langField?.placeholder || 'English',
+          applicableLaw: appLawField?.placeholder || 'Indian Law',
+          specialInstructions: specField?.placeholder || '',
+        });
+        
+        setCustomStep('INPUT');
+        showToast('success', 'Template Loaded', `Loaded personal template "${pt.title}".`);
+      }
+      return;
+    }
+
     setActiveTemplateId(templateId);
-    setFormData({});
+    
+    const targetTemplate = ALL_TEMPLATES.find(t => t.id === templateId);
+    const initialFormData: Record<string, string> = {};
+    if (targetTemplate) {
+      const fields = getTemplateFields(targetTemplate);
+      fields.forEach(field => {
+        const prefilled = getPreFilledValue(field.key, field.label, workspace);
+        if (prefilled) {
+          initialFormData[field.key] = prefilled;
+        } else {
+          initialFormData[field.key] = '';
+        }
+      });
+    }
+
+    setFormData(initialFormData);
     setCustomClauses([]);
     setErrors({});
     setStep('FORM');
+    incrementTemplateUsage(templateId);
   };
 
-  const activeTemplate = TEMPLATES.find((t) => t.id === activeTemplateId);
+  const activeTemplate = ALL_TEMPLATES.find((t) => t.id === activeTemplateId);
 
   const handleInputChange = (key: string, val: string) => {
     setFormData((prev) => ({ ...prev, [key]: val }));
@@ -538,7 +1117,8 @@ export default function DraftMakerScreen() {
     if (!activeTemplate) return false;
     const newErrors: Record<string, string> = {};
 
-    activeTemplate.fields.forEach((field) => {
+    const fields = getTemplateFields(activeTemplate);
+    fields.forEach((field) => {
       const val = formData[field.key] || '';
       if (field.required && !val.trim()) {
         newErrors[field.key] = `${field.label} is required.`;
@@ -634,10 +1214,28 @@ export default function DraftMakerScreen() {
       }
     }, 1200);
 
-    const payloadText = `I need you to act as a senior legal counsel and generate a complete, professionally formatted legal document for: ${activeTemplate.title}.
+    let caseContextPrompt = '';
+    if (workspace) {
+      caseContextPrompt = `
+      You are drafting this document within the context of an active case workspace. Use these facts and background context to inform the drafting and pre-fill details where appropriate.
+      
+      CASE CONTEXT:
+      - Case Name: ${workspace.name || ''}
+      - Client Full Name: ${workspace.clientName || ''}
+      - Opposing Party Full Name: ${workspace.opponentName || ''}
+      - Court Name: ${workspace.courtName || ''}
+      - Case Summary/Brief: ${workspace.caseSummary || workspace.summary || ''}
+      - Chronology of Facts: ${workspace.facts?.map(f => `[${f.date}] ${f.title}: ${f.description || ''}`).join('; ') || 'None'}
+      - Case Evidence Vault: ${workspace.evidence?.map(e => `${e.name}: ${e.description || ''}`).join('; ') || 'None'}
+      - Hearings Scheduled: ${workspace.hearings?.map(h => `${h.date} - Court: ${h.courtName || ''}, Purpose: ${h.purpose || ''}`).join('; ') || 'None'}
+      - Case Notes: ${workspace.notes?.map(n => `${n.title}: ${n.content}`).join('; ') || 'None'}
+      \n\n`;
+    }
+
+    const payloadText = `${caseContextPrompt}I need you to act as a senior legal counsel and generate a complete, professionally formatted legal document for: ${activeTemplate.title}.
     
     Here is the structured client information provided in the form:
-    ${activeTemplate.fields
+    ${getTemplateFields(activeTemplate)
       .map((field) => `- ${field.label}: ${formData[field.key] || 'Not specified'}`)
       .join('\n')}
       
@@ -1142,16 +1740,328 @@ export default function DraftMakerScreen() {
     showToast('success', 'Draft Updated', 'Placeholders updated in draft.');
   };
 
+  const renderCustomCreatorView = () => {
+    if (customStep === 'INPUT') {
+      return (
+        <View style={styles.customCreatorContainer}>
+          <Text style={styles.customCreatorHeading}>Create Custom Legal Draft</Text>
+          <Text style={styles.customCreatorSubHeading}>
+            Describe any custom legal document requirement in plain English. The AI will audit your prompt, ask clarifying questions if needed, and draft the document.
+          </Text>
+
+          {/* Draft Title */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Draft Title <Text style={{ color: '#EF4444' }}>*</Text></Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Software Development Agreement"
+              placeholderTextColor="#9CA3AF"
+              value={customDraftTitle}
+              onChangeText={setCustomDraftTitle}
+            />
+          </View>
+
+          {/* Document Type chips */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Document Type</Text>
+            <View style={styles.pickerWrapper}>
+              {['Agreement', 'Contract', 'Petition', 'Notice', 'Deed', 'Affidavit', 'Application', 'Other'].map((type) => {
+                const isSelected = customDraftType === type;
+                return (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.selectOption, isSelected && styles.selectOptionActive]}
+                    onPress={() => setCustomDraftType(type)}
+                  >
+                    <Text style={[styles.selectOptionText, isSelected && styles.selectOptionTextActive]}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Description */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Document Description & Requirements <Text style={{ color: '#EF4444' }}>*</Text></Text>
+            <TextInput
+              style={[styles.textInput, styles.multilineInput, { height: 100 }]}
+              placeholder="Describe the clauses, payment terms, parties obligations, and other details..."
+              placeholderTextColor="#9CA3AF"
+              value={customDraftDesc}
+              onChangeText={setCustomDraftDesc}
+              multiline={true}
+              numberOfLines={5}
+            />
+          </View>
+
+          {/* Collapsible Optional Details */}
+          <TouchableOpacity
+            onPress={() => setShowOptionalDetails(!showOptionalDetails)}
+            style={styles.collapsibleHeader}
+          >
+            <Text style={styles.collapsibleHeaderText}>
+              {showOptionalDetails ? '▼ Hide Optional Details' : '► Show Optional Details'}
+            </Text>
+            <Ionicons
+              name={showOptionalDetails ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#5B4EDB"
+            />
+          </TouchableOpacity>
+
+          {showOptionalDetails && (
+            <View style={styles.optionalPanel}>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Client Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Client Name"
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.client}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, client: val }))}
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Opposing Party</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Opposing Party Name"
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.opponent}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, opponent: val }))}
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Court Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Court Name"
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.court}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, court: val }))}
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Jurisdiction</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Jurisdiction Court / Limits"
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.jurisdiction}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, jurisdiction: val }))}
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Document Language</Text>
+                <View style={styles.pickerWrapper}>
+                  {['English', 'Hindi', 'Marathi', 'Gujarati', 'Bengali', 'Tamil', 'Telugu', 'Kannada', 'Malayalam'].map((lang) => {
+                    const isSelected = customOptionalDetails.language === lang;
+                    return (
+                      <TouchableOpacity
+                        key={lang}
+                        style={[styles.selectOption, isSelected && styles.selectOptionActive]}
+                        onPress={() => setCustomOptionalDetails(prev => ({ ...prev, language: lang }))}
+                      >
+                        <Text style={[styles.selectOptionText, isSelected && styles.selectOptionTextActive]}>
+                          {lang}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Applicable Law</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Indian Law, Arbitration Act"
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.applicableLaw}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, applicableLaw: val }))}
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Special Instructions</Text>
+                <TextInput
+                  style={[styles.textInput, styles.multilineInput]}
+                  placeholder="Specific formatting or layout requirements..."
+                  placeholderTextColor="#9CA3AF"
+                  value={customOptionalDetails.specialInstructions}
+                  onChangeText={(val) => setCustomOptionalDetails(prev => ({ ...prev, specialInstructions: val }))}
+                  multiline={true}
+                />
+              </View>
+            </View>
+          )}
+
+          {/* Supporting Documents */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Supporting Documents & Reference Materials</Text>
+            {customDocs.length > 0 && (
+              <View style={styles.docsList}>
+                {customDocs.map((doc, idx) => (
+                  <View key={idx} style={styles.docItem}>
+                    <Ionicons name="document-attach" size={14} color="#6B7280" />
+                    <Text style={styles.docItemText} numberOfLines={1}>{doc}</Text>
+                    <TouchableOpacity onPress={() => handleRemoveDocument(idx)}>
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity style={styles.attachBtn} onPress={handlePickDocument}>
+              <Ionicons name="cloud-upload-outline" size={16} color="#5B4EDB" />
+              <Text style={styles.attachBtnText}>Attach Document</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Action button */}
+          <TouchableOpacity style={styles.actionBtn} onPress={handleGenerateCustomDraft}>
+            <Text style={styles.actionBtnText}>Generate Custom Draft</Text>
+            <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          {/* Personal Templates List */}
+          <Text style={styles.personalTemplatesHeading}>Personal Templates</Text>
+          {personalTemplates.length === 0 ? (
+            <View style={styles.emptyFilteredContainer}>
+              <Ionicons name="sparkles-outline" size={32} color="#9CA3AF" />
+              <Text style={styles.emptyFilteredText}>No personal templates saved yet.</Text>
+            </View>
+          ) : (
+            <View style={styles.personalGrid}>
+              {personalTemplates.map((pt) => (
+                <View key={pt.id} style={styles.personalCard}>
+                  <TouchableOpacity
+                    style={styles.personalCardLeft}
+                    onPress={() => handleSelectTemplate(pt.id)}
+                  >
+                    <Text style={styles.personalCardTitle}>{pt.title}</Text>
+                    <Text style={styles.personalCardDesc} numberOfLines={1}>{pt.description}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.personalCardDeleteBtn}
+                    onPress={() => handleDeletePersonalTemplate(pt.id)}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    if (customStep === 'QUESTIONS') {
+      const currentQ = aiQuestions[currentQuestionIdx];
+      return (
+        <View style={styles.questionWizardCard}>
+          <View style={styles.questionWizardHeader}>
+            <Text style={styles.questionWizardTitle}>💡 AI Briefing Clarifications</Text>
+            <Text style={styles.questionWizardStep}>
+              Question {currentQuestionIdx + 1} of {aiQuestions.length}
+            </Text>
+          </View>
+
+          <View style={styles.questionWizardBody}>
+            <Text style={styles.questionLabel}>{currentQ}</Text>
+            <TextInput
+              style={styles.questionInput}
+              placeholder="Provide details/answer for the AI..."
+              placeholderTextColor="#9CA3AF"
+              value={aiAnswers[currentQ] || ''}
+              onChangeText={(val) => setAiAnswers(prev => ({ ...prev, [currentQ]: val }))}
+              multiline={true}
+              numberOfLines={3}
+            />
+          </View>
+
+          <View style={styles.questionFooter}>
+            <TouchableOpacity
+              style={[styles.questionBtn, styles.questionBtnPrev]}
+              onPress={() => {
+                if (currentQuestionIdx > 0) {
+                  setCurrentQuestionIdx(currentQuestionIdx - 1);
+                } else {
+                  setCustomStep('INPUT');
+                }
+              }}
+            >
+              <Ionicons name="arrow-back" size={16} color="#4B5563" />
+              <Text style={styles.questionBtnPrevText}>Back</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.questionBtn, styles.questionBtnNext]}
+              onPress={() => {
+                if (currentQuestionIdx < aiQuestions.length - 1) {
+                  setCurrentQuestionIdx(currentQuestionIdx + 1);
+                } else {
+                  handleAnswerQuestionSubmit();
+                }
+              }}
+            >
+              <Text style={styles.questionBtnNextText}>
+                {currentQuestionIdx === aiQuestions.length - 1 ? 'Generate Final Draft' : 'Next'}
+              </Text>
+              <Ionicons
+                name={currentQuestionIdx === aiQuestions.length - 1 ? "sparkles" : "arrow-forward"}
+                size={16}
+                color="#FFFFFF"
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (customStep === 'GENERATING') {
+      return (
+        <View style={styles.centerBox}>
+          <ActivityIndicator size="large" color="#6D5DFC" />
+          <Text style={styles.compilingTitle}>AI Legal Draft Compiler Active</Text>
+          <Text style={styles.compilingDesc}>
+            Analyzing requirements and formulating legal obligations...
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Top compact screen header */}
       <View style={styles.header}>
         <Pressable
           onPress={() => {
-            if (step === 'FORM') setStep('SELECT');
-            else if (step === 'PREVIEW') setStep('FORM');
-            else if (step === 'RESULT') setStep('PREVIEW');
-            else router.back();
+            if (activeCategory === '✨ Custom' && step === 'SELECT') {
+              if (customStep === 'QUESTIONS') {
+                setCustomStep('INPUT');
+              } else if (customStep === 'GENERATING') {
+                setCustomStep('INPUT');
+              } else {
+                router.back();
+              }
+            } else if (step === 'FORM') {
+              setStep('SELECT');
+            } else if (step === 'PREVIEW') {
+              setStep('FORM');
+            } else if (step === 'RESULT') {
+              if (activeCategory === '✨ Custom') {
+                setStep('SELECT');
+                setCustomStep('INPUT');
+              } else {
+                setStep('PREVIEW');
+              }
+            } else {
+              router.back();
+            }
           }}
           style={styles.headerBtn}
         >
@@ -1160,6 +2070,17 @@ export default function DraftMakerScreen() {
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Draft Maker</Text>
         </View>
+        <Pressable
+          onPress={() => {
+            setIsSearchOpen(true);
+            setSearchQuery('');
+          }}
+          style={styles.headerBtn}
+          accessibilityLabel="Search Templates"
+          accessibilityRole="button"
+        >
+          <Ionicons name="search-outline" size={24} color="#1F2937" style={{ marginRight: -4 }} />
+        </Pressable>
         <Pressable
           onPress={() => setIsHistoryOpen(true)}
           style={styles.headerBtn}
@@ -1205,22 +2126,124 @@ export default function DraftMakerScreen() {
               </Text>
             </View>
 
-            <Text style={styles.sectionHeading}>Choose Draft Template</Text>
-            <View style={styles.templatesGrid}>
-              {TEMPLATES.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.templateCard}
-                  onPress={() => handleSelectTemplate(item.id)}
-                >
-                  <View style={styles.templateIconBox}>
-                    <Ionicons name={item.icon as any} size={22} color="#6D5DFC" />
-                  </View>
-                  <Text style={styles.templateTitle}>{item.title}</Text>
-                  <Text style={styles.templateDesc}>{item.description}</Text>
-                </TouchableOpacity>
-              ))}
+            {/* Quick Filters */}
+            <View style={styles.filterSection}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+                {[
+                  'All',
+                  'Civil',
+                  'Criminal',
+                  'Contracts',
+                  'Property',
+                  'Corporate',
+                  'Family',
+                  'Consumer',
+                  'Employment',
+                  'Affidavit',
+                  'Appeals',
+                  'Recently Used',
+                  'Favorites',
+                  '✨ Custom'
+                ].map((cat) => {
+                  const isActive = activeCategory === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.filterChip, isActive && styles.filterChipActive]}
+                      onPress={() => setActiveCategory(cat)}
+                    >
+                      {cat === 'Favorites' && (
+                        <Ionicons name="star" size={12} color={isActive ? '#FFFFFF' : '#F59E0B'} style={{ marginRight: 4 }} />
+                      )}
+                      <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
+
+            {activeCategory === '✨ Custom' ? (
+              renderCustomCreatorView()
+            ) : (
+              <>
+                <Text style={styles.sectionHeading}>Choose Draft Template</Text>
+                
+                {filteredTemplates.length === 0 ? (
+                  <View style={styles.emptyFilteredContainer}>
+                    <Ionicons name="filter-outline" size={40} color="#9CA3AF" />
+                    <Text style={styles.emptyFilteredText}>No templates match this filter</Text>
+                  </View>
+                ) : (
+                  <View style={styles.templatesGrid}>
+                    {filteredTemplates.map((item) => (
+                      <View key={item.id} style={[styles.templateCard, favorites.includes(item.id) && styles.templateCardFav, Shadows.sm]}>
+                        <View style={styles.templateCardHeader}>
+                          <View style={styles.templateIconBox}>
+                            <Ionicons name={item.icon as any} size={22} color="#6D5DFC" />
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => toggleFavorite(item.id)}
+                            style={styles.favStarBtn}
+                          >
+                            <Ionicons
+                              name={favorites.includes(item.id) ? "star" : "star-outline"}
+                              size={20}
+                              color={favorites.includes(item.id) ? "#F59E0B" : "#9CA3AF"}
+                            />
+                          </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => handleSelectTemplate(item.id)}
+                          style={{ flex: 1 }}
+                        >
+                          <Text style={styles.templateTitle}>{getTmplTitle(item)}</Text>
+                          <Text style={styles.templateDesc} numberOfLines={2}>{getTmplDesc(item)}</Text>
+                          
+                          {/* Meta row */}
+                          <View style={styles.templateCardMetaRow}>
+                            <View style={styles.metaBadge}>
+                              <Ionicons name="time-outline" size={12} color="#6B7280" />
+                              <Text style={styles.metaBadgeText}>{item.estimatedTime}</Text>
+                            </View>
+                            
+                            <View style={[
+                              styles.diffBadge,
+                              item.difficulty === 'Easy' ? styles.diffEasy : item.difficulty === 'Medium' ? styles.diffMedium : styles.diffHard
+                            ]}>
+                              <Text style={styles.diffBadgeText}>{item.difficulty}</Text>
+                            </View>
+
+                            {item.aiReady && (
+                              <View style={styles.aiReadyBadge}>
+                                <Ionicons name="sparkles" size={10} color="#5B4EDB" />
+                                <Text style={styles.aiReadyBadgeText}>AI Ready</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Star Rating Row */}
+                          <View style={styles.ratingRow}>
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Ionicons
+                                key={i}
+                                name={i < Math.floor(item.rating) ? "star" : "star-outline"}
+                                size={12}
+                                color="#F59E0B"
+                                style={{ marginRight: 2 }}
+                              />
+                            ))}
+                            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
           </View>
         )}
 
@@ -1233,7 +2256,7 @@ export default function DraftMakerScreen() {
             </View>
 
             {/* Render form fields dynamically */}
-            {activeTemplate.fields.map((field) => (
+            {getTemplateFields(activeTemplate).map((field) => (
               <View key={field.key} style={styles.fieldGroup}>
                 <View style={styles.fieldLabelRow}>
                   <Text style={styles.fieldLabel}>
@@ -1330,7 +2353,7 @@ export default function DraftMakerScreen() {
             </View>
 
             <View style={styles.previewBox}>
-              {activeTemplate.fields.map((field) => (
+              {getTemplateFields(activeTemplate).map((field) => (
                 <View key={field.key} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>{field.label}</Text>
                   <Text style={styles.previewValue}>{formData[field.key] || '-'}</Text>
@@ -1416,37 +2439,64 @@ export default function DraftMakerScreen() {
                 <Ionicons name="print-outline" size={18} color="#6D5DFC" />
                 <Text style={styles.workspaceActionText}>Print</Text>
               </TouchableOpacity>
+              {activeCategory === '✨ Custom' && (
+                <TouchableOpacity style={styles.workspaceActionBtn} onPress={handleSaveAsPersonalTemplate}>
+                  <Ionicons name="sparkles-outline" size={18} color="#D97706" />
+                  <Text style={styles.workspaceActionText}>Save Template</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Follow-up chat refiner bar */}
             <View style={[styles.refineContainer, Shadows.sm]}>
-                <Text style={styles.refineHeading}>💡 Request AI Modifications</Text>
-                <View style={styles.refineInputRow}>
-                  <TextInput
-                    style={styles.refineInput}
-                    placeholder="e.g. Change notice period to 2 months..."
-                    placeholderTextColor="#9CA3AF"
-                    value={refineText}
-                    onChangeText={setRefineText}
-                    editable={!isRefining}
-                  />
-                  {isRefining ? (
-                    <View style={styles.refineSendBtn}>
-                      <ActivityIndicator size="small" color="#6D5DFC" />
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={styles.refineSendBtn} onPress={handleRefineDraft}>
-                      <Ionicons name="send" size={16} color="#6D5DFC" />
-                    </TouchableOpacity>
-                  )}
-                </View>
+              <Text style={styles.refineHeading}>💡 Request AI Modifications</Text>
+              <View style={styles.refineInputRow}>
+                <TextInput
+                  style={styles.refineInput}
+                  placeholder="e.g. Change notice period to 2 months..."
+                  placeholderTextColor="#9CA3AF"
+                  value={refineText}
+                  onChangeText={setRefineText}
+                  editable={!isRefining}
+                />
+                {isRefining ? (
+                  <View style={styles.refineSendBtn}>
+                    <ActivityIndicator size="small" color="#6D5DFC" />
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.refineSendBtn} onPress={handleRefineDraft}>
+                    <Ionicons name="send" size={16} color="#6D5DFC" />
+                  </TouchableOpacity>
+                )}
               </View>
+            </View>
 
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <TouchableOpacity style={[styles.actionBtn, { flex: 1, backgroundColor: '#F3F4F6' }]} onPress={() => setStep('FORM')}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { flex: 1, backgroundColor: '#F3F4F6' }]}
+                onPress={() => {
+                  if (activeCategory === '✨ Custom') {
+                    setStep('SELECT');
+                    setCustomStep('INPUT');
+                  } else {
+                    setStep('FORM');
+                  }
+                }}
+              >
                 <Text style={[styles.actionBtnText, { color: '#4B5563' }]}>Edit Original Form</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={() => setStep('SELECT')}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { flex: 1 }]}
+                onPress={() => {
+                  if (activeCategory === '✨ Custom') {
+                    setCustomDraftTitle('');
+                    setCustomDraftDesc('');
+                    setCustomDocs([]);
+                    setCustomStep('INPUT');
+                  }
+                  setStep('SELECT');
+                }}
+              >
                 <Text style={styles.actionBtnText}>Start New Draft</Text>
               </TouchableOpacity>
             </View>
@@ -1779,7 +2829,7 @@ export default function DraftMakerScreen() {
                               </View>
                               
                               <Text style={styles.drawerItemSubtext}>
-                                {item.title}
+                                {getDraftDisplayTitle(item)}
                               </Text>
 
                               <View style={styles.drawerItemMetaRow}>
@@ -1856,15 +2906,257 @@ export default function DraftMakerScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Full-screen searchable Template Browser Modal */}
+      <Modal
+        visible={isSearchOpen}
+        animationType="slide"
+        onRequestClose={() => setIsSearchOpen(false)}
+      >
+        <SafeAreaView style={styles.searchModalContainer} edges={['top', 'bottom']}>
+          {/* Search Header */}
+          <View style={styles.searchModalHeader}>
+            <View style={styles.searchBarWrapper}>
+              <Ionicons name="search" size={20} color="#6B7280" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchBarInput}
+                placeholder="Search templates (e.g. 138, FIR, Notice, POA)..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={(text) => setSearchQuery(text)}
+                autoFocus={true}
+                returnKeyType="search"
+                onSubmitEditing={() => addRecentSearch(searchQuery)}
+              />
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                setIsSearchOpen(false);
+                setSearchQuery('');
+              }}
+              style={styles.searchCloseBtn}
+            >
+              <Text style={styles.searchCloseBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Content */}
+          <ScrollView style={styles.searchScrollContent} keyboardShouldPersistTaps="handled">
+            {searchQuery.trim() === '' ? (
+              <View>
+                {/* Recent Searches */}
+                {recentSearches.length > 0 && (
+                  <View style={styles.searchSection}>
+                    <View style={styles.searchSectionHeader}>
+                      <Text style={styles.searchSectionTitle}>Recent Searches</Text>
+                      <TouchableOpacity onPress={clearRecentSearches}>
+                        <Text style={styles.clearBtnText}>Clear All</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.recentSearchesContainer}>
+                      {recentSearches.map((query, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.recentSearchChip}
+                          onPress={() => {
+                            setSearchQuery(query);
+                          }}
+                        >
+                          <Ionicons name="time-outline" size={14} color="#6B7280" style={{ marginRight: 4 }} />
+                          <Text style={styles.recentSearchChipText}>{query}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Frequently Used Drafts */}
+                {Object.keys(templateUsageCount).length > 0 && (
+                  <View style={styles.searchSection}>
+                    <Text style={styles.searchSectionTitle}>Frequently Used Drafts</Text>
+                    <View style={styles.freqList}>
+                      {ALL_TEMPLATES
+                        .filter(t => (templateUsageCount[t.id] || 0) > 0)
+                        .sort((a, b) => (templateUsageCount[b.id] || 0) - (templateUsageCount[a.id] || 0))
+                        .slice(0, 5)
+                        .map(item => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={styles.freqRow}
+                            onPress={() => {
+                              setIsSearchOpen(false);
+                              handleSelectTemplate(item.id);
+                            }}
+                          >
+                            <View style={styles.freqIconBg}>
+                              <Ionicons name={item.icon as any} size={16} color="#6D5DFC" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.freqRowTitle}>{getTmplTitle(item)}</Text>
+                              <Text style={styles.freqRowDesc} numberOfLines={1}>{getTmplDesc(item)}</Text>
+                            </View>
+                            <View style={styles.freqUsageBadge}>
+                              <Text style={styles.freqUsageText}>{templateUsageCount[item.id]}x used</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                          </TouchableOpacity>
+                        ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Recently Generated Drafts */}
+                {historyDrafts.length > 0 && (
+                  <View style={styles.searchSection}>
+                    <Text style={styles.searchSectionTitle}>Recently Generated Drafts</Text>
+                    <View style={styles.freqList}>
+                      {historyDrafts.slice(0, 3).map(item => {
+                        const tmpl = ALL_TEMPLATES.find(t => t.id === item.documentType);
+                        return (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={styles.freqRow}
+                            onPress={() => {
+                              setIsSearchOpen(false);
+                              handleOpenDraft(item);
+                            }}
+                          >
+                            <View style={[styles.freqIconBg, { backgroundColor: '#E6F4EA' }]}>
+                              <Ionicons name="checkmark-done" size={16} color="#10B981" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.freqRowTitle}>{item.draftName}</Text>
+                              <Text style={styles.freqRowDesc} numberOfLines={1}>{tmpl ? getTmplTitle(tmpl) : 'Legal Document'}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {/* Suggested Templates */}
+                <View style={styles.searchSection}>
+                  <Text style={styles.searchSectionTitle}>Suggested Templates</Text>
+                  <View style={styles.suggestedGrid}>
+                    {ALL_TEMPLATES.filter(t => ['rentAgreement', 'legalNotice', 'fir', 'nda', 'bailApplication', 'powerOfAttorney'].includes(t.id)).map(item => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.suggestedCard}
+                        onPress={() => {
+                          setIsSearchOpen(false);
+                          handleSelectTemplate(item.id);
+                        }}
+                      >
+                        <Ionicons name={item.icon as any} size={18} color="#6D5DFC" style={{ marginBottom: 4 }} />
+                        <Text style={styles.suggestedCardText} numberOfLines={1}>{getTmplTitle(item)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.searchResultsContainer}>
+                <Text style={styles.searchResultsCount}>
+                  Found {filteredTemplates.length} templates matching "{searchQuery}"
+                </Text>
+                
+                {filteredTemplates.length === 0 ? (
+                  <View style={styles.noResultsBox}>
+                    <Ionicons name="search-outline" size={48} color="#9CA3AF" style={{ marginBottom: 12 }} />
+                    <Text style={styles.noResultsText}>No matching templates found</Text>
+                    <Text style={styles.noResultsSub}>Try refining your keywords or searching general terms.</Text>
+                  </View>
+                ) : (
+                  <View style={styles.templatesGrid}>
+                    {filteredTemplates.map((item) => (
+                      <View key={item.id} style={[styles.templateCard, favorites.includes(item.id) && styles.templateCardFav, Shadows.sm]}>
+                        <View style={styles.templateCardHeader}>
+                          <View style={styles.templateIconBox}>
+                            <Ionicons name={item.icon as any} size={22} color="#6D5DFC" />
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => toggleFavorite(item.id)}
+                            style={styles.favStarBtn}
+                          >
+                            <Ionicons
+                              name={favorites.includes(item.id) ? "star" : "star-outline"}
+                              size={20}
+                              color={favorites.includes(item.id) ? "#F59E0B" : "#9CA3AF"}
+                            />
+                          </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            addRecentSearch(searchQuery);
+                            setIsSearchOpen(false);
+                            handleSelectTemplate(item.id);
+                          }}
+                          style={{ flex: 1 }}
+                        >
+                          <Text style={styles.templateTitle}>{getTmplTitle(item)}</Text>
+                          <Text style={styles.templateDesc} numberOfLines={2}>{getTmplDesc(item)}</Text>
+                          
+                          <View style={styles.templateCardMetaRow}>
+                            <View style={styles.metaBadge}>
+                              <Ionicons name="time-outline" size={12} color="#6B7280" />
+                              <Text style={styles.metaBadgeText}>{item.estimatedTime}</Text>
+                            </View>
+                            
+                            <View style={[
+                              styles.diffBadge,
+                              item.difficulty === 'Easy' ? styles.diffEasy : item.difficulty === 'Medium' ? styles.diffMedium : styles.diffHard
+                            ]}>
+                              <Text style={styles.diffBadgeText}>{item.difficulty}</Text>
+                            </View>
+
+                            {item.aiReady && (
+                              <View style={styles.aiReadyBadge}>
+                                <Ionicons name="sparkles" size={10} color="#5B4EDB" />
+                                <Text style={styles.aiReadyBadgeText}>AI Ready</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          <View style={styles.ratingRow}>
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Ionicons
+                                key={i}
+                                name={i < Math.floor(item.rating) ? "star" : "star-outline"}
+                                size={12}
+                                color="#F59E0B"
+                                style={{ marginRight: 2 }}
+                              />
+                            ))}
+                            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   header: {
     flexDirection: 'row',
@@ -1873,7 +3165,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
   },
   headerBtn: {
     width: 40,
@@ -1889,12 +3182,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
     textAlign: 'center',
   },
   headerSubtitle: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     marginTop: 1,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -1908,9 +3201,9 @@ const styles = StyleSheet.create({
   resumeBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#EEECFF',
+    backgroundColor: theme.primaryLight,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
@@ -1918,15 +3211,15 @@ const styles = StyleSheet.create({
   resumeTitle: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#5B4EDB',
+    color: theme.primaryDark,
   },
   resumeDesc: {
     fontSize: 11.5,
-    color: '#6D5DFC',
+    color: theme.primary,
     marginTop: 2,
   },
   resumeBtn: {
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
@@ -1937,22 +3230,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   discardBtn: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
   },
   discardBtnText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   welcomeBanner: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
@@ -1960,18 +3253,18 @@ const styles = StyleSheet.create({
   welcomeText: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginBottom: 6,
   },
   welcomeSub: {
     fontSize: 12,
-    color: '#4B5563',
+    color: theme.textSecondary,
     lineHeight: 18,
   },
   sectionHeading: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.textPrimary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -1980,9 +3273,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   templateCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 14,
   },
@@ -1990,7 +3283,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#EEECFF',
+    backgroundColor: theme.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -1998,16 +3291,16 @@ const styles = StyleSheet.create({
   templateTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginBottom: 4,
   },
   templateDesc: {
     fontSize: 11.5,
-    color: '#6B7280',
+    color: theme.textSecondary,
     lineHeight: 16,
   },
   formContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   formHeader: {
     marginBottom: 16,
@@ -2015,12 +3308,12 @@ const styles = StyleSheet.create({
   formTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginBottom: 4,
   },
   formDesc: {
     fontSize: 12,
-    color: '#6B7280',
+    color: theme.textSecondary,
   },
   fieldGroup: {
     marginBottom: 14,
@@ -2033,22 +3326,22 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 12.5,
     fontWeight: '600',
-    color: '#374151',
+    color: theme.textPrimary,
   },
   errorText: {
     fontSize: 11,
-    color: '#EF4444',
+    color: theme.danger,
     fontWeight: '600',
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 13.5,
-    color: '#1F2937',
-    backgroundColor: '#F9FAFB',
+    color: theme.textPrimary,
+    backgroundColor: theme.surfaceVariant,
   },
   multilineInput: {
     height: 80,
@@ -2061,47 +3354,47 @@ const styles = StyleSheet.create({
   },
   selectOption: {
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   selectOptionActive: {
-    borderColor: '#6D5DFC',
-    backgroundColor: '#EEECFF',
+    borderColor: theme.primary,
+    backgroundColor: theme.primaryLight,
   },
   selectOptionText: {
     fontSize: 12,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   selectOptionTextActive: {
-    color: '#5B4EDB',
+    color: theme.primaryDark,
   },
   clauseSection: {
     marginTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
+    borderTopColor: theme.border,
     paddingTop: 16,
     marginBottom: 20,
   },
   clauseHeading: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginBottom: 4,
   },
   clauseDesc: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginBottom: 10,
   },
   clauseChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -2109,7 +3402,7 @@ const styles = StyleSheet.create({
   },
   clauseChipText: {
     fontSize: 11.5,
-    color: '#4B5563',
+    color: theme.textSecondary,
     flex: 1,
     marginRight: 10,
   },
@@ -2121,29 +3414,29 @@ const styles = StyleSheet.create({
   clauseInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     fontSize: 12.5,
-    color: '#1F2937',
-    backgroundColor: '#FFFFFF',
+    color: theme.textPrimary,
+    backgroundColor: theme.background,
   },
   addClauseBtn: {
-    backgroundColor: '#EEECFF',
+    backgroundColor: theme.primaryLight,
     borderWidth: 1,
-    borderColor: '#6D5DFC',
+    borderColor: theme.primary,
     borderRadius: 8,
     paddingHorizontal: 14,
     justifyContent: 'center',
   },
   addClauseBtnText: {
     fontSize: 12,
-    color: '#5B4EDB',
+    color: theme.primaryDark,
     fontWeight: '700',
   },
   actionBtn: {
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -2159,9 +3452,9 @@ const styles = StyleSheet.create({
   },
   previewBox: {
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     padding: 14,
     gap: 10,
   },
@@ -2169,24 +3462,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
     paddingBottom: 6,
   },
   previewLabel: {
     fontSize: 11.5,
-    color: '#6B7280',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   previewValue: {
     fontSize: 12,
-    color: '#1F2937',
+    color: theme.textPrimary,
     fontWeight: '700',
     maxWidth: '65%',
     textAlign: 'right',
   },
   previewClause: {
     fontSize: 11.5,
-    color: '#4B5563',
+    color: theme.textSecondary,
     marginTop: 4,
   },
   centerBox: {
@@ -2198,28 +3491,28 @@ const styles = StyleSheet.create({
   compilingTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginTop: 16,
     marginBottom: 4,
   },
   compilingDesc: {
     fontSize: 12,
-    color: '#6B7280',
+    color: theme.textSecondary,
   },
   workspaceHeading: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.textPrimary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 10,
   },
   legalPaper: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderLeftWidth: 6,
-    borderLeftColor: '#6D5DFC',
+    borderLeftColor: theme.primary,
     borderRadius: 8,
     padding: 18,
     minHeight: 300,
@@ -2230,20 +3523,20 @@ const styles = StyleSheet.create({
   },
   stampText: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     fontWeight: '800',
     letterSpacing: 1,
   },
   stampDivider: {
     height: 1,
-    backgroundColor: '#ECECEC',
+    backgroundColor: theme.border,
     width: '100%',
     marginTop: 4,
   },
   documentTextMonospace: {
     fontSize: 11.5,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: '#1F2937',
+    color: theme.textPrimary,
     lineHeight: 18,
   },
   workspaceActions: {
@@ -2255,9 +3548,9 @@ const styles = StyleSheet.create({
   },
   workspaceActionBtn: {
     width: '31%',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center',
@@ -2266,20 +3559,20 @@ const styles = StyleSheet.create({
   },
   workspaceActionText: {
     fontSize: 11,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   refineContainer: {
-    backgroundColor: '#EEECFF',
+    backgroundColor: theme.primaryLight,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 10,
     padding: 12,
   },
   refineHeading: {
     fontSize: 12.5,
     fontWeight: '700',
-    color: '#5B4EDB',
+    color: theme.primaryDark,
     marginBottom: 8,
   },
   refineInputRow: {
@@ -2289,21 +3582,21 @@ const styles = StyleSheet.create({
   refineInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     fontSize: 12.5,
-    color: '#1F2937',
-    backgroundColor: '#FFFFFF',
+    color: theme.textPrimary,
+    backgroundColor: theme.background,
   },
   refineSendBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2313,7 +3606,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#374151',
+    color: theme.textPrimary,
     letterSpacing: 1,
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -2322,7 +3615,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
     fontSize: 16,
     lineHeight: 26,
-    color: '#1F2937',
+    color: theme.textPrimary,
     textAlign: 'justify',
   },
   legalTextBold: {
@@ -2330,7 +3623,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
     lineHeight: 26,
-    color: '#111827',
+    color: theme.textPrimary,
   },
   paragraphLine: {
     marginBottom: 12,
@@ -2340,16 +3633,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 18,
     lineHeight: 28,
-    color: '#111827',
+    color: theme.textPrimary,
     marginBottom: 20,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: theme.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
@@ -2361,7 +3654,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: theme.border,
     alignSelf: 'center',
     marginBottom: 16,
   },
@@ -2374,7 +3667,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   modalFieldsList: {
     flexGrow: 0,
@@ -2386,19 +3679,19 @@ const styles = StyleSheet.create({
   modalFieldLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.textPrimary,
     marginBottom: 6,
     textTransform: 'capitalize',
   },
   modalFieldInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#1F2937',
-    backgroundColor: '#F9FAFB',
+    color: theme.textPrimary,
+    backgroundColor: theme.surfaceVariant,
   },
   modalFooter: {
     flexDirection: 'row',
@@ -2412,15 +3705,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalBtnCancel: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.surfaceVariant,
   },
   modalBtnCancelText: {
     fontSize: 14,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   modalBtnSave: {
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
   },
   modalBtnSaveText: {
     fontSize: 14,
@@ -2435,20 +3728,20 @@ const styles = StyleSheet.create({
   emptyPlaceholdersText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#4B5563',
+    color: theme.textSecondary,
     textAlign: 'center',
     marginBottom: 6,
   },
   emptyPlaceholdersHint: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textAlign: 'center',
     paddingHorizontal: 20,
   },
   shareSubtitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -2460,9 +3753,9 @@ const styles = StyleSheet.create({
   shareOptionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 12,
     gap: 12,
@@ -2471,29 +3764,29 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#EEECFF',
+    backgroundColor: theme.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   shareOptionText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   shareOptionDesc: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 2,
   },
   exportModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: theme.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   exportModalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     padding: 24,
     width: '100%',
@@ -2506,13 +3799,13 @@ const styles = StyleSheet.create({
   exportStateTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginTop: 16,
     textAlign: 'center',
   },
   exportStateDesc: {
     fontSize: 12.5,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 18,
@@ -2521,8 +3814,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: '#5B4EDB',
-    backgroundColor: '#EEECFF',
+    color: theme.primaryDark,
+    backgroundColor: theme.primaryLight,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
@@ -2534,7 +3827,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#E6F4EA',
+    backgroundColor: theme.successLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -2543,7 +3836,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#FCE8E6',
+    backgroundColor: theme.dangerLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -2566,8 +3859,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   exportActionBtnOpen: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   exportActionBtnOpenText: {
     fontSize: 12,
@@ -2575,25 +3868,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   exportActionBtnShare: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#ECECEC',
+    backgroundColor: theme.background,
+    borderColor: theme.border,
   },
   exportActionBtnShareText: {
     fontSize: 12,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   drawerOverlay: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: theme.overlay,
   },
   drawerContainer: {
     width: Dimensions.get('window').width * 0.82,
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderRightWidth: 1,
-    borderRightColor: '#ECECEC',
+    borderRightColor: theme.border,
     paddingHorizontal: 16,
   },
   drawerHeader: {
@@ -2602,20 +3895,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
   },
   drawerTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   drawerSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginTop: 12,
@@ -2624,7 +3917,7 @@ const styles = StyleSheet.create({
   drawerSearchInput: {
     flex: 1,
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     padding: 0,
   },
   drawerList: {
@@ -2638,7 +3931,7 @@ const styles = StyleSheet.create({
   },
   drawerEmptyText: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textAlign: 'center',
     fontStyle: 'italic',
   },
@@ -2646,13 +3939,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     overflow: 'hidden',
   },
   drawerItemActive: {
-    borderColor: '#6D5DFC',
-    backgroundColor: '#EEECFF',
+    borderColor: theme.primary,
+    backgroundColor: theme.primaryLight,
   },
   drawerItemTextContainer: {
     flexDirection: 'column',
@@ -2665,15 +3958,15 @@ const styles = StyleSheet.create({
   drawerItemText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     flex: 1,
   },
   drawerItemTextActive: {
-    color: '#6D5DFC',
+    color: theme.primary,
   },
   drawerItemSubtext: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginLeft: 22,
     marginBottom: 6,
   },
@@ -2686,7 +3979,7 @@ const styles = StyleSheet.create({
   },
   drawerItemDate: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textMuted,
   },
   statusBadge: {
     paddingHorizontal: 6,
@@ -2694,10 +3987,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusDraft: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: theme.warningLight,
   },
   statusCompleted: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: theme.successLight,
   },
   statusBadgeText: {
     fontSize: 9,
@@ -2707,21 +4000,21 @@ const styles = StyleSheet.create({
   statusDraftText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#D97706',
+    color: theme.warning,
     textTransform: 'uppercase',
   },
   statusCompletedText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#059669',
+    color: theme.success,
     textTransform: 'uppercase',
   },
   drawerRenameInput: {
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     fontWeight: '600',
     borderBottomWidth: 1,
-    borderBottomColor: '#6D5DFC',
+    borderBottomColor: theme.primary,
     paddingVertical: 4,
     paddingHorizontal: 2,
   },
@@ -2730,8 +4023,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    backgroundColor: '#F9FAFB',
+    borderTopColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
     paddingVertical: 6,
     paddingHorizontal: 8,
   },
@@ -2740,4 +4033,513 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     marginLeft: 8,
   },
+  // Enterprise Legal Drafting Suite styles
+  filterSection: {
+    marginVertical: 14,
+  },
+  filterScroll: {
+    gap: 8,
+    paddingRight: 16,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  filterChipActive: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  filterChipText: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontWeight: '700',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  emptyFilteredContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 10,
+  },
+  emptyFilteredText: {
+    fontSize: 13.5,
+    color: theme.textMuted,
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+  templateCardFav: {
+    borderColor: theme.warning,
+    borderWidth: 1.5,
+    backgroundColor: isDark ? '#2C220E' : '#FFFDF5',
+  },
+  templateCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  favStarBtn: {
+    padding: 6,
+    marginRight: -6,
+    marginTop: -6,
+  },
+  templateCardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    flexWrap: 'wrap',
+  },
+  metaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 3,
+  },
+  metaBadgeText: {
+    fontSize: 10,
+    color: theme.textSecondary,
+    fontWeight: '700',
+  },
+  diffBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  diffBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  diffEasy: {
+    backgroundColor: theme.successLight,
+  },
+  diffMedium: {
+    backgroundColor: theme.warningLight,
+  },
+  diffHard: {
+    backgroundColor: theme.dangerLight,
+  },
+  diffEasyText: {
+    color: theme.success,
+  },
+  diffMediumText: {
+    color: theme.warning,
+  },
+  diffHardText: {
+    color: theme.danger,
+  },
+  aiReadyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.primaryLight,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 3,
+    borderWidth: 0.5,
+    borderColor: theme.primary,
+  },
+  aiReadyBadgeText: {
+    fontSize: 10,
+    color: theme.primaryDark,
+    fontWeight: '800',
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  ratingText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: theme.textSecondary,
+    marginLeft: 4,
+  },
+  // Search Modal layout
+  searchModalContainer: {
+    flex: 1,
+    backgroundColor: theme.background,
+  },
+  searchModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
+    gap: 12,
+  },
+  searchBarWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  searchBarInput: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.textPrimary,
+    padding: 0,
+  },
+  searchCloseBtn: {
+    paddingVertical: 6,
+  },
+  searchCloseBtnText: {
+    fontSize: 14,
+    color: theme.textSecondary,
+    fontWeight: '700',
+  },
+  searchScrollContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  searchSection: {
+    marginTop: 20,
+  },
+  searchSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  searchSectionTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  clearBtnText: {
+    fontSize: 11.5,
+    color: theme.danger,
+    fontWeight: '700',
+  },
+  recentSearchesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  recentSearchChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  recentSearchChipText: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontWeight: '600',
+  },
+  freqList: {
+    gap: 10,
+    marginTop: 6,
+  },
+  freqRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 10,
+    gap: 10,
+  },
+  freqIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  freqRowTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  freqRowDesc: {
+    fontSize: 11,
+    color: theme.textSecondary,
+    marginTop: 1,
+  },
+  freqUsageBadge: {
+    backgroundColor: theme.primaryLight,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  freqUsageText: {
+    fontSize: 9,
+    color: theme.primaryDark,
+    fontWeight: '800',
+  },
+  suggestedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  suggestedCard: {
+    width: '31%',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  suggestedCardText: {
+    fontSize: 10.5,
+    color: theme.textPrimary,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  searchResultsContainer: {
+    marginTop: 14,
+  },
+  searchResultsCount: {
+    fontSize: 12.5,
+    color: theme.textSecondary,
+    fontWeight: '600',
+    marginBottom: 14,
+  },
+  noResultsBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  noResultsText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    marginBottom: 4,
+  },
+  noResultsSub: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    textAlign: 'center',
+  },
+  customCreatorContainer: {
+    backgroundColor: theme.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 16,
+    marginBottom: 20,
+  },
+  customCreatorHeading: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    marginBottom: 4,
+  },
+  customCreatorSubHeading: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginBottom: 16,
+  },
+  collapsibleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    marginTop: 12,
+  },
+  collapsibleHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.primaryDark,
+  },
+  optionalPanel: {
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 12,
+    marginTop: 8,
+    gap: 12,
+  },
+  docsList: {
+    marginTop: 8,
+    gap: 6,
+  },
+  docItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  docItemText: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    flex: 1,
+    marginRight: 8,
+  },
+  attachBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: theme.primary,
+    backgroundColor: theme.primaryLight,
+    borderRadius: 8,
+    paddingVertical: 10,
+    marginTop: 10,
+    gap: 6,
+  },
+  attachBtnText: {
+    fontSize: 12.5,
+    color: theme.primaryDark,
+    fontWeight: '700',
+  },
+  personalTemplatesHeading: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  personalGrid: {
+    gap: 10,
+  },
+  personalCard: {
+    backgroundColor: theme.card,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  personalCardLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  personalCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  personalCardDesc: {
+    fontSize: 11,
+    color: theme.textSecondary,
+    marginTop: 2,
+  },
+  personalCardDeleteBtn: {
+    padding: 6,
+  },
+  questionWizardCard: {
+    backgroundColor: theme.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 18,
+    marginBottom: 20,
+  },
+  questionWizardHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    paddingBottom: 10,
+    marginBottom: 14,
+  },
+  questionWizardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: theme.warning,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  questionWizardStep: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginTop: 2,
+  },
+  questionWizardBody: {
+    marginBottom: 20,
+  },
+  questionLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.textPrimary,
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  questionInput: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: theme.textPrimary,
+    backgroundColor: theme.surfaceVariant,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  questionFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  questionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  questionBtnPrev: {
+    backgroundColor: theme.surfaceVariant,
+  },
+  questionBtnPrevText: {
+    fontSize: 13,
+    color: theme.textSecondary,
+    fontWeight: '700',
+  },
+  questionBtnNext: {
+    backgroundColor: theme.primary,
+  },
+  questionBtnNextText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
 });
+}

@@ -29,23 +29,23 @@ export const Badge: React.FC<BadgeProps> = ({
     switch (variant) {
       case 'success':
         return {
-          backgroundColor: StatusColors.success.light,
-          color: StatusColors.success.primary,
+          backgroundColor: theme.successLight,
+          color: theme.success,
         };
       case 'warning':
         return {
-          backgroundColor: StatusColors.warning.light,
-          color: StatusColors.warning.primary,
+          backgroundColor: theme.warningLight,
+          color: theme.warning,
         };
       case 'danger':
         return {
-          backgroundColor: StatusColors.danger.light,
-          color: StatusColors.danger.primary,
+          backgroundColor: theme.dangerLight,
+          color: theme.danger,
         };
       case 'info':
         return {
-          backgroundColor: StatusColors.info.light,
-          color: StatusColors.info.primary,
+          backgroundColor: theme.infoLight,
+          color: theme.info,
         };
       case 'neutral':
       default:

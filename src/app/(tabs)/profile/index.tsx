@@ -19,7 +19,8 @@ import { useRouter } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
-import { useToastContext } from '@/providers';
+import { useToastContext, useThemeContext } from '@/providers';
+import { useTranslation } from '@/localization';
 import { useUserStore } from '@/store/user';
 import { ProfileService } from '@/services/profile.service';
 import { useAuthContext } from '@/providers/auth-provider';
@@ -49,8 +50,10 @@ const PRESET_AVATARS = [
 export default function ProfileScreen() {
   const router = useRouter();
   const { showToast } = useToastContext();
+  const { theme, isDark } = useThemeContext();
   const insets = useSafeAreaInsets();
   const { logout } = useAuthContext();
+  const { t } = useTranslation();
 
   const profile = useUserStore((s) => s.profile);
   const setProfile = useUserStore((s) => s.setProfile);
@@ -375,13 +378,17 @@ export default function ProfileScreen() {
   const renderRow = (icon: string, label: string, value: string | undefined) => {
     return (
       <View style={styles.infoRow} key={label}>
-        <View style={styles.infoRowIcon}>
+        <View style={[styles.infoRowIcon, { backgroundColor: theme.primaryLight }]}>
           {/* @ts-ignore */}
-          <Ionicons name={icon} size={16} color="#6D5DFC" />
+          <Ionicons name={icon} size={16} color={theme.primary} />
         </View>
         <View style={styles.infoRowContent}>
-          <Text style={styles.infoRowLabel}>{label}</Text>
-          <Text style={[styles.infoRowValue, !value && styles.infoRowValueEmpty]}>
+          <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>{label}</Text>
+          <Text style={[
+            styles.infoRowValue,
+            { color: theme.textPrimary },
+            !value && [styles.infoRowValueEmpty, { color: theme.textMuted }]
+          ]}>
             {value || 'Not Provided'}
           </Text>
         </View>
@@ -400,13 +407,17 @@ export default function ProfileScreen() {
   ) => {
     return (
       <View style={styles.inputGroup} key={label}>
-        <Text style={styles.inputLabel}>{label}</Text>
+        <Text style={[styles.inputLabel, { color: theme.textMuted }]}>{label}</Text>
         <TextInput
-          style={[styles.formInput, multiline && styles.formTextArea]}
+          style={[
+            styles.formInput,
+            { borderColor: theme.border, color: theme.textPrimary, backgroundColor: theme.surfaceVariant },
+            multiline && styles.formTextArea
+          ]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={theme.placeholder}
           keyboardType={keyboardType}
           multiline={multiline}
           numberOfLines={numberOfLines}
@@ -416,19 +427,19 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* 1. PROFESSIONAL HEADER */}
-      <View style={[styles.customHeader, { paddingTop: Math.max(insets.top, 20) + 18, paddingBottom: 18 }]}>
+      <View style={[styles.customHeader, { paddingTop: Math.max(insets.top, 20) + 18, paddingBottom: 18, backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={handleBack} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={16} color="#6D5DFC" />
-            <Text style={styles.backText}>Back</Text>
+          <Pressable onPress={handleBack} style={[styles.backBtn, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}>
+            <Ionicons name="chevron-back" size={16} color={theme.primary} />
+            <Text style={[styles.backText, { color: theme.primary }]}>{t('common.close')}</Text>
           </Pressable>
         </View>
 
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitleText} numberOfLines={1}>Advocate Profile</Text>
-          <Text style={styles.headerSubtitleText} numberOfLines={1}>Litigation & Practice Credentials</Text>
+          <Text style={[styles.headerTitleText, { color: theme.textPrimary }]} numberOfLines={1}>{t('profile.title')}</Text>
+          <Text style={[styles.headerSubtitleText, { color: theme.textMuted }]} numberOfLines={1}>Litigation & Practice Credentials</Text>
         </View>
 
         <View style={styles.headerRight}>
@@ -441,33 +452,33 @@ export default function ProfileScreen() {
                 }}
                 style={styles.cancelLink}
               >
-                <Text style={styles.cancelLinkText}>Cancel</Text>
+                <Text style={[styles.cancelLinkText, { color: theme.textSecondary }]}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable
                 onPress={handleSave}
-                style={styles.saveBtn}
+                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 disabled={saving}
               >
                 {saving ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveBtnText}>Save</Text>
+                  <Text style={styles.saveBtnText}>{t('profile.save')}</Text>
                 )}
               </Pressable>
             </View>
           ) : (
             <Pressable
               onPress={() => setIsEditing(true)}
-              style={styles.editBtn}
+              style={[styles.editBtn, { borderColor: theme.primary, backgroundColor: theme.surface }]}
             >
-              <Ionicons name="create-outline" size={14} color="#6D5DFC" style={{ marginRight: 4 }} />
-              <Text style={styles.editBtnText}>Edit</Text>
+              <Ionicons name="create-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
+              <Text style={[styles.editBtnText, { color: theme.primary }]}>{t('profile.edit')}</Text>
             </Pressable>
           )}
         </View>
       </View>
 
-      <SafeAreaView style={{ flex: 1 }} edges={['left', 'right', 'bottom']}>
+      <View style={{ flex: 1 }}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
@@ -478,21 +489,21 @@ export default function ProfileScreen() {
             contentContainerStyle={styles.bodyContent}
           >
             {/* CARD 0: Top Profile Card */}
-            <Animated.View style={[styles.card, getCardStyle(0)]}>
+            <Animated.View style={[styles.card, getCardStyle(0), { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.avatarRow}>
                 <View style={styles.avatarWrapper}>
                   {profile?.avatar ? (
-                    <Image source={{ uri: profile.avatar }} style={styles.avatarImg} />
+                    <Image source={{ uri: profile.avatar }} style={[styles.avatarImg, { borderColor: theme.border }]} />
                   ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Text style={styles.avatarInitial}>
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                      <Text style={[styles.avatarInitial, { color: theme.primary }]}>
                         {(form.fullName || profile?.name || 'U').charAt(0).toUpperCase()}
                       </Text>
                     </View>
                   )}
                   {isEditing && (
                     <Pressable
-                      style={styles.cameraBtn}
+                      style={[styles.cameraBtn, { backgroundColor: theme.primary, borderColor: theme.card }]}
                       onPress={() => setShowAvatarModal(true)}
                     >
                       <Ionicons name="camera" size={14} color="#FFFFFF" />
@@ -501,56 +512,64 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={styles.identityCol}>
-                  <Text style={styles.fullNameText}>
+                  <Text style={[styles.fullNameText, { color: theme.textPrimary }]}>
                     {form.fullName || profile?.name || 'Counsel Profile'}
                   </Text>
-                  <Text style={styles.emailText}>{profile?.email || 'N/A'}</Text>
+                  <Text style={[styles.emailText, { color: theme.textSecondary }]}>{profile?.email || 'N/A'}</Text>
 
                   <View style={styles.badgesWrapper}>
-                    <View style={[styles.statusBadge, form.barNumber ? styles.statusBadgeVerified : styles.statusBadgePending]}>
+                    <View style={[
+                      styles.statusBadge,
+                      form.barNumber 
+                        ? { backgroundColor: theme.primaryLight, borderColor: theme.primary } 
+                        : { backgroundColor: 'rgba(245, 158, 11, 0.08)', borderColor: theme.warning }
+                    ]}>
                       <Ionicons
                         name={form.barNumber ? "shield-checkmark" : "time-outline"}
                         size={10}
-                        color={form.barNumber ? "#4F8CFF" : "#F59E0B"}
+                        color={form.barNumber ? theme.primary : theme.warning}
                         style={{ marginRight: 3 }}
                       />
-                      <Text style={[styles.statusBadgeText, form.barNumber ? styles.statusBadgeTextVerified : styles.statusBadgeTextPending]}>
+                      <Text style={[
+                        styles.statusBadgeText,
+                        { color: form.barNumber ? theme.primary : theme.warning }
+                      ]}>
                         {form.barNumber ? "Verified Advocate" : "Pending Verification"}
                       </Text>
                     </View>
 
                     {profile?.founderStatus ? (
-                      <View style={styles.membershipBadge}>
-                        <Ionicons name="ribbon-outline" size={10} color="#6D5DFC" style={{ marginRight: 3 }} />
-                        <Text style={styles.membershipText}>Founder Member</Text>
+                      <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                        <Ionicons name="ribbon-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
+                        <Text style={[styles.membershipText, { color: theme.primary }]}>Founder Member</Text>
                       </View>
                     ) : (
-                      <View style={styles.membershipBadge}>
-                        <Ionicons name="star-outline" size={10} color="#6D5DFC" style={{ marginRight: 3 }} />
-                        <Text style={styles.membershipText}>Premium Member</Text>
+                      <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                        <Ionicons name="star-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
+                        <Text style={[styles.membershipText, { color: theme.primary }]}>Premium Member</Text>
                       </View>
                     )}
                   </View>
 
-                  <Text style={styles.creditsText}>Credits Remaining: {profile?.credits ?? 0}</Text>
+                  <Text style={[styles.creditsText, { color: theme.primary }]}>{t('profile.credits')}: {profile?.credits ?? 0}</Text>
                 </View>
               </View>
 
               {/* Completion linear bar */}
-              <View style={styles.cardProgressContainer}>
+              <View style={[styles.cardProgressContainer, { borderTopColor: theme.divider }]}>
                 <View style={styles.cardProgressHeader}>
-                  <Text style={styles.cardProgressLabel}>Dossier Completion</Text>
-                  <Text style={styles.cardProgressValue}>{profileCompletion}%</Text>
+                  <Text style={[styles.cardProgressLabel, { color: theme.textSecondary }]}>{t('profile.progress')}</Text>
+                  <Text style={[styles.cardProgressValue, { color: theme.textPrimary }]}>{profileCompletion}%</Text>
                 </View>
-                <View style={styles.cardProgressBg}>
-                  <View style={[styles.cardProgressFill, { width: `${profileCompletion}%` }]} />
+                <View style={[styles.cardProgressBg, { backgroundColor: theme.surfaceVariant }]}>
+                  <View style={[styles.cardProgressFill, { width: `${profileCompletion}%`, backgroundColor: theme.primary }]} />
                 </View>
               </View>
             </Animated.View>
 
             {/* CARD 1: Personal Information */}
-            <Animated.View style={[styles.card, getCardStyle(1)]}>
-              <Text style={styles.sectionHeading}>Personal Information</Text>
+            <Animated.View style={[styles.card, getCardStyle(1), { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.personalInfo')}</Text>
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
@@ -592,8 +611,8 @@ export default function ProfileScreen() {
             </Animated.View>
 
             {/* CARD 2: Professional Information */}
-            <Animated.View style={[styles.card, getCardStyle(2)]}>
-              <Text style={styles.sectionHeading}>Professional Information</Text>
+            <Animated.View style={[styles.card, getCardStyle(2), { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.statistics')}</Text>
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
@@ -623,8 +642,8 @@ export default function ProfileScreen() {
             </Animated.View>
 
             {/* CARD 3: Office & Practice Information */}
-            <Animated.View style={[styles.card, getCardStyle(3)]}>
-              <Text style={styles.sectionHeading}>Office & Practice Information</Text>
+            <Animated.View style={[styles.card, getCardStyle(3), { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('settings.general')}</Text>
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
@@ -633,17 +652,25 @@ export default function ProfileScreen() {
                   
                   {/* Practice Areas */}
                   <View style={styles.chipLabelGroup}>
-                    <Text style={styles.inputLabel}>Practice Areas</Text>
+                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Practice Areas</Text>
                     <View style={styles.chipsContainer}>
                       {PRACTICE_AREAS.map((area) => {
                         const isSelected = form.practiceAreas.includes(area);
                         return (
                           <Pressable
                             key={area}
-                            style={[styles.chipButton, isSelected && styles.chipButtonActive]}
+                            style={[
+                              styles.chipButton,
+                              { backgroundColor: theme.surface, borderColor: theme.border },
+                              isSelected && [styles.chipButtonActive, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]
+                            ]}
                             onPress={() => togglePracticeArea(area)}
                           >
-                            <Text style={[styles.chipButtonText, isSelected && styles.chipButtonTextActive]}>
+                            <Text style={[
+                              styles.chipButtonText,
+                              { color: theme.textSecondary },
+                              isSelected && [styles.chipButtonTextActive, { color: theme.primary }]
+                            ]}>
                               {area}
                             </Text>
                           </Pressable>
@@ -661,17 +688,17 @@ export default function ProfileScreen() {
                   {renderRow('business-outline', 'Office Name', form.officeName)}
                   {renderRow('location-outline', 'Office Address', form.officeAddress)}
 
-                  <View style={styles.practiceAreasSection}>
-                    <Text style={styles.infoRowLabel}>Practice Areas</Text>
+                  <View style={[styles.practiceAreasSection, { borderTopColor: theme.divider }]}>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Practice Areas</Text>
                     <View style={styles.chipsContainer}>
                       {form.practiceAreas.length > 0 ? (
                         form.practiceAreas.map((area) => (
-                          <View key={area} style={styles.staticChip}>
-                            <Text style={styles.staticChipText}>{area}</Text>
+                          <View key={area} style={[styles.staticChip, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                            <Text style={[styles.staticChipText, { color: theme.primary }]}>{area}</Text>
                           </View>
                         ))
                       ) : (
-                        <Text style={styles.notProvidedText}>No practice areas specified</Text>
+                        <Text style={[styles.notProvidedText, { color: theme.textMuted }]}>No practice areas specified</Text>
                       )}
                     </View>
                   </View>
@@ -679,15 +706,23 @@ export default function ProfileScreen() {
                   {renderRow('sparkles-outline', 'Core Specialization', form.specialization)}
 
                   <View style={styles.longTextSection}>
-                    <Text style={styles.infoRowLabel}>Professional Bio Summary</Text>
-                    <Text style={[styles.longTextValue, !form.bio && styles.longTextEmpty]}>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Professional Bio Summary</Text>
+                    <Text style={[
+                      styles.longTextValue,
+                      { color: theme.textPrimary },
+                      !form.bio && [styles.longTextEmpty, { color: theme.textMuted }]
+                    ]}>
                       {form.bio || 'Not Provided'}
                     </Text>
                   </View>
 
                   <View style={styles.longTextSection}>
-                    <Text style={styles.infoRowLabel}>Achievements</Text>
-                    <Text style={[styles.longTextValue, !form.achievements && styles.longTextEmpty]}>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Achievements</Text>
+                    <Text style={[
+                      styles.longTextValue,
+                      { color: theme.textPrimary },
+                      !form.achievements && [styles.longTextEmpty, { color: theme.textMuted }]
+                    ]}>
                       {form.achievements || 'Not Provided'}
                     </Text>
                   </View>
@@ -696,9 +731,9 @@ export default function ProfileScreen() {
             </Animated.View>
 
             {/* CARD 4: Completeness Checklist */}
-            <Animated.View style={[styles.card, getCardStyle(4)]}>
-              <Text style={styles.sectionHeading}>Dossier Completeness Checklist</Text>
-              <Text style={styles.checklistSubtitle}>
+            <Animated.View style={[styles.card, getCardStyle(4), { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.progress')}</Text>
+              <Text style={[styles.checklistSubtitle, { color: theme.textSecondary }]}>
                 Complete these sections to build a professional Advocate Dossier.
               </Text>
               <View style={styles.checklistGrid}>
@@ -713,13 +748,13 @@ export default function ProfileScreen() {
                       <Ionicons
                         name={item.completed ? 'checkmark-circle' : 'ellipse-outline'}
                         size={18}
-                        color={item.completed ? '#10B981' : '#9CA3AF'}
+                        color={item.completed ? theme.success : theme.textMuted}
                       />
                     </View>
                     <Text
                       style={[
                         styles.checklistText,
-                        item.completed ? styles.checklistTextCompleted : styles.checklistTextPending,
+                        { color: item.completed ? theme.success : theme.textSecondary }
                       ]}
                     >
                       {item.label}
@@ -730,8 +765,8 @@ export default function ProfileScreen() {
             </Animated.View>
 
             {/* CARD 5: Dedicated Account Settings list items */}
-            <Animated.View style={[styles.card, getCardStyle(5)]}>
-              <Text style={styles.sectionHeading}>Account</Text>
+            <Animated.View style={[styles.card, getCardStyle(5), { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.title')}</Text>
               
               <View style={styles.accountList}>
                 <Pressable
@@ -739,45 +774,46 @@ export default function ProfileScreen() {
                   onPress={() => handleAccountPress('Settings')}
                 >
                   <View style={styles.accountItemLeft}>
-                    <Ionicons name="settings-outline" size={18} color="#4B5563" style={styles.accountIcon} />
-                    <Text style={styles.accountItemText}>Settings</Text>
+                    <Ionicons name="settings-outline" size={18} color={theme.textSecondary} style={styles.accountIcon} />
+                    <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>{t('settings.title')}</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
                 </Pressable>
 
-                <View style={styles.accountDivider} />
+                <View style={[styles.accountDivider, { backgroundColor: theme.divider }]} />
 
-                <Pressable
-                  style={styles.accountItem}
-                  onPress={() => handleAccountPress('Support')}
-                >
-                  <View style={styles.accountItemLeft}>
-                    <Ionicons name="help-circle-outline" size={18} color="#4B5563" style={styles.accountIcon} />
-                    <Text style={styles.accountItemText}>Help & Support</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </Pressable>
-
-                <View style={styles.accountDivider} />
+                {/* RAG Knowledge Base for Admin Users */}
+                {(profile?.role === 'admin' || profile?.email?.toLowerCase().trim() === 'aditi@uwo24.com') && (
+                  <>
+                    <Pressable
+                      style={styles.accountItem}
+                      onPress={() => router.push('/settings/rag-knowledge-base')}
+                    >
+                      <View style={styles.accountItemLeft}>
+                        <Ionicons name="book-outline" size={18} color={theme.textSecondary} style={styles.accountIcon} />
+                        <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>AI Product Guide Knowledge</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                    </Pressable>
+                    <View style={[styles.accountDivider, { backgroundColor: theme.divider }]} />
+                  </>
+                )}
 
                 <Pressable
                   style={styles.accountItem}
                   onPress={() => handleAccountPress('Logout')}
                 >
                   <View style={styles.accountItemLeft}>
-                    <Ionicons name="log-out-outline" size={18} color="#EF4444" style={styles.accountIcon} />
-                    <Text style={[styles.accountItemText, styles.logoutText]}>Logout</Text>
+                    <Ionicons name="log-out-outline" size={18} color={theme.danger} style={styles.accountIcon} />
+                    <Text style={[styles.accountItemText, { color: theme.danger }]}>{t('settings.logout')}</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+                  <Ionicons name="chevron-forward" size={16} color={theme.danger} />
                 </Pressable>
               </View>
             </Animated.View>
-
-            {/* Bottom Footer Margin */}
-            <View style={{ height: 40 }} />
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
 
       {/* Preset Avatars Modal */}
       <Modal
@@ -786,24 +822,24 @@ export default function ProfileScreen() {
         animationType="slide"
         onRequestClose={() => setShowAvatarModal(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}>
           <Pressable style={styles.modalDismissBg} onPress={() => setShowAvatarModal(false)} />
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Change Profile Photo</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Change Profile Photo</Text>
               <Pressable onPress={() => setShowAvatarModal(false)}>
-                <Ionicons name="close" size={22} color="#4B5563" />
+                <Ionicons name="close" size={22} color={theme.textSecondary} />
               </Pressable>
             </View>
 
             {uploadingAvatar ? (
               <View style={styles.uploadingBox}>
-                <ActivityIndicator size="large" color="#6D5DFC" />
-                <Text style={styles.uploadingText}>Uploading photo to cloud storage...</Text>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text style={[styles.uploadingText, { color: theme.primary }]}>Uploading photo to cloud storage...</Text>
               </View>
             ) : (
               <View style={{ paddingBottom: 20 }}>
-                <Text style={styles.drawerSectionTitle}>Choose Premium Presets</Text>
+                <Text style={[styles.drawerSectionTitle, { color: theme.textSecondary }]}>Choose Premium Presets</Text>
                 <View style={styles.avatarGrid}>
                   {PRESET_AVATARS.map((av, idx) => (
                     <Pressable
@@ -811,8 +847,8 @@ export default function ProfileScreen() {
                       style={styles.avatarChip}
                       onPress={() => handleSelectPresetAvatar(av.url)}
                     >
-                      <Image source={{ uri: av.url }} style={styles.gridAvatarImg} />
-                      <Text style={styles.gridAvatarLabel} numberOfLines={1}>
+                      <Image source={{ uri: av.url }} style={[styles.gridAvatarImg, { borderColor: theme.border }]} />
+                      <Text style={[styles.gridAvatarLabel, { color: theme.textSecondary }]} numberOfLines={1}>
                         {av.name.split(' ')[0]}
                       </Text>
                     </Pressable>
@@ -820,15 +856,24 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={styles.avatarActions}>
-                  <Pressable style={styles.uploadBtn} onPress={handleMockUpload}>
+                  <Pressable style={[styles.uploadBtn, { backgroundColor: theme.primary }]} onPress={handleMockUpload}>
                     <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
                     <Text style={styles.uploadBtnText}>Upload Custom Picture</Text>
                   </Pressable>
 
                   {profile?.avatar ? (
-                    <Pressable style={styles.removeBtn} onPress={handleRemoveAvatar}>
-                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      <Text style={styles.removeBtnText}>Delete Photo</Text>
+                    <Pressable
+                      style={[
+                        styles.removeBtn,
+                        {
+                          backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FFF1F2',
+                          borderColor: theme.danger
+                        }
+                      ]}
+                      onPress={handleRemoveAvatar}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                      <Text style={[styles.removeBtnText, { color: theme.danger }]}>Delete Photo</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -949,7 +994,7 @@ const styles = StyleSheet.create({
   bodyContent: {
     paddingHorizontal: 16,
     paddingTop: 20,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
   card: {
     backgroundColor: '#FFFFFF',

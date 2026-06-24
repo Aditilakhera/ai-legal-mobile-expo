@@ -18,22 +18,28 @@ import {
   BackHandler,
   Animated,
   Alert,
+  TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { Image } from 'expo-image';
 import { UploadService } from '@/services/upload.service';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useWorkspaceStore } from '@/store/workspace';
 import { CaseService } from '@/services/case.service';
-import { useToastContext } from '@/providers';
+import { WorkspaceService } from '@/services/workspace.service';
+import { getSocket } from '@/services/socket.service';
+import { useThemeContext, useToastContext } from '@/providers';
 import { ChatService } from '@/services/chat.service';
 import { DraftService } from '@/services/draft.service';
 import { ResearchService } from '@/services/research.service';
-import { streamAIResponse } from '@/api/client';
+import { streamAIResponse, apiClient } from '@/api/client';
+import { EvidenceService } from '@/services/evidence.service';
+import { useTranslation, formatRelativeDate } from '@/localization';
 import {
   CaseWorkspace,
   CaseDocument,
@@ -65,28 +71,7 @@ const toolItems = [
   { id: 'researchAssistant', name: 'Research Assistant', icon: 'chatbubbles-outline', color: '#EC4899' },
 ];
 
-// Theme tokens matching Light Mode design system
-const theme = {
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceVariant: '#F9FAFB',
-  primary: '#6D5DFC',
-  primaryDark: '#5B4EDB',
-  primaryLight: '#EEECFF',
-  border: '#ECECEC',
-  textPrimary: '#1F2937',
-  textSecondary: '#4B5563',
-  textMuted: '#9CA3AF',
-  placeholder: '#9CA3AF',
-  success: '#10B981',
-  successLight: '#E6F4EA',
-  danger: '#EF4444',
-  dangerLight: '#FCE8E6',
-  warning: '#F59E0B',
-  warningLight: '#FEF7E0',
-  info: '#3B82F6',
-  infoLight: '#EBF5FF',
-};
+// Dynamic theme provider hooks will resolve this context dynamically inside the component
 
 const { width, height } = Dimensions.get('window');
 
@@ -137,9 +122,12 @@ Dated: 18 June 2026`,
 export default function WorkspaceDetailScreen() {
   useAuthGuard();
   const router = useRouter();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const { showToast } = useToastContext();
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
-
+  const { t, language } = useTranslation();
+  const insets = useSafeAreaInsets();
   const {
     workspace,
     loading,
@@ -347,6 +335,32 @@ export default function WorkspaceDetailScreen() {
   // Active section state
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<string>(tab || 'overview');
 
+  // AI Legal Analysis states
+  const [latestAnalysis, setLatestAnalysis] = useState<any>(null);
+  const [analysisHistory, setAnalysisHistory] = useState<any[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [currentAnalysisStep, setCurrentAnalysisStep] = useState(0);
+  const [analysisProgressLabel, setAnalysisProgressLabel] = useState('Initializing Analysis...');
+  const [showAnalysisAgainPrompt, setShowAnalysisAgainPrompt] = useState(false);
+  const [showAnalysisErrorModal, setShowAnalysisErrorModal] = useState(false);
+  const [analysisErrorMsg, setAnalysisErrorMsg] = useState('');
+  const [viewedAnalysisRun, setViewedAnalysisRun] = useState<any>(null);
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    summary: true,
+    issues: false,
+    precedents: false,
+    evidence: false,
+    strategy: false,
+    prep: false,
+    risks: false,
+    history: false
+  });
+
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
   // OCR state simulations
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [ocrSteps, setOcrSteps] = useState<string[]>([]);
@@ -355,6 +369,16 @@ export default function WorkspaceDetailScreen() {
   // Forms control states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<string | null>(null);
+
+  // Zero-Hallucination validation & summary state
+  const [summaryInputText, setSummaryInputText] = useState('');
+  const [validationError, setValidationError] = useState<{
+    type: 'garbage_summary' | 'insufficient_data';
+    error?: string;
+    readinessScore?: number;
+    missingFields?: string[];
+  } | null>(null);
+  const [showValidationErrorModal, setShowValidationErrorModal] = useState(false);
 
   // --- FORM INPUT STATES ---
   const [courtOrderForm, setCourtOrderForm] = useState({ title: '', date: '', issuer: '', notes: '' });
@@ -461,6 +485,17 @@ export default function WorkspaceDetailScreen() {
   const [ocrProgressStep, setOcrProgressStep] = useState(0);
   const [isAnalyzingEvidence, setIsAnalyzingEvidence] = useState(false);
   const [aiAnalysisProgressStep, setAiAnalysisProgressStep] = useState(0);
+
+  // New Evidence Refactor States
+  const [evidenceUploadProgress, setEvidenceUploadProgress] = useState<number | null>(null);
+  const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
+  const [isScannerWizardOpen, setIsScannerWizardOpen] = useState(false);
+  const [isScannerCameraVisible, setIsScannerCameraVisible] = useState(false);
+  const [scannedPages, setScannedPages] = useState<string[]>([]);
+  const [scannerStep, setScannerStep] = useState<'capture' | 'crop' | 'filter' | 'preview'>('capture');
+  const [scannerFilter, setScannerFilter] = useState<'original' | 'bw' | 'gray' | 'magic'>('original');
+  const [isAnalyzingEvidenceDetail, setIsAnalyzingEvidenceDetail] = useState(false);
+  const [evidenceAnalysisProgress, setEvidenceAnalysisProgress] = useState(0);
 
   // AI Contract Redesign States
   const [uploadedContract, setUploadedContract] = useState<any>(null);
@@ -1402,16 +1437,141 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     showToast('success', 'Workspace Synced', 'AI successfully batch synchronized case modules with court order parameters.');
   };
 
+  const fetchAnalysisDetails = async (caseId: string) => {
+    try {
+      const res = await WorkspaceService.getLatestAnalysis(caseId);
+      if (res && res.success && res.data) {
+        setLatestAnalysis(res.data);
+        setViewedAnalysisRun(res.data);
+      } else {
+        setLatestAnalysis(null);
+        setViewedAnalysisRun(null);
+      }
+      
+      const historyRes = await WorkspaceService.getAnalysisHistory(caseId);
+      if (historyRes && historyRes.success && historyRes.data) {
+        setAnalysisHistory(historyRes.data);
+      } else {
+        setAnalysisHistory([]);
+      }
+    } catch (err) {
+      console.error('[WORKSPACE] Failed to fetch latest analysis details:', err);
+    }
+  };
+
+  const handleStartAnalysis = async () => {
+    if (!id) return;
+    setShowAnalysisAgainPrompt(false);
+    setIsAnalyzing(true);
+    setCurrentAnalysisStep(0);
+    setAnalysisProgressLabel('Initializing Analysis...');
+    
+    // Set up local fallback timer
+    let fallbackTimer: any = null;
+    let fallbackStep = 0;
+    
+    const steps = [
+      'Reading Case Details',
+      'Reviewing Timeline',
+      'Checking Hearings',
+      'Processing Uploaded Documents',
+      'Reviewing Evidence',
+      'Researching Applicable Laws',
+      'Finding Similar Judgments',
+      'Preparing Legal Strategy'
+    ];
+    
+    fallbackTimer = setInterval(() => {
+      fallbackStep += 1;
+      if (fallbackStep <= 8) {
+        setCurrentAnalysisStep((current) => {
+          if (fallbackStep > current) {
+            setAnalysisProgressLabel(steps[fallbackStep - 1]);
+            return fallbackStep;
+          }
+          return current;
+        });
+      } else {
+        if (fallbackTimer) clearInterval(fallbackTimer);
+      }
+    }, 1500);
+
+    try {
+      const res = await WorkspaceService.triggerCompleteAnalysis(id);
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      
+      if (res && res.success && res.data) {
+        setCurrentAnalysisStep(9);
+        setAnalysisProgressLabel('Completed');
+        setLatestAnalysis(res.data);
+        setViewedAnalysisRun(res.data);
+        
+        // Sync metrics and notes
+        await fetchWorkspaceDetails(id);
+        await fetchAnalysisDetails(id);
+        
+        setIsAnalyzing(false);
+        setActiveWorkspaceTab('analysis');
+        showToast('success', 'Analysis Completed', 'Your complete AI legal analysis report is ready.');
+      } else {
+        throw new Error(res.error || 'Server returned unsuccessful response');
+      }
+    } catch (err: any) {
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      setIsAnalyzing(false);
+      
+      const errData = err.response?.data;
+      if (errData && errData.success === false && (errData.type === 'garbage_summary' || errData.type === 'insufficient_data')) {
+        setValidationError({
+          type: errData.type,
+          error: errData.error,
+          readinessScore: errData.readinessScore,
+          missingFields: errData.missingFields
+        });
+        setShowValidationErrorModal(true);
+      } else {
+        setAnalysisErrorMsg(err.message || 'Unable to analyze case. Please check your internet connection or try again later.');
+        setShowAnalysisErrorModal(true);
+      }
+    }
+  };
+
+  const handleContinueAnalysis = async () => {
+    if (latestAnalysis) {
+      setShowAnalysisAgainPrompt(true);
+    } else {
+      handleStartAnalysis();
+    }
+  };
+
   // Initialize and select case
   useEffect(() => {
     if (id) {
       setActiveCaseId(id);
       fetchWorkspaceDetails(id);
+      fetchAnalysisDetails(id);
     }
     if (tab) {
       setActiveWorkspaceTab(tab);
     }
   }, [id, tab]);
+
+  // Listen for socket progress
+  useEffect(() => {
+    const socket = getSocket();
+    if (socket && id) {
+      const handleProgress = (data: { caseId: string; stepIndex: number; label: string }) => {
+        if (data.caseId === id) {
+          setCurrentAnalysisStep(data.stepIndex);
+          setAnalysisProgressLabel(data.label);
+        }
+      };
+      socket.on('analysis_progress', handleProgress);
+      return () => {
+        socket.off('analysis_progress', handleProgress);
+      };
+    }
+  }, [id]);
 
   // Sync local notes once loaded
   useEffect(() => {
@@ -2261,9 +2421,10 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
               }
             ]}
           >
-            <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'bottom']}>
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom }}>
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                enabled={Platform.OS === 'ios'}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 style={{ flex: 1 }}
               >
@@ -2400,7 +2561,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
                   </View>
                 </View>
               </Modal>
-            </SafeAreaView>
+            </View>
           </Animated.View>
         </View>
       </Modal>
@@ -3432,6 +3593,10 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     showToast('success', 'Party Added', `${partyForm.role} added to list.`);
   };
 
+  const handleAddEvidence = () => {
+    handleAddEvidenceWithPipeline();
+  };
+
   // Add manual Evidence record with AI + OCR pipelines
   const handleAddEvidenceWithPipeline = async (manualData?: any) => {
     const name = manualData?.name || logEvidenceForm.name;
@@ -3591,39 +3756,252 @@ Signatures: Match validated by Plaintiff Advocate.`;
     showToast('success', 'Evidence Vault Updated', `Exhibit "${newEvidenceItem.exhibitNumber}" logged & AI analyzed.`);
   };
 
-  const handleAddEvidence = () => {
-    handleAddEvidenceWithPipeline({
-      name: evidenceForm.name,
-      type: evidenceForm.type,
-      description: evidenceForm.description,
-      notes: '',
-      tags: '',
-      fileSize: '1.2 MB'
-    });
-    setIsModalOpen(false);
-  };
+  const handleRealEvidenceUpload = async (
+    fileUri: string,
+    fileName: string,
+    mimeType: string,
+    extraData: any = {}
+  ) => {
+    if (!id || !workspace) return;
+    setIsEvidenceUploading(true);
+    setEvidenceUploadProgress(0);
+    try {
+      const response = await UploadService.uploadEvidence(
+        id,
+        fileUri,
+        fileName,
+        mimeType,
+        extraData,
+        (progress) => setEvidenceUploadProgress(progress)
+      );
 
-  const handleDeleteEvidence = (evId: string) => {
-    if (!workspace) return;
-    const current = workspace.evidence || [];
-    const updated = current.filter(e => e.id !== evId && e._id !== evId);
-    handleUpdateField({ evidence: updated });
-    showToast('success', 'Evidence Purged', 'Vault item permanently removed.');
-  };
-
-  const handleUpdateEvidenceStatus = (evId: string, nextStatus: 'Verified' | 'Pending' | 'Rejected' | 'Disputed') => {
-    if (!workspace) return;
-    const current = workspace.evidence || [];
-    const updated = current.map(e => {
-      if (e.id === evId || e._id === evId) {
-        return { ...e, status: nextStatus };
+      if (response.success && response.data) {
+        showToast('success', 'Upload Successful', `Exhibit "${response.data.exhibitNumber || 'Item'}" has been logged into the Vault.`);
+        // Refresh project workspace from database
+        await fetchWorkspaceDetails(id);
+      } else {
+        showToast('error', 'Upload Failed', response.error || 'Failed to upload evidence file.');
       }
-      return e;
-    });
-    handleUpdateField({ evidence: updated });
-    setIsVerifyModalOpen(false);
-    setVerifyTargetId(null);
-    showToast('success', 'Verification Status', `Exhibit verified status updated to ${nextStatus}.`);
+    } catch (err: any) {
+      console.error('[EVIDENCE UPLOAD] Error:', err);
+      showToast('error', 'Upload Error', err.message || 'An error occurred during evidence upload.');
+    } finally {
+      setIsEvidenceUploading(false);
+      setEvidenceUploadProgress(null);
+    }
+  };
+
+  const handleEvidenceFilePick = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        console.log('[DocumentPicker] Cancelled by user.');
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (!asset.uri || !asset.name) {
+        showToast('error', 'Selection Failed', 'Could not read file details.');
+        return;
+      }
+
+      const ext = asset.name.split('.').pop()?.toLowerCase() || '';
+      const allowedExts = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'mp4', 'mp3', 'zip'];
+      if (!allowedExts.includes(ext)) {
+        showToast('error', 'Unsupported File', `Supported files are: ${allowedExts.join(', ').toUpperCase()}`);
+        return;
+      }
+
+      const extensionToMime: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp',
+        pdf: 'application/pdf',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        mp4: 'video/mp4',
+        mp3: 'audio/mpeg',
+        zip: 'application/zip',
+      };
+      const mime = asset.mimeType || extensionToMime[ext] || 'application/octet-stream';
+
+      // Call real upload
+      await handleRealEvidenceUpload(asset.uri, asset.name, mime);
+    } catch (err: any) {
+      console.error('[DocumentPicker] Error picking document:', err);
+      showToast('error', 'Picker Error', err.message || 'Failed to select file.');
+    }
+  };
+
+  const handleStartDocumentScan = () => {
+    setScannedPages([]);
+    setScannerStep('capture');
+    setIsScannerWizardOpen(true);
+    setIsScannerCameraVisible(true);
+  };
+
+  const handleScannerCameraConfirm = (uri: string) => {
+    setScannedPages((prev) => [...prev, uri]);
+    setIsScannerCameraVisible(false);
+    setScannerStep('crop');
+  };
+
+  const handleScannerCropDone = () => {
+    setScannerStep('filter');
+  };
+
+  const handleScannerFilterDone = () => {
+    setScannerStep('preview');
+  };
+
+  const handleScannerSaveUpload = async () => {
+    if (scannedPages.length === 0) return;
+    
+    const fileUri = scannedPages[0];
+    const fileName = `Scanned_Exhibit_Doc_${Math.floor(Math.random() * 900 + 100)}.pdf`;
+    const mimeType = 'application/pdf';
+
+    setIsEvidenceUploading(true);
+    setEvidenceUploadProgress(10);
+
+    try {
+      // Simulate PDF compilation progress
+      for (let p = 15; p <= 45; p += 15) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        setEvidenceUploadProgress(p);
+      }
+
+      // Perform upload
+      const response = await UploadService.uploadEvidence(
+        id!,
+        fileUri,
+        fileName,
+        mimeType,
+        {
+          type: 'Document',
+          description: 'Digitized document scanner output.',
+          notes: 'Edge-enhanced, B&W high-contrast filter applied.',
+          tags: 'Scanned, OCR, PDF',
+        },
+        (progress) => setEvidenceUploadProgress(50 + Math.round(progress / 2))
+      );
+
+      if (response.success && response.data) {
+        showToast('success', 'Document Scanned', `Scanned Exhibit "${response.data.exhibitNumber || 'Item'}" successfully saved.`);
+        await fetchWorkspaceDetails(id!);
+        setIsScannerWizardOpen(false);
+      } else {
+        showToast('error', 'Scan Upload Failed', response.error || 'Failed to save scanned document.');
+      }
+    } catch (err: any) {
+      console.error('[SCANNER UPLOAD] Error:', err);
+      showToast('error', 'Scanner Error', err.message || 'Failed to complete scanning upload.');
+    } finally {
+      setIsEvidenceUploading(false);
+      setEvidenceUploadProgress(null);
+    }
+  };
+
+  const handleDeleteEvidenceReal = (evId: string) => {
+    Alert.alert(
+      'Delete Evidence?',
+      'This action cannot be undone. The document file and associated metadata will be permanently deleted from the vault.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              showToast('info', 'Deleting', 'Removing evidence from vault...');
+              const response = await EvidenceService.deleteEvidence(id!, evId);
+              if (response.success) {
+                showToast('success', 'Deleted', 'Evidence item deleted successfully.');
+                if (selectedEvidence && (selectedEvidence.id === evId || selectedEvidence._id === evId)) {
+                  setIsEvidenceDetailsOpen(false);
+                }
+                await fetchWorkspaceDetails(id!);
+              } else {
+                showToast('error', 'Delete Failed', response.error || 'Failed to delete evidence item.');
+              }
+            } catch (err: any) {
+              console.error('[DELETE EVIDENCE] Error:', err);
+              showToast('error', 'Error', err.message || 'An error occurred during deletion.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleUpdateEvidenceStatusReal = async (evId: string, nextStatus: 'Verified' | 'Pending' | 'Rejected' | 'Disputed') => {
+    try {
+      const response = await EvidenceService.updateEvidence(id!, evId, { status: nextStatus });
+      if (response.success && response.data) {
+        showToast('success', 'Status Updated', `Verification status updated to ${nextStatus}.`);
+        setIsVerifyModalOpen(false);
+        setVerifyTargetId(null);
+        
+        // Update selectedEvidence if open
+        if (selectedEvidence && (selectedEvidence.id === evId || selectedEvidence._id === evId)) {
+          setSelectedEvidence(response.data);
+        }
+        await fetchWorkspaceDetails(id!);
+      } else {
+        showToast('error', 'Update Failed', response.error || 'Failed to update verification status.');
+      }
+    } catch (err: any) {
+      console.error('[STATUS UPDATE] Error:', err);
+      showToast('error', 'Error', err.message || 'Failed to update verification status.');
+    }
+  };
+
+  const handleRunEvidenceAIAnalysis = async (evId: string) => {
+    if (!id) return;
+    setIsAnalyzingEvidenceDetail(true);
+    setEvidenceAnalysisProgress(0);
+    
+    // Simulate interactive analysis progress loader
+    const steps = [
+      'Extracting characters via OCR...',
+      'Analyzing text under Indian Evidence Act...',
+      'Mapping dates and parties...',
+      'Generating legal relevance summary...',
+    ];
+
+    try {
+      // Animate progress up to 80%
+      for (let i = 0; i < steps.length; i++) {
+        showToast('info', 'AI Analysis', steps[i]);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        setEvidenceAnalysisProgress((i + 1) * 20);
+      }
+
+      const response = await apiClient.post(`/projects/${id}/evidence/${evId}/analyze`);
+      
+      if (response.data && response.data.success) {
+        setEvidenceAnalysisProgress(100);
+        showToast('success', 'Analysis Completed', 'AI Co-Counsel findings successfully loaded.');
+        
+        // Refresh details modal with analyzed result
+        const updatedEv = response.data.data;
+        setSelectedEvidence(updatedEv);
+        await fetchWorkspaceDetails(id);
+      } else {
+        showToast('error', 'Analysis Failed', 'Could not parse document layers.');
+      }
+    } catch (err: any) {
+      console.error('[AI EVIDENCE ANALYSIS] Error:', err);
+      showToast('error', 'Analysis Error', err.message || 'An error occurred during AI analysis.');
+    } finally {
+      setIsAnalyzingEvidenceDetail(false);
+      setEvidenceAnalysisProgress(0);
+    }
   };
 
   // Add manual Court Order
@@ -4531,13 +4909,12 @@ Through Counsel
     const docCount = workspace?.documents?.length || 0;
     const lastDoc = docCount > 0 ? workspace?.documents[docCount - 1] : null;
     const recentActivityStr = lastDoc ? `Uploaded ${lastDoc.name}` : 'No recent uploads';
-
     const insights = [
-      { id: 'win', title: 'Win Probability', value: `${winProb}%`, icon: 'trending-up-outline', color: theme.success },
-      { id: 'strength', title: 'Case Strength', value: `${strength}%`, icon: 'shield-checkmark-outline', color: theme.info },
-      { id: 'tasks', title: 'Task Progress', value: `${taskPercent}%`, subtitle: `${completedTasks}/${totalTasks} done`, icon: 'checkbox-outline', color: theme.primary },
-      { id: 'hearing', title: 'Upcoming Hearing', value: nextHearing ? nextHearing.date : 'None Scheduled', icon: 'calendar-outline', color: theme.warning },
-      { id: 'activity', title: 'Recent Activity', value: recentActivityStr, icon: 'time-outline', color: theme.textSecondary },
+      { id: 'win', title: t('workspace.winProbability'), value: `${winProb}%`, icon: 'trending-up-outline', color: theme.success },
+      { id: 'strength', title: t('workspace.caseStrength'), value: `${strength}%`, icon: 'shield-checkmark-outline', color: theme.info },
+      { id: 'tasks', title: t('workspace.taskProgress'), value: `${taskPercent}%`, subtitle: `${completedTasks}/${totalTasks} done`, icon: 'checkbox-outline', color: theme.primary },
+      { id: 'hearing', title: t('workspace.upcomingHearing'), value: nextHearing ? nextHearing.date : t('cases.nothingScheduled'), icon: 'calendar-outline', color: theme.warning },
+      { id: 'activity', title: t('workspace.recentActivity'), value: recentActivityStr, icon: 'time-outline', color: theme.textSecondary },
     ];
 
     return (
@@ -4569,27 +4946,7 @@ Through Counsel
     const missingEvidence = workspace?.intelligence?.missingEvidence?.[0] || 'Original copy of legal default postal receipt.';
     
     const nextDeadlineTask = (workspace?.tasks || []).find(t => t.status !== 'Completed' && t.deadline);
-    const nextDeadline = nextDeadlineTask ? `${nextDeadlineTask.title} (${nextDeadlineTask.deadline})` : 'No pending deadlines';
-
-    const handleContinueAnalysis = () => {
-      showToast('info', 'AI Analysis Running', 'Scanning new parameters and precedents...');
-      setTimeout(() => {
-        const currentWinProb = workspace?.intelligence?.winProbability || 65;
-        const currentStrength = workspace?.intelligence?.strengthScore || 70;
-        
-        const updatedIntelligence = {
-          ...workspace?.intelligence,
-          winProbability: Math.min(95, currentWinProb + 2),
-          strengthScore: Math.min(100, currentStrength + 3),
-          strategyRecommendations: [
-            'Precedent search indicates high success rate under Section 138. Prioritize proving delivery receipt.',
-            ...(workspace?.intelligence?.strategyRecommendations || [])
-          ]
-        };
-        handleUpdateField({ intelligence: updatedIntelligence as any });
-        showToast('success', 'AI Analysis Complete', 'Win Probability and strategic suggestions updated.');
-      }, 1000);
-    };
+    const nextDeadline = nextDeadlineTask ? `${nextDeadlineTask.title} (${nextDeadlineTask.deadline})` : t('cases.nothingPending');
 
     const handleGenerateStrategy = () => {
       setActiveWorkspaceTab('arguments');
@@ -4600,44 +4957,43 @@ Through Counsel
       <View style={styles.aiAssistantCard}>
         <View style={styles.aiAssistantHeader}>
           <Ionicons name="sparkles" size={16} color={theme.primary} />
-          <Text style={styles.aiAssistantTitle}>AI Case Assistant</Text>
+          <Text style={styles.aiAssistantTitle}>{t('home.aiLegalAssistant')}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
-          <Text style={styles.aiAssistantLabel}>Litigation Status</Text>
+          <Text style={styles.aiAssistantLabel}>{t('workspace.status')}</Text>
           <Text style={styles.aiAssistantValue}>{status}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
-          <Text style={styles.aiAssistantLabel}>Latest AI Advice</Text>
+          <Text style={styles.aiAssistantLabel}>{t('workspace.latestAiAdvice')}</Text>
           <Text style={styles.aiAssistantValue} numberOfLines={2}>{recommendation}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
-          <Text style={styles.aiAssistantLabel}>Recommended Action</Text>
+          <Text style={styles.aiAssistantLabel}>{t('workspace.recommendedAction')}</Text>
           <Text style={styles.aiAssistantValue}>{nextAction}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
-          <Text style={styles.aiAssistantLabel}>Evidence Alert</Text>
+          <Text style={styles.aiAssistantLabel}>{t('workspace.evidenceAlert')}</Text>
           <Text style={[styles.aiAssistantValue, { color: theme.danger, fontWeight: '700' }]}>⚠️ {missingEvidence}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
-          <Text style={styles.aiAssistantLabel}>Next Deadline</Text>
+          <Text style={styles.aiAssistantLabel}>{t('workspace.nextDeadline')}</Text>
           <Text style={styles.aiAssistantValue}>{nextDeadline}</Text>
         </View>
 
         <View style={styles.aiAssistantButtons}>
           <TouchableOpacity style={styles.aiButton} onPress={handleContinueAnalysis}>
             <Ionicons name="sync-outline" size={13} color="#FFFFFF" />
-            <Text style={styles.aiButtonText}>Analyze Case</Text>
+            <Text style={styles.aiButtonText}>{t('workspace.analyzeCase')}</Text>
           </TouchableOpacity>
-
 
           <TouchableOpacity style={[styles.aiButton, styles.aiButtonOutline]} onPress={handleGenerateStrategy}>
             <Ionicons name="bulb-outline" size={13} color={theme.primary} />
-            <Text style={[styles.aiButtonText, { color: theme.primary }]}>Strategy</Text>
+            <Text style={[styles.aiButtonText, { color: theme.primary }]}>{t('workspace.strategy')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -4653,23 +5009,28 @@ Through Counsel
     const courtOrdersList = workspace?.courtOrders || [];
 
     const navTiles = [
-      { id: 'timeline', label: 'Timeline', desc: `${workspace?.facts?.length || 0} Milestones`, icon: 'time-outline', color: '#6366F1' },
-      { id: 'hearings', label: 'Hearings', desc: `${workspace?.hearings?.length || 0} Scheduled`, icon: 'hammer-outline', color: '#F59E0B' },
-      { id: 'parties', label: 'Parties', desc: `${partiesCount} Litigants & Counsel`, icon: 'people-outline', color: '#10B981' },
-      { id: 'documents', label: 'Documents', desc: `${workspace?.documents?.length || 0} Files Available`, icon: 'document-text-outline', color: '#3B82F6' },
-      { id: 'evidence', label: 'Evidence Vault', desc: `${workspace?.evidence?.length || 0} Evidence Items`, icon: 'shield-checkmark-outline', color: '#06B6D4' },
-      { id: 'research', label: 'Research & Laws', desc: `${workspace?.savedPrecedents?.length || 0} Saved Judgments`, icon: 'library-outline', color: '#14B8A6' },
-      { id: 'drafts', label: 'Drafts', desc: `${(workspace?.documents || []).filter(d => d.tags.includes('AI Compiled')).length} Drafts Compiled`, icon: 'create-outline', color: '#EC4899' },
-      { id: 'contracts', label: 'Contracts', desc: 'Lease Contract Audited', icon: 'briefcase-outline', color: '#8B5CF6' },
-      { id: 'arguments', label: 'Arguments', desc: '3 Core Legal Positions', icon: 'alert-circle-outline', color: '#EF4444' },
-      { id: 'tasks', label: 'Tasks', desc: `${(workspace?.tasks || []).filter(t => t.status !== 'Completed').length} Pending Tasks`, icon: 'list-outline', color: '#10B981' },
-      { id: 'notes', label: 'Case Notes', desc: 'Strategic Notepad', icon: 'pencil-outline', color: '#4B5563' },
-      { id: 'court-orders', label: 'Court Orders', desc: `${courtOrdersList.length} Official Decrees`, icon: 'document-outline', color: '#6D5DFC' },
+      { id: 'analysis', label: t('workspace.aiCaseAnalysis'), desc: latestAnalysis ? t('workspace.versionReady', { version: latestAnalysis.version }) : t('workspace.completeIntelReport'), icon: 'analytics-outline', color: '#8B5CF6' },
+      { id: 'timeline', label: t('workspace.timeline'), desc: t('workspace.timelineCount', { count: workspace?.facts?.length || 0 }), icon: 'time-outline', color: '#6366F1' },
+      { id: 'hearings', label: t('cases.hearings'), desc: t('workspace.hearingsScheduled', { count: workspace?.hearings?.length || 0 }), icon: 'hammer-outline', color: '#F59E0B' },
+      { id: 'parties', label: t('workspace.parties'), desc: t('workspace.litigantsAndCounsel', { count: partiesCount }), icon: 'people-outline', color: '#10B981' },
+      { id: 'documents', label: t('workspace.documents'), desc: t('workspace.documentsCount', { count: workspace?.documents?.length || 0 }), icon: 'document-text-outline', color: '#3B82F6' },
+      { id: 'evidence', label: t('workspace.evidenceVault'), desc: t('workspace.evidenceCount', { count: workspace?.evidence?.length || 0 }), icon: 'shield-checkmark-outline', color: '#06B6D4' },
+      { id: 'research', label: t('workspace.researchLaws'), desc: t('workspace.savedPrecedentsCount', { count: workspace?.savedPrecedents?.length || 0 }), icon: 'library-outline', color: '#14B8A6' },
+      { id: 'drafts', label: t('workspace.drafts'), desc: t('workspace.draftsCount', { count: (workspace?.documents || []).filter(d => d.tags.includes('AI Compiled')).length }), icon: 'create-outline', color: '#EC4899' },
+      { id: 'contracts', label: t('cases.contracts'), desc: t('workspace.contractsStatus'), icon: 'briefcase-outline', color: '#8B5CF6' },
+      { id: 'arguments', label: t('workspace.arguments'), desc: t('workspace.argumentsCount', { count: 3 }), icon: 'alert-circle-outline', color: '#EF4444' },
+      { id: 'strategy', label: t('tools.strategyEngine'), desc: t('tools.strategyEngine'), icon: 'warning-outline', color: '#F59E0B' },
+      { id: 'prediction', label: t('tools.casePredictor'), desc: t('tools.casePredictor'), icon: 'trending-up-outline', color: '#10B981' },
+      { id: 'activity', label: t('workspace.recentActivity'), desc: t('workspace.recentActivity'), icon: 'pulse-outline', color: '#3B82F6' },
+      { id: 'tasks', label: t('workspace.tasks'), desc: t('workspace.pendingTasksCount', { count: (workspace?.tasks || []).filter(t => t.status !== 'Completed').length }), icon: 'list-outline', color: '#10B981' },
+      { id: 'notes', label: t('workspace.notes'), desc: t('workspace.notesDesc'), icon: 'pencil-outline', color: '#4B5563' },
+      { id: 'court-orders', label: t('workspace.courtOrders'), desc: t('workspace.courtOrdersCount', { count: courtOrdersList.length }), icon: 'document-outline', color: '#6D5DFC' },
+      { id: 'settings', label: t('cases.editDetails'), desc: t('cases.editDetails'), icon: 'settings-outline', color: '#6B7280' },
     ];
 
     return (
       <View style={styles.navigationSection}>
-        <Text style={styles.sectionHeader}>Case Modules</Text>
+        <Text style={styles.sectionHeader}>{t('workspace.caseModules')}</Text>
         <View style={styles.tilesContainer}>
           {navTiles.map((tile) => (
             <Pressable
@@ -4692,35 +5053,135 @@ Through Counsel
     );
   };
 
-  const renderTimelinePreview = () => {
-    const timelineEvents = (workspace?.facts || []).slice(-3).reverse();
+    const renderTimelinePreview = () => {
+    const factsList = (workspace?.facts || []).map((item: any) => ({
+      date: item.date,
+      title: item.event || item.title,
+      description: item.description || '',
+    }));
+    const hearingsList = (workspace?.hearings || []).map((item: any) => ({
+      date: item.date,
+      title: `Hearing scheduled: Courtroom ${item.courtroom || 'N/A'}`,
+      description: item.notes || `Scheduled hearing time: ${item.time || '10:00 AM'}`,
+    }));
+    const documentsList = (workspace?.documents || []).map((item: any) => ({
+      date: item.date || 'N/A',
+      title: `Document Uploaded: ${item.name}`,
+      description: `Type: ${item.type || 'Upload'}.`,
+    }));
+    const evidenceList = (workspace?.evidence || []).map((item: any) => ({
+      date: item.dateLogged || item.date || 'N/A',
+      title: `Evidence Exhibit: ${item.name}`,
+      description: item.description || '',
+    }));
+    const parseDate = (dStr: any) => {
+      if (!dStr || dStr === 'N/A') return new Date(0);
+      const d = new Date(dStr);
+      if (!isNaN(d.getTime())) return d;
+      try {
+        const parts = String(dStr).split(' ');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const months: Record<string, number> = {
+            jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+            jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+          };
+          const month = months[parts[1].toLowerCase().substring(0, 3)];
+          const year = parseInt(parts[2], 10);
+          if (!isNaN(day) && month !== undefined && !isNaN(year)) {
+            return new Date(year, month, day);
+          }
+        }
+      } catch (e) {}
+      return new Date(0);
+    };
+
+    const unifiedTimeline = [
+      ...factsList,
+      ...hearingsList,
+      ...documentsList,
+      ...evidenceList,
+    ].sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime());
+
+    const timelineEvents = unifiedTimeline.slice(-3).reverse();
+
+    const getLocalizedEvent = (title: string, description: string) => {
+      let mappedTitle = title;
+      let mappedDescription = description;
+
+      if (title.startsWith('Hearing scheduled:')) {
+        const courtroom = title.replace('Hearing scheduled: Courtroom ', '');
+        mappedTitle = t('timeline.hearingScheduledTitle', { courtroom });
+        if (description.startsWith('Scheduled hearing time:')) {
+          const time = description.replace('Scheduled hearing time: ', '');
+          mappedDescription = t('timeline.hearingScheduledDesc', { time });
+        }
+      } else if (title.startsWith('Document Uploaded:')) {
+        const filename = title.replace('Document Uploaded: ', '');
+        mappedTitle = t('timeline.documentUploadedTitle', { filename });
+        if (description.startsWith('Type:')) {
+          const type = description.replace('Type: ', '').replace('.', '');
+          mappedDescription = t('timeline.documentUploadedDesc', { type });
+        }
+      } else if (title.startsWith('Evidence Exhibit:')) {
+        const filename = title.replace('Evidence Exhibit: ', '');
+        mappedTitle = t('timeline.evidenceExhibitTitle', { filename });
+      } else {
+        if (title === 'Default Notice Served') {
+          mappedTitle = t('timeline.defaultNoticeServed');
+        } else if (title === 'AI Analysis Completed') {
+          mappedTitle = t('timeline.aiAnalysisCompleted');
+        } else if (title === 'Deadline for Filing Complaint') {
+          mappedTitle = t('timeline.deadlineForFilingComplaint');
+        }
+
+        if (description.startsWith('Timeline entry parsed from OCR scan of file:')) {
+          const match = description.match(/file:\s*([^\s]+)\.\s*(.*)/);
+          if (match) {
+            mappedDescription = t('timeline.ocrParsedDesc', { filename: match[1], rest: match[2] });
+          } else {
+            mappedDescription = t('timeline.ocrParsedDescGeneric');
+          }
+        } else if (description.startsWith('Admissibility analysis and OCR text compiled for exhibit')) {
+          const match = description.match(/exhibit\s*(.*)/);
+          mappedDescription = t('timeline.admissibilityDesc', { exhibit: match ? match[1] : '' });
+        } else if (description.startsWith('The one-month period for filing a complaint under Section 138 NI Act')) {
+          mappedDescription = t('timeline.filingDeadlineDesc');
+        }
+      }
+
+      return { title: mappedTitle, description: mappedDescription };
+    };
 
     return (
       <View style={styles.previewSection}>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeader}>Timeline Preview</Text>
+          <Text style={styles.sectionHeader}>{t('workspace.timelinePreview') || t('workspace.timeline')}</Text>
           <Pressable onPress={() => setActiveWorkspaceTab('timeline')}>
-            <Text style={styles.viewAllText}>View All</Text>
+            <Text style={styles.viewAllText}>{t('common.viewAll')}</Text>
           </Pressable>
         </View>
 
         {timelineEvents.length === 0 ? (
-          <Text style={styles.previewEmptyText}>No chronology milestones logged yet.</Text>
+          <Text style={styles.previewEmptyText}>{t('empty.noTimeline')}</Text>
         ) : (
           <View style={styles.previewList}>
-            {timelineEvents.map((ev, i) => (
-              <View key={i} style={styles.previewItem}>
-                <View style={styles.previewDotContainer}>
-                  <View style={styles.previewDot} />
-                  {i < timelineEvents.length - 1 && <View style={styles.previewVerticalLine} />}
+            {timelineEvents.map((ev, i) => {
+              const localized = getLocalizedEvent(ev.title, ev.description);
+              return (
+                <View key={i} style={styles.previewItem}>
+                  <View style={styles.previewDotContainer}>
+                    <View style={styles.previewDot} />
+                    {i < timelineEvents.length - 1 && <View style={styles.previewVerticalLine} />}
+                  </View>
+                  <View style={styles.previewItemContent}>
+                    <Text style={styles.previewItemDate}>{formatRelativeDate(ev.date, language)}</Text>
+                    <Text style={styles.previewItemTitle}>{localized.title}</Text>
+                    <Text style={styles.previewItemDesc} numberOfLines={2}>{localized.description}</Text>
+                  </View>
                 </View>
-                <View style={styles.previewItemContent}>
-                  <Text style={styles.previewItemDate}>{ev.date}</Text>
-                  <Text style={styles.previewItemTitle}>{ev.event || (ev as any).title}</Text>
-                  <Text style={styles.previewItemDesc} numberOfLines={2}>{ev.description}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
 
@@ -4728,7 +5189,7 @@ Through Counsel
           style={styles.viewTimelineBtn}
           onPress={() => setActiveWorkspaceTab('timeline')}
         >
-          <Text style={styles.viewTimelineBtnText}>View Complete Timeline</Text>
+          <Text style={styles.viewTimelineBtnText}>{t('workspace.viewCompleteTimeline')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -4742,11 +5203,28 @@ Through Counsel
 
     const activities: { type: string; title: string; time: string; icon: string; color: string }[] = [];
 
+    const getLocalizedTime = (timeVal: string) => {
+      switch (timeVal) {
+        case 'Recently':
+          return t('activity.recently') || 'Recently';
+        case 'Just now':
+          return t('activity.justNow') || 'Just now';
+        case 'Saved':
+          return t('activity.saved') || 'Saved';
+        case 'System':
+          return t('activity.system') || 'System';
+        case 'AI Updated':
+          return t('activity.aiUpdated') || 'AI Updated';
+        default:
+          return timeVal;
+      }
+    };
+
     if (docs.length > 0) {
       activities.push({
-        type: 'Document Uploaded',
+        type: t('activity.documentUploaded'),
         title: docs[docs.length - 1].name,
-        time: docs[docs.length - 1].uploadDate || 'Recently',
+        time: getLocalizedTime(docs[docs.length - 1].uploadDate || 'Recently'),
         icon: 'document-text-outline',
         color: theme.info,
       });
@@ -4754,9 +5232,9 @@ Through Counsel
 
     if (drafts.length > 0) {
       activities.push({
-        type: 'Draft Compiled',
+        type: t('activity.draftCompiled') || 'Draft Compiled',
         title: drafts[drafts.length - 1].name,
-        time: drafts[drafts.length - 1].uploadDate || 'Recently',
+        time: getLocalizedTime(drafts[drafts.length - 1].uploadDate || 'Recently'),
         icon: 'create-outline',
         color: '#EC4899',
       });
@@ -4764,9 +5242,9 @@ Through Counsel
 
     if (workspace?.intelligence?.strategyRecommendations?.[0]) {
       activities.push({
-        type: 'AI Strategic Recommendation',
+        type: t('activity.aiRecommendation') || 'AI Strategic Recommendation',
         title: workspace.intelligence.strategyRecommendations[0],
-        time: 'AI Updated',
+        time: getLocalizedTime('AI Updated'),
         icon: 'sparkles-outline',
         color: theme.primary,
       });
@@ -4774,9 +5252,9 @@ Through Counsel
 
     if (evidence.length > 0) {
       activities.push({
-        type: 'Evidence Logged',
+        type: t('activity.evidenceLogged'),
         title: evidence[0].name,
-        time: 'Just now',
+        time: getLocalizedTime('Just now'),
         icon: 'shield-checkmark-outline',
         color: theme.success,
       });
@@ -4784,9 +5262,9 @@ Through Counsel
 
     if (note) {
       activities.push({
-        type: 'Case Note Autosaved',
+        type: t('activity.noteCreated'),
         title: note.substring(0, 50) + (note.length > 50 ? '...' : ''),
-        time: 'Saved',
+        time: getLocalizedTime('Saved'),
         icon: 'pencil-outline',
         color: theme.textSecondary,
       });
@@ -4794,9 +5272,9 @@ Through Counsel
 
     if (activities.length === 0) {
       activities.push({
-        type: 'Workspace Initialized',
-        title: 'Case files indexed and AI recommendations generated.',
-        time: 'System',
+        type: t('activity.workspaceInitialized') || 'Workspace Initialized',
+        title: t('activity.workspaceInitDesc') || 'Case files indexed and AI recommendations generated.',
+        time: getLocalizedTime('System'),
         icon: 'sync-outline',
         color: theme.textMuted,
       });
@@ -4804,7 +5282,7 @@ Through Counsel
 
     return (
       <View style={styles.previewSection}>
-        <Text style={styles.sectionHeader}>Recent Activity</Text>
+        <Text style={styles.sectionHeader}>{t('workspace.recentActivityFeed') || t('workspace.recentActivity')}</Text>
         <View style={styles.activityList}>
           {activities.map((act, i) => (
             <View key={i} style={styles.activityItem}>
@@ -4909,10 +5387,10 @@ Through Counsel
             <Text style={styles.caseHeaderTitle}>⚖️ {workspace.name}</Text>
             <View style={styles.caseHeaderBadgeRow}>
               <View style={[styles.statusBadge, styles.badgeSuccess]}>
-                <Text style={[styles.statusBadgeText, { color: '#10B981' }]}>{workspace.status}</Text>
+                <Text style={[styles.statusBadgeText, { color: '#10B981' }]}>{t('enums.status.' + (workspace.status || '').toUpperCase()) || workspace.status}</Text>
               </View>
               <View style={[styles.statusBadge, styles.badgeDanger]}>
-                <Text style={[styles.statusBadgeText, { color: '#EF4444' }]}>{workspace.priority}</Text>
+                <Text style={[styles.statusBadgeText, { color: '#EF4444' }]}>{t('enums.priority.' + (workspace.priority || '').toUpperCase()) || workspace.priority}</Text>
               </View>
             </View>
           </View>
@@ -5833,7 +6311,7 @@ Through Counsel
     return (
       <View style={styles.suggestionsContainer}>
         {/* Section title */}
-        <Text style={styles.suggestionsHeader}>AI Insights & Recommendations</Text>
+        <Text style={styles.suggestionsHeader}>{t('workspace.aiInsights')}</Text>
         
         {/* Limitation Warnings */}
         {warnings.map((w: any, idx: number) => (
@@ -5841,7 +6319,7 @@ Through Counsel
             <View style={styles.suggestionHeaderRow}>
               <View style={styles.suggestionTitleGroup}>
                 <Ionicons name="sparkles" size={12} color="#6D5DFC" />
-                <Text style={styles.warningTagText}>LIMITATION WARNING</Text>
+                <Text style={styles.warningTagText}>{t('workspace.limitationWarning')}</Text>
               </View>
             </View>
             <Text style={styles.suggestionTitle}>{w.title}</Text>
@@ -5855,7 +6333,7 @@ Through Counsel
             <View style={styles.suggestionHeaderRow}>
               <View style={styles.suggestionTitleGroup}>
                 <Ionicons name="alarm-outline" size={12} color="#D97706" />
-                <Text style={styles.deadlineTagText}>UPCOMING DEADLINE</Text>
+                <Text style={styles.deadlineTagText}>{t('workspace.upcomingDeadline')}</Text>
               </View>
             </View>
             <Text style={styles.suggestionTitle}>{d.title}</Text>
@@ -5869,7 +6347,7 @@ Through Counsel
             <View style={styles.suggestionHeaderRow}>
               <View style={styles.suggestionTitleGroup}>
                 <Ionicons name="alert-circle-outline" size={12} color="#EF4444" />
-                <Text style={styles.missingTagText}>MISSING DOCUMENT</Text>
+                <Text style={styles.missingTagText}>{t('workspace.missingDocument')}</Text>
               </View>
             </View>
             <Text style={styles.suggestionTitle}>{m.title}</Text>
@@ -6163,7 +6641,7 @@ Through Counsel
       <View style={styles.tabContent}>
         {/* Module Header Row */}
         <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Court Hearings</Text>
+          <Text style={styles.moduleTitle}>{t('hearings.title')}</Text>
           <Pressable
             style={styles.moduleHeaderBtn}
             onPress={() => {
@@ -6182,29 +6660,29 @@ Through Counsel
             }}
           >
             <Ionicons name="add" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Schedule Hearing</Text>
+            <Text style={styles.moduleHeaderBtnText}>{t('hearings.schedule')}</Text>
           </Pressable>
         </View>
 
         {/* Court Hearing Overview Card */}
         <View style={styles.overviewCard}>
-          <Text style={styles.overviewTitle}>⚖️ Case Forum Overview</Text>
+          <Text style={styles.overviewTitle}>⚖️ {t('hearings.forumOverview')}</Text>
           <View style={styles.overviewRow}>
-            <Text style={styles.overviewLabel}>Primary Court:</Text>
+            <Text style={styles.overviewLabel}>{t('hearings.primaryCourt')}:</Text>
             <Text style={styles.overviewValue} numberOfLines={1}>{courtName}</Text>
           </View>
           <View style={styles.overviewRow}>
-            <Text style={styles.overviewLabel}>Litigation Stage:</Text>
+            <Text style={styles.overviewLabel}>{t('hearings.stage')}:</Text>
             <Text style={styles.overviewValue}>{caseStage}</Text>
           </View>
           <View style={styles.overviewStatsRow}>
             <View style={styles.overviewStatCol}>
               <Text style={styles.overviewStatNum}>{totalHearings}</Text>
-              <Text style={styles.overviewStatLabel}>Total Hearings</Text>
+              <Text style={styles.overviewStatLabel}>{t('hearings.total')}</Text>
             </View>
             <View style={styles.overviewStatCol}>
               <Text style={styles.overviewStatNum}>{upcomingHearingsCount}</Text>
-              <Text style={styles.overviewStatLabel}>Upcoming</Text>
+              <Text style={styles.overviewStatLabel}>{t('hearings.upcoming')}</Text>
             </View>
           </View>
         </View>
@@ -6219,16 +6697,16 @@ Through Counsel
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <Ionicons name="calendar-outline" size={14} color="#6D5DFC" />
-              <Text style={styles.widgetHeaderTitle}>Next Hearing</Text>
+              <Text style={styles.widgetHeaderTitle}>{t('hearings.next')}</Text>
             </View>
             <View style={styles.widgetBody}>
               {nextHearing ? (
                 <>
                   <Text style={styles.widgetTextMain} numberOfLines={1}>{nextHearing.date} - {nextHearing.time}</Text>
-                  <Text style={styles.widgetTextSub} numberOfLines={1}>Room: {nextHearing.courtroom || 'N/A'} • {nextHearing.purpose || 'General'}</Text>
+                  <Text style={styles.widgetTextSub} numberOfLines={1}>{t('hearings.courtroom') || t('hearings.room') || 'Room'}: {nextHearing.courtroom || 'N/A'} • {nextHearing.purpose || t('hearings.general') || 'General'}</Text>
                 </>
               ) : (
-                <Text style={[styles.widgetTextSub, { fontStyle: 'italic' }]}>No upcoming hearing scheduled</Text>
+                <Text style={[styles.widgetTextSub, { fontStyle: 'italic' }]}>{t('hearings.noneScheduled')}</Text>
               )}
             </View>
           </View>
@@ -6237,11 +6715,11 @@ Through Counsel
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <Ionicons name="checkbox-outline" size={14} color="#F59E0B" />
-              <Text style={styles.widgetHeaderTitle}>Pending Compliance</Text>
+              <Text style={styles.widgetHeaderTitle}>{t('hearings.pendingCompliance')}</Text>
             </View>
             <View style={styles.widgetBody}>
-              <Text style={styles.widgetTextMain}>{pendingComplianceCount} Directives</Text>
-              <Text style={styles.widgetTextSub}>Requires advocate action</Text>
+              <Text style={styles.widgetTextMain}>{pendingComplianceCount} {t('hearings.directives')}</Text>
+              <Text style={styles.widgetTextSub}>{t('hearings.requiresAction')}</Text>
             </View>
           </View>
 
@@ -6249,10 +6727,10 @@ Through Counsel
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <Ionicons name="bar-chart-outline" size={14} color="#10B981" />
-              <Text style={styles.widgetHeaderTitle}>Preparation Status</Text>
+              <Text style={styles.widgetHeaderTitle}>{t('hearings.prepStatus')}</Text>
             </View>
             <View style={styles.widgetBody}>
-              <Text style={styles.widgetTextMain}>{completedChecklistItems}/{totalChecklistItems} Tasks Done</Text>
+              <Text style={styles.widgetTextMain}>{completedChecklistItems}/{totalChecklistItems} {t('hearings.tasksDone')}</Text>
               <View style={styles.widgetProgressContainer}>
                 <View style={styles.widgetProgressBarBg}>
                   <View style={[styles.widgetProgressBarFill, { width: `${prepProgress}%` }]} />
@@ -6269,17 +6747,27 @@ Through Counsel
           showsHorizontalScrollIndicator={false}
           style={{ marginBottom: 12 }}
         >
-          {['All', 'Upcoming', 'Completed', 'Adjourned', 'Orders Reserved', 'Cancelled', 'With Documents'].map((filt) => (
-            <TouchableOpacity
-              key={filt}
-              style={[styles.filterPill, activeHearingFilter === filt && styles.filterPillActive]}
-              onPress={() => setActiveHearingFilter(filt)}
-            >
-              <Text style={[styles.filterPillText, activeHearingFilter === filt && styles.filterPillTextActive]}>
-                {filt}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {['All', 'Upcoming', 'Completed', 'Adjourned', 'Orders Reserved', 'Cancelled', 'With Documents'].map((filt) => {
+            const localizedFilt = filt === 'All' ? t('common.all') || t('hearings.all') || 'All'
+              : filt === 'Upcoming' ? t('hearings.upcoming')
+              : filt === 'Completed' ? t('common.completed') || t('hearings.completed') || 'Completed'
+              : filt === 'Adjourned' ? t('hearings.adjourned')
+              : filt === 'Orders Reserved' ? t('hearings.ordersReserved')
+              : filt === 'Cancelled' ? t('hearings.cancelled')
+              : filt === 'With Documents' ? t('hearings.withDocuments')
+              : filt;
+            return (
+              <TouchableOpacity
+                key={filt}
+                style={[styles.filterPill, activeHearingFilter === filt && styles.filterPillActive]}
+                onPress={() => setActiveHearingFilter(filt)}
+              >
+                <Text style={[styles.filterPillText, activeHearingFilter === filt && styles.filterPillTextActive]}>
+                  {localizedFilt}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
 
         {/* Search Input Bar */}
@@ -6287,7 +6775,7 @@ Through Counsel
           <Ionicons name="search" size={16} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput
             style={styles.searchBarInput}
-            placeholder="Search hearings calendar..."
+            placeholder={t('hearings.search')}
             placeholderTextColor="#9CA3AF"
             value={hearingSearchQuery}
             onChangeText={setHearingSearchQuery}
@@ -6296,7 +6784,7 @@ Through Counsel
 
         {/* Timeline List */}
         {filteredHearings.length === 0 ? (
-          <Text style={styles.emptyText}>No matching hearings log found.</Text>
+          <Text style={styles.emptyText}>{t('hearings.noHearings')}</Text>
         ) : (
           <View style={styles.timelineWrapper}>
             {filteredHearings.map((h, i) => {
@@ -6329,33 +6817,40 @@ Through Counsel
                       </View>
                       <View style={{ alignItems: 'flex-end', gap: 4 }}>
                         <View style={[styles.badge, { backgroundColor: statusColor + '20' }]}>
-                          <Text style={[styles.badgeText, { color: statusColor }]}>{h.status}</Text>
+                          <Text style={[styles.badgeText, { color: statusColor }]}>
+                            {h.status === 'Completed' ? t('common.completed') || t('hearings.completed') || 'Completed'
+                              : h.status === 'Upcoming' || h.status === 'Scheduled' || h.status === 'Ongoing' ? t('hearings.upcoming')
+                              : h.status === 'Adjourned' ? t('hearings.adjourned')
+                              : h.status === 'Orders Reserved' ? t('hearings.ordersReserved')
+                              : h.status === 'Cancelled' ? t('hearings.cancelled')
+                              : h.status}
+                          </Text>
                         </View>
                         {h.isAiEnriched && (
                           <View style={styles.aiEnrichedBadge}>
                             <Ionicons name="sparkles" size={10} color="#6D5DFC" />
-                            <Text style={styles.aiEnrichedBadgeText}>AI Enriched</Text>
+                            <Text style={styles.aiEnrichedBadgeText}>{t('hearings.aiEnriched') || 'AI Enriched'}</Text>
                           </View>
                         )}
                       </View>
                     </View>
 
                     {/* Card Title */}
-                    <Text style={styles.timelineCardTitle}>{h.title || 'Court Hearing Session'}</Text>
+                    <Text style={styles.timelineCardTitle}>{h.title || t('hearings.defaultTitle') || 'Court Hearing Session'}</Text>
 
                     {/* Metadata Grid */}
                     <View style={styles.timelineMetaGrid}>
                       <View style={styles.timelineMetaItem}>
                         <Ionicons name="business" size={13} color="#4B5563" />
                         <Text style={styles.timelineMetaText} numberOfLines={1}>
-                          <Text style={{ fontWeight: '700' }}>Forum: </Text>{h.courtName || courtName}
+                          <Text style={{ fontWeight: '700' }}>{t('hearings.forum') || 'Forum'}: </Text>{h.courtName || courtName}
                         </Text>
                       </View>
                       {h.courtroom ? (
                         <View style={styles.timelineMetaItem}>
                           <Ionicons name="enter" size={13} color="#4B5563" />
                           <Text style={styles.timelineMetaText}>
-                            <Text style={{ fontWeight: '700' }}>Courtroom: </Text>{h.courtroom}
+                            <Text style={{ fontWeight: '700' }}>{t('hearings.courtroom') || 'Courtroom'}: </Text>{h.courtroom}
                           </Text>
                         </View>
                       ) : null}
@@ -6363,7 +6858,7 @@ Through Counsel
                         <View style={styles.timelineMetaItem}>
                           <Ionicons name="person-circle" size={13} color="#4B5563" />
                           <Text style={styles.timelineMetaText} numberOfLines={1}>
-                            <Text style={{ fontWeight: '700' }}>Judge: </Text>{h.judge}
+                            <Text style={{ fontWeight: '700' }}>{t('hearings.judge') || 'Judge'}: </Text>{h.judge}
                           </Text>
                         </View>
                       ) : null}
@@ -6371,7 +6866,7 @@ Through Counsel
                         <View style={styles.timelineMetaItem}>
                           <Ionicons name="ribbon" size={13} color="#4B5563" />
                           <Text style={styles.timelineMetaText} numberOfLines={1}>
-                            <Text style={{ fontWeight: '700' }}>Purpose: </Text>{h.purpose}
+                            <Text style={{ fontWeight: '700' }}>{t('hearings.purpose') || 'Purpose'}: </Text>{h.purpose}
                           </Text>
                         </View>
                       ) : null}
@@ -6380,11 +6875,11 @@ Through Counsel
                     {/* AI Order Summary Section */}
                     {h.orderSummary ? (
                       <View style={styles.aiOrderSummaryBox}>
-                        <Text style={styles.aiOrderSummaryHeader}>✨ AI Order Directive Summary</Text>
+                        <Text style={styles.aiOrderSummaryHeader}>✨ {t('hearings.aiOrderSummaryHeader') || 'AI Order Directive Summary'}</Text>
                         <Text style={styles.aiOrderSummaryText}>{h.orderSummary}</Text>
                         {h.nextHearingDate ? (
                           <Text style={[styles.aiOrderSummaryText, { marginTop: 6, fontWeight: '700', color: '#6D5DFC' }]}>
-                            ⏭️ Next Hearing Date Diary: {h.nextHearingDate}
+                            ⏭️ {t('hearings.nextHearingDateDiary') || 'Next Hearing Date Diary'}: {h.nextHearingDate}
                           </Text>
                         ) : null}
                       </View>
@@ -6402,20 +6897,20 @@ Through Counsel
                           color="#4B5563"
                         />
                         <Text style={styles.checklistToggleText}>
-                          {isChecklistExpanded ? "Hide Prep Checklist" : "Show Prep Checklist"}
+                          {isChecklistExpanded ? t('hearings.hidePrepChecklist') : t('hearings.showPrepChecklist')}
                         </Text>
                       </TouchableOpacity>
                     )}
 
                     {isChecklistExpanded && h.checklist && (
                       <View style={styles.checklistContainer}>
-                        <Text style={styles.checklistSectionTitle}>📋 Preparation Checklist</Text>
+                        <Text style={styles.checklistSectionTitle}>{t('hearings.prepChecklistTitle')}</Text>
                         
                         {/* Documents */}
                         <View style={styles.checklistCategory}>
-                          <Text style={styles.checklistCategoryTitle}>Documents Needed</Text>
+                          <Text style={styles.checklistCategoryTitle}>{t('hearings.documentsNeeded')}</Text>
                           {(!h.checklist.documents || h.checklist.documents.length === 0) ? (
-                            <Text style={styles.checklistEmptyText}>No documents specified.</Text>
+                            <Text style={styles.checklistEmptyText}>{t('hearings.noDocumentsSpecified')}</Text>
                           ) : (
                             h.checklist.documents.map((item, idx) => (
                               <TouchableOpacity
@@ -6438,9 +6933,9 @@ Through Counsel
 
                         {/* Evidence */}
                         <View style={styles.checklistCategory}>
-                          <Text style={styles.checklistCategoryTitle}>Evidence Ledger</Text>
+                          <Text style={styles.checklistCategoryTitle}>{t('hearings.evidenceLedger')}</Text>
                           {(!h.checklist.evidence || h.checklist.evidence.length === 0) ? (
-                            <Text style={styles.checklistEmptyText}>No evidence specified.</Text>
+                            <Text style={styles.checklistEmptyText}>{t('hearings.noEvidenceSpecified')}</Text>
                           ) : (
                             h.checklist.evidence.map((item, idx) => (
                               <TouchableOpacity
@@ -6463,9 +6958,9 @@ Through Counsel
 
                         {/* Witnesses */}
                         <View style={styles.checklistCategory}>
-                          <Text style={styles.checklistCategoryTitle}>Witness Preparation</Text>
+                          <Text style={styles.checklistCategoryTitle}>{t('hearings.witnessPrep')}</Text>
                           {(!h.checklist.witnesses || h.checklist.witnesses.length === 0) ? (
-                            <Text style={styles.checklistEmptyText}>No witnesses specified.</Text>
+                            <Text style={styles.checklistEmptyText}>{t('hearings.noWitnessesSpecified')}</Text>
                           ) : (
                             h.checklist.witnesses.map((item, idx) => (
                               <TouchableOpacity
@@ -6489,7 +6984,7 @@ Through Counsel
                         {/* Compliance */}
                         {h.checklist.compliance && h.checklist.compliance.length > 0 && (
                           <View style={styles.checklistCategory}>
-                            <Text style={styles.checklistCategoryTitle}>Compliance Checklist</Text>
+                            <Text style={styles.checklistCategoryTitle}>{t('hearings.complianceChecklist')}</Text>
                             {h.checklist.compliance.map((item, idx) => (
                               <TouchableOpacity
                                 key={idx}
@@ -6522,7 +7017,7 @@ Through Counsel
                     {isEnriching && (
                       <View style={{ marginVertical: 12, alignItems: 'center' }}>
                         <ActivityIndicator size="small" color="#6D5DFC" />
-                        <Text style={{ fontSize: 11, color: '#6D5DFC', marginTop: 4 }}>AI is analyzing court materials...</Text>
+                        <Text style={{ fontSize: 11, color: '#6D5DFC', marginTop: 4 }}>{t('hearings.aiAnalyzingMaterials')}</Text>
                       </View>
                     )}
 
@@ -6539,7 +7034,7 @@ Through Counsel
                           }}
                         >
                           <Ionicons name="document-text-outline" size={12} color="#6D5DFC" />
-                          <Text style={styles.cardActionBtnText}>Add Notes</Text>
+                          <Text style={styles.cardActionBtnText}>{t('hearings.addNotes')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -6553,7 +7048,7 @@ Through Counsel
                           }}
                         >
                           <Ionicons name="cloud-upload-outline" size={12} color="#FFFFFF" />
-                          <Text style={styles.cardActionBtnTextFilled}>Upload Order</Text>
+                          <Text style={styles.cardActionBtnTextFilled}>{t('hearings.uploadOrder')}</Text>
                         </TouchableOpacity>
                       </View>
                     )}
@@ -6576,7 +7071,7 @@ Through Counsel
     return (
       <View style={styles.tabContent}>
         <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Litigation Parties</Text>
+          <Text style={styles.moduleTitle}>{t('parties.title')}</Text>
           <Pressable
             style={styles.moduleHeaderBtn}
             onPress={() => {
@@ -6585,7 +7080,7 @@ Through Counsel
             }}
           >
             <Ionicons name="add" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Add Litigant</Text>
+            <Text style={styles.moduleHeaderBtnText}>{t('parties.add')}</Text>
           </Pressable>
         </View>
 
@@ -6593,24 +7088,24 @@ Through Counsel
         <View style={styles.metaCard}>
           <View style={styles.partyRow}>
             <Ionicons name="person" size={18} color="#6D5DFC" />
-            <Text style={styles.partyText}>Lessor / Client: <Text style={styles.boldText}>{client}</Text></Text>
+            <Text style={styles.partyText}>{t('parties.clientRole')}: <Text style={styles.boldText}>{client}</Text></Text>
           </View>
           <View style={styles.partyRow}>
             <Ionicons name="person" size={18} color="#EF4444" />
-            <Text style={styles.partyText}>Lessee / Opponent: <Text style={styles.boldText}>{opponent}</Text></Text>
+            <Text style={styles.partyText}>{t('parties.opponentRole')}: <Text style={styles.boldText}>{opponent}</Text></Text>
           </View>
         </View>
 
-        <Text style={styles.subHeading}>Witnesses & Counsel</Text>
+        <Text style={styles.subHeading}>{t('parties.witnesses')}</Text>
         {lawyers.length === 0 ? (
-          <Text style={styles.emptyText}>No secondary counsel or witnesses registered.</Text>
+          <Text style={styles.emptyText}>{t('parties.noWitnesses')}</Text>
         ) : (
           <View style={styles.cardList}>
             {lawyers.map((l, i) => (
               <View key={i} style={styles.itemCard}>
                 <Text style={styles.itemCardTitle}>👤 {l.name}</Text>
-                <Text style={styles.itemCardBody}>Role: {l.role}</Text>
-                <Text style={styles.itemCardFooter}>Contact: {l.contact || 'N/A'}</Text>
+                <Text style={styles.itemCardBody}>{t('parties.roleLabel') || 'Role'}: {l.role}</Text>
+                <Text style={styles.itemCardFooter}>{t('parties.contactLabel') || 'Contact'}: {l.contact || 'N/A'}</Text>
               </View>
             ))}
           </View>
@@ -6626,18 +7121,18 @@ Through Counsel
     return (
       <View style={styles.tabContent}>
         <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>Case Documents</Text>
+          <Text style={styles.moduleTitle}>{t('documents.title')}</Text>
           <Pressable
             style={styles.moduleHeaderBtn}
             onPress={handleSimulatedFileUpload}
           >
             <Ionicons name="cloud-upload-outline" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>Attach File</Text>
+            <Text style={styles.moduleHeaderBtnText}>{t('documents.attach')}</Text>
           </Pressable>
         </View>
 
         {list.length === 0 ? (
-          <Text style={styles.emptyText}>No documents attached to this litigation workspace.</Text>
+          <Text style={styles.emptyText}>{t('documents.noDocuments')}</Text>
         ) : (
           <View style={styles.cardList}>
             {list.map((d) => (
@@ -6661,7 +7156,7 @@ Through Counsel
                   <Text style={styles.itemCardTitle}>📄 {d.name}</Text>
                   <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
                 </View>
-                <Text style={styles.itemCardBody}>File Class: {d.type} • Uploaded: {d.uploadDate}</Text>
+                <Text style={styles.itemCardBody}>{t('documents.class')}: {d.type} • {t('documents.uploaded')}: {d.uploadDate}</Text>
               </Pressable>
             ))}
           </View>
@@ -6831,15 +7326,13 @@ Through Counsel
   const renderEvidenceTab = () => {
     const list = workspace?.evidence || [];
 
-    // Calculate metrics
+    // Calculate metrics dynamically
     const totalCount = list.length;
     const verifiedCount = list.filter(e => e.status === 'Verified').length;
-    const pendingCount = list.filter(e => e.status === 'Pending').length;
-    const digitalCount = list.filter(e => e.type === 'Digital').length;
-    const physicalCount = list.filter(e => e.type === 'Physical').length;
-    const photoCount = list.filter(e => e.type === 'Images' || e.type === 'Photographs').length;
-    const audioVideoCount = list.filter(e => e.type === 'Audio' || e.type === 'Videos').length;
-    const docCount = list.filter(e => e.type === 'Document' || e.type === 'Contracts' || e.type === 'Receipts' || e.type === 'Emails').length;
+    const pendingCount = list.filter(e => (e.status as string) === 'Not Verified' || e.status === 'Pending').length;
+    const imagesCount = list.filter(e => e.type === 'Images' || e.type === 'Image' || e.type === 'Photographs' || ((e as any).mimeType || '').startsWith('image/')).length;
+    const pdfsCount = list.filter(e => e.name.toLowerCase().endsWith('.pdf') || e.type === 'PDF' || ((e as any).mimeType || '') === 'application/pdf').length;
+    const scannedCount = list.filter(e => (e.tags || []).includes('Scanned') || e.type === 'Scanned').length;
 
     // Filter list
     let filteredList = list;
@@ -6850,6 +7343,7 @@ Through Counsel
         (e.exhibitNumber || '').toLowerCase().includes(query) ||
         (e.type || '').toLowerCase().includes(query) ||
         (e.description || '').toLowerCase().includes(query) ||
+        (e.ocrData?.text || '').toLowerCase().includes(query) ||
         (e.tags || []).some(t => t.toLowerCase().includes(query))
       );
     }
@@ -6859,33 +7353,28 @@ Through Counsel
       if (filter === 'verified') {
         filteredList = filteredList.filter(e => (e.status || '').toLowerCase() === 'verified');
       } else if (filter === 'pending') {
-        filteredList = filteredList.filter(e => (e.status || '').toLowerCase() === 'pending');
+        filteredList = filteredList.filter(e => (e.status || '').toLowerCase() === 'not verified' || (e.status || '').toLowerCase() === 'pending');
       } else if (filter === 'documents') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'document' || (e.type || '').toLowerCase() === 'contracts' || (e.type || '').toLowerCase() === 'receipts');
-      } else if (filter === 'images' || filter === 'photographs') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'images' || (e.type || '').toLowerCase() === 'photographs');
+        filteredList = filteredList.filter(e => {
+          const t = (e.type || '').toLowerCase();
+          const ext = e.name.split('.').pop()?.toLowerCase() || '';
+          return t === 'document' || t === 'contracts' || t === 'receipts' || ['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(ext);
+        });
+      } else if (filter === 'images') {
+        filteredList = filteredList.filter(e => {
+          const t = (e.type || '').toLowerCase();
+          return t === 'images' || t === 'image' || t === 'photographs' || ((e as any).mimeType || '').startsWith('image/');
+        });
       } else if (filter === 'videos') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'videos');
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'videos' || (e.type || '').toLowerCase() === 'video' || ((e as any).mimeType || '').startsWith('video/'));
       } else if (filter === 'audio') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'audio');
-      } else if (filter === 'digital') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'digital');
-      } else if (filter === 'physical') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'physical');
-      } else if (filter === 'witness') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'witness' || (e.tags || []).some(t => t.toLowerCase().includes('witness')));
-      } else if (filter === 'contracts') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'contracts' || (e.type || '').toLowerCase() === 'contract');
-      } else if (filter === 'receipts') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'receipts' || (e.type || '').toLowerCase() === 'receipt');
-      } else if (filter === 'messages') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'messages' || (e.type || '').toLowerCase() === 'message' || (e.tags || []).some(t => t.toLowerCase().includes('message')));
-      } else if (filter === 'emails') {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'emails' || (e.type || '').toLowerCase() === 'email');
-      } else {
-        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === filter);
+        filteredList = filteredList.filter(e => (e.type || '').toLowerCase() === 'audio' || ((e as any).mimeType || '').startsWith('audio/'));
+      } else if (filter === 'scanned') {
+        filteredList = filteredList.filter(e => (e.tags || []).includes('Scanned') || (e.type || '').toLowerCase() === 'scanned');
       }
     }
+
+    const filtersToRender = ['All', 'Documents', 'Images', 'Videos', 'Audio', 'Scanned', 'Verified', 'Pending'];
 
     return (
       <View style={styles.evidenceTabContainer}>
@@ -6894,51 +7383,73 @@ Through Counsel
           <Text style={styles.evidenceCaseTitle}>{workspace?.name}</Text>
           <View style={styles.evidenceBadgesRow}>
             <View style={[styles.evidenceBadge, styles.evidenceBadgeActive]}>
-              <Text style={styles.evidenceBadgeText}>{workspace?.status || 'Active'}</Text>
+              <Text style={styles.evidenceBadgeText}>
+                {t('enums.status.' + (workspace?.status || '').toUpperCase()) || workspace?.status || 'Active'}
+              </Text>
             </View>
             <View style={[styles.evidenceBadge, styles.evidenceBadgePriority]}>
               <Text style={[styles.evidenceBadgeText, { color: theme.danger }]}>
-                {workspace?.priority || 'High'} Priority
+                {t('enums.priority.' + (workspace?.priority || '').toUpperCase()) || workspace?.priority || 'High'} {t('workspace.prioritySuffix') || 'Priority'}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Evidence Locker Card */}
-        <View style={styles.lockerCard}>
-          <View style={styles.lockerCardHeader}>
-            <View style={styles.lockerIconBg}>
+        {/* Evidence Locker Card Redesign */}
+        <View style={[styles.lockerCard, { padding: 24, borderRadius: 16, backgroundColor: '#FFFFFF', elevation: 4, shadowColor: '#000000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, marginBottom: 20 }]}>
+          <View style={[styles.lockerCardHeader, { marginBottom: 20 }]}>
+            <View style={[styles.lockerIconBg, { width: 48, height: 48, borderRadius: 24, backgroundColor: '#EEECFF', justifyContent: 'center', alignItems: 'center' }]}>
               <Ionicons name="lock-closed" size={24} color="#6D5DFC" />
             </View>
-            <View style={styles.lockerCardTitleBlock}>
-              <Text style={styles.lockerCardTitle}>Evidence Locker</Text>
-              <Text style={styles.lockerCardSubtitle}>Secure storage for all case evidence and exhibits.</Text>
+            <View style={[styles.lockerCardTitleBlock, { marginLeft: 16, flex: 1 }]}>
+              <Text style={[styles.lockerCardTitle, { fontSize: 18, fontWeight: '700', color: '#1F2937' }]}>{t('evidence.lockerTitle')}</Text>
+              <Text style={[styles.lockerCardSubtitle, { fontSize: 13, color: '#6B7280', marginTop: 4, lineHeight: 18 }]}>
+                {t('evidence.lockerSubtitleDetailed')}
+              </Text>
             </View>
           </View>
-          <View style={styles.lockerActionsRow}>
+          <View style={[styles.lockerActionsRow, { flexDirection: 'row', gap: 12, justifyContent: 'flex-start' }]}>
             <Pressable
-              style={styles.lockerPrimaryBtn}
-              onPress={() => setIsEvidenceUploadOpen(true)}
+              style={({ pressed }) => [
+                styles.lockerPrimaryBtn,
+                { flex: 1, height: 44, borderRadius: 8, backgroundColor: '#6D5DFC', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
+                pressed && { opacity: 0.8 }
+              ]}
+              onPress={handleEvidenceFilePick}
             >
               <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.lockerPrimaryBtnText}>Upload Evidence</Text>
+              <Text style={[styles.lockerPrimaryBtnText, { color: '#FFFFFF', fontWeight: '600', fontSize: 14 }]}>{t('evidence.uploadButton')}</Text>
             </Pressable>
             <Pressable
-              style={styles.lockerSecondaryBtn}
-              onPress={handleScanDocumentSimulate}
+              style={({ pressed }) => [
+                styles.lockerSecondaryBtn,
+                { flex: 1, height: 44, borderRadius: 8, borderWidth: 1, borderColor: '#6D5DFC', backgroundColor: '#FFFFFF', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
+                pressed && { backgroundColor: '#F9FAFB' }
+              ]}
+              onPress={handleStartDocumentScan}
             >
               <Ionicons name="scan-outline" size={16} color="#6D5DFC" />
-              <Text style={styles.lockerSecondaryBtnText}>Scan Document</Text>
-            </Pressable>
-            <Pressable
-              style={styles.lockerSecondaryBtn}
-              onPress={handleCapturePhotoSimulate}
-            >
-              <Ionicons name="camera-outline" size={16} color="#6D5DFC" />
-              <Text style={styles.lockerSecondaryBtnText}>Capture Photo</Text>
+              <Text style={[styles.lockerSecondaryBtnText, { color: '#6D5DFC', fontWeight: '600', fontSize: 14 }]}>{t('evidence.scanButton')}</Text>
             </Pressable>
           </View>
         </View>
+
+        {/* Upload Progress Loader Overlay */}
+        {isEvidenceUploading && (
+          <View style={{ backgroundColor: '#EEECFF20', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#EEECFF', marginBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <ActivityIndicator size="small" color="#6D5DFC" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#1F2937' }}>
+                {t('evidence.uploadingText')} {evidenceUploadProgress !== null ? `${evidenceUploadProgress}%` : ''}
+              </Text>
+              {evidenceUploadProgress !== null && (
+                <View style={{ height: 4, width: '100%', backgroundColor: '#ECECEC', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
+                  <View style={{ height: 4, width: `${evidenceUploadProgress}%`, backgroundColor: '#6D5DFC' }} />
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Metrics Summary Horizontal Grid */}
         <ScrollView
@@ -6947,14 +7458,12 @@ Through Counsel
           style={styles.metricsScrollView}
           contentContainerStyle={styles.metricsContainer}
         >
-          {renderMetricItem('Total Proof', totalCount, 'folder-outline', '#6D5DFC')}
-          {renderMetricItem('Verified', verifiedCount, 'shield-checkmark-outline', '#10B981')}
-          {renderMetricItem('Pending', pendingCount, 'time-outline', '#F59E0B')}
-          {renderMetricItem('Digital', digitalCount, 'cloud-done-outline', '#3B82F6')}
-          {renderMetricItem('Physical', physicalCount, 'briefcase-outline', '#8B5CF6')}
-          {renderMetricItem('Photographs', photoCount, 'image-outline', '#EC4899')}
-          {renderMetricItem('Audio/Video', audioVideoCount, 'videocam-outline', '#EF4444')}
-          {renderMetricItem('Documents', docCount, 'document-text-outline', '#10B981')}
+          {renderMetricItem(t('evidence.totalEvidence'), totalCount, 'folder-outline', '#6D5DFC')}
+          {renderMetricItem(t('evidence.verified'), verifiedCount, 'shield-checkmark-outline', '#10B981')}
+          {renderMetricItem(t('evidence.pending'), pendingCount, 'time-outline', '#F59E0B')}
+          {renderMetricItem(t('evidence.images'), imagesCount, 'image-outline', '#EC4899')}
+          {renderMetricItem(t('evidence.pdfs'), pdfsCount, 'document-text-outline', '#3B82F6')}
+          {renderMetricItem(t('evidence.scanned'), scannedCount, 'scan-outline', '#8B5CF6')}
         </ScrollView>
 
         {/* Search & Filters */}
@@ -6963,7 +7472,7 @@ Through Counsel
             <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.evidenceSearchIcon} />
             <TextInput
               style={styles.evidenceSearchInput}
-              placeholder="Search file name, exhibit, type, keywords..."
+              placeholder={t('evidence.searchPlaceholder')}
               placeholderTextColor="#9CA3AF"
               value={evidenceSearchQuery}
               onChangeText={setEvidenceSearchQuery}
@@ -6982,8 +7491,17 @@ Through Counsel
             style={styles.pillsScrollView}
             contentContainerStyle={styles.pillsContainer}
           >
-            {evidenceFilters.map((pill, idx) => {
+            {filtersToRender.map((pill, idx) => {
               const isActive = evidenceFilter === pill;
+              const localizedPill = pill === 'All' ? t('common.all') || t('evidence.all') || 'All'
+                : pill === 'Documents' ? t('evidence.documents')
+                : pill === 'Images' ? t('evidence.images')
+                : pill === 'Videos' ? t('evidence.videos')
+                : pill === 'Audio' ? t('evidence.audio')
+                : pill === 'Scanned' ? t('evidence.scanned')
+                : pill === 'Verified' ? t('evidence.verified')
+                : pill === 'Pending' ? t('evidence.pendingShort') || t('evidence.pending')
+                : pill;
               return (
                 <Pressable
                   key={idx}
@@ -6991,7 +7509,7 @@ Through Counsel
                   onPress={() => setEvidenceFilter(pill)}
                 >
                   <Text style={[styles.evidenceFilterPillText, isActive && styles.evidenceFilterPillTextActive]}>
-                    {pill}
+                    {localizedPill}
                   </Text>
                 </Pressable>
               );
@@ -6999,21 +7517,39 @@ Through Counsel
           </ScrollView>
         </View>
 
-        {/* Evidence List */}
-        {filteredList.length === 0 ? (
+        {/* Evidence List & Empty State Redesign */}
+        {list.length === 0 ? (
+          <View style={[styles.emptyEvidenceContainer, { padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9FAFB', borderRadius: 16, borderStyle: 'dashed', borderWidth: 2, borderColor: '#ECECEC', marginVertical: 10 }]}>
+            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#EEECFF', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <Ionicons name="lock-closed-outline" size={40} color="#6D5DFC" />
+            </View>
+            <Text style={[styles.emptyEvidenceTitle, { fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 8, textAlign: 'center' }]}>{t('evidence.emptyTitle')}</Text>
+            <Text style={[styles.emptyEvidenceSubtitle, { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 20, marginBottom: 24 }]}>
+              {t('evidence.emptySubtitle')}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                { paddingHorizontal: 24, height: 44, borderRadius: 8, backgroundColor: '#6D5DFC', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
+                pressed && { opacity: 0.8 }
+              ]}
+              onPress={handleEvidenceFilePick}
+            >
+              <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+              <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>{t('evidence.uploadButton')}</Text>
+            </Pressable>
+          </View>
+        ) : filteredList.length === 0 ? (
           <View style={styles.emptyEvidenceContainer}>
             <Ionicons name="shield-outline" size={48} color="#9CA3AF" />
-            <Text style={styles.emptyEvidenceTitle}>No Evidence Found</Text>
+            <Text style={styles.emptyEvidenceTitle}>{t('evidence.noEvidenceFound')}</Text>
             <Text style={styles.emptyEvidenceSubtitle}>
-              {list.length === 0 
-                ? 'Your evidence locker is empty. Start by uploading or scanning a document.'
-                : 'No files match your search query or active filters.'}
+              {t('evidence.noEvidenceMatch')}
             </Text>
           </View>
         ) : (
           <View style={styles.evidenceListContainer}>
             {filteredList.map((ev) => {
-              const statusColor = getStatusColor(ev.status || 'Pending');
+              const statusColor = getStatusColor(ev.status || 'Not Verified');
               const statusBg = statusColor + '10';
               
               return (
@@ -7028,7 +7564,9 @@ Through Counsel
                         <Text style={styles.exhibitCode}>{ev.exhibitNumber || 'N/A'}</Text>
                         <View style={[styles.evStatusBadge, { backgroundColor: statusBg }]}>
                           <View style={[styles.evStatusDot, { backgroundColor: statusColor }]} />
-                          <Text style={[styles.evStatusBadgeText, { color: statusColor }]}>{ev.status || 'Pending'}</Text>
+                          <Text style={[styles.evStatusBadgeText, { color: statusColor }]}>
+                            {ev.status === 'Verified' ? t('evidence.verified') : (ev.status === 'Pending' ? t('evidence.pendingShort') : (t('evidence.notVerified') || 'Not Verified'))}
+                          </Text>
                         </View>
                       </View>
                       <Text style={styles.evidenceName} numberOfLines={1}>{ev.name}</Text>
@@ -7061,7 +7599,7 @@ Through Counsel
                       }}
                     >
                       <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
-                      <Text style={styles.evidenceActionText}>View</Text>
+                      <Text style={styles.evidenceActionText}>{t('evidence.view')}</Text>
                     </Pressable>
 
                     <Pressable
@@ -7072,7 +7610,7 @@ Through Counsel
                       }}
                     >
                       <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
-                      <Text style={[styles.evidenceActionText, { color: '#10B981' }]}>Verify</Text>
+                      <Text style={[styles.evidenceActionText, { color: '#10B981' }]}>{t('evidence.verify')}</Text>
                     </Pressable>
 
                     <Pressable
@@ -7080,7 +7618,7 @@ Through Counsel
                       onPress={() => handleShareEvidence(ev)}
                     >
                       <Ionicons name="share-social-outline" size={16} color="#3B82F6" />
-                      <Text style={[styles.evidenceActionText, { color: '#3B82F6' }]}>Share</Text>
+                      <Text style={[styles.evidenceActionText, { color: '#3B82F6' }]}>{t('evidence.share')}</Text>
                     </Pressable>
 
                     <Pressable
@@ -7088,15 +7626,15 @@ Through Counsel
                       onPress={() => handleDownloadEvidenceSimulated(ev.name)}
                     >
                       <Ionicons name="download-outline" size={16} color="#F59E0B" />
-                      <Text style={[styles.evidenceActionText, { color: '#F59E0B' }]}>Download</Text>
+                      <Text style={[styles.evidenceActionText, { color: '#F59E0B' }]}>{t('evidence.download')}</Text>
                     </Pressable>
 
                     <Pressable
                       style={styles.evidenceActionBtn}
-                      onPress={() => handleDeleteEvidence(ev.id || ev._id || '')}
+                      onPress={() => handleDeleteEvidenceReal(ev.id || ev._id || '')}
                     >
                       <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      <Text style={[styles.evidenceActionText, { color: '#EF4444' }]}>Delete</Text>
+                      <Text style={[styles.evidenceActionText, { color: '#EF4444' }]}>{t('evidence.delete')}</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -10674,10 +11212,10 @@ Through Counsel
             <Text style={styles.caseHeaderTitle}>{workspace.name}</Text>
             <View style={styles.caseHeaderBadgeRow}>
               <View style={[styles.statusBadge, { backgroundColor: '#E0F2FE' }]}>
-                <Text style={[styles.statusBadgeText, { color: '#0369A1' }]}>{workspace.status}</Text>
+                <Text style={[styles.statusBadgeText, { color: '#0369A1' }]}>{t('enums.status.' + (workspace.status || '').toUpperCase()) || workspace.status}</Text>
               </View>
               <View style={[styles.priorityBadge, { backgroundColor: '#FEE2E2' }]}>
-                <Text style={[styles.priorityBadgeText, { color: '#B91C1C' }]}>{workspace.priority} Priority</Text>
+                <Text style={[styles.priorityBadgeText, { color: '#B91C1C' }]}>{t('enums.priority.' + (workspace.priority || '').toUpperCase()) || workspace.priority}</Text>
               </View>
             </View>
           </View>
@@ -11560,9 +12098,574 @@ Through Counsel
     );
   };
 
+  const renderAnalysisTab = () => {
+    const report = viewedAnalysisRun?.analysisJson || latestAnalysis?.analysisJson;
+    const meta = viewedAnalysisRun || latestAnalysis;
+
+    if (!report) {
+      const summaryText = workspace?.summary || workspace?.caseSummary || '';
+      const isSummaryValid = summaryText.trim().length >= 100;
+      const hasTimeline = workspace?.facts && workspace.facts.length > 0;
+      const hasEvidence = workspace?.evidence && workspace.evidence.length > 0;
+      const hasHearings = workspace?.hearings && workspace.hearings.length > 0;
+      const hasCourtOrders = workspace?.courtOrders && workspace.courtOrders.length > 0;
+      const hasDocuments = workspace?.documents && workspace.documents.length > 0;
+      const hasContracts = (workspace?.drafts && workspace.drafts.length > 0) || 
+                           (workspace?.documents || []).some((d: any) => 
+                               (d.name || '').toLowerCase().includes('contract') || 
+                               (d.name || '').toLowerCase().includes('agreement') ||
+                               (d.type || '').toLowerCase().includes('agreement') ||
+                               (d.type || '').toLowerCase().includes('contract')
+                           );
+      const hasResearch = workspace?.research && workspace.research.length > 0;
+      const hasNotes = workspace?.notes && workspace.notes.length > 0;
+
+      let readinessScore = 0;
+      if (isSummaryValid) readinessScore += 25;
+      if (hasEvidence) readinessScore += 20;
+      if (hasDocuments || (workspace?.drafts && workspace.drafts.length > 0)) readinessScore += 15;
+      if (hasTimeline) readinessScore += 10;
+      if (hasHearings) readinessScore += 10;
+      if (hasCourtOrders) readinessScore += 10;
+      if (hasResearch) readinessScore += 5;
+      if (hasNotes) readinessScore += 5;
+
+      const checklistItems = [
+        { id: 'summary', label: 'Case Summary (Min 100 chars)', checked: isSummaryValid, action: () => { setSummaryInputText(workspace?.summary || workspace?.caseSummary || ''); setModalType('edit_summary'); setIsModalOpen(true); } },
+        { id: 'timeline', label: 'Facts Timeline chronology', checked: hasTimeline, action: () => { setActiveWorkspaceTab('timeline'); setModalType('timeline'); setIsModalOpen(true); } },
+        { id: 'evidence', label: 'Evidence Vault elements', checked: hasEvidence, action: handleEvidenceFilePick },
+        { id: 'hearings', label: 'Scheduled court hearings', checked: hasHearings, action: () => { setActiveWorkspaceTab('hearings'); setModalType('hearing'); setIsModalOpen(true); } },
+        { id: 'courtOrders', label: 'Logged court orders', checked: hasCourtOrders, action: () => { setActiveWorkspaceTab('documents'); setModalType('court_order'); setIsModalOpen(true); } },
+        { id: 'documents', label: 'Uploaded case files', checked: hasDocuments, action: handleSimulatedFileUpload },
+        { id: 'contracts', label: 'Drafted Contracts / Agreements', checked: hasContracts, action: () => { setActiveWorkspaceTab('drafts'); } },
+        { id: 'research', label: 'Applicable precedents or laws', checked: hasResearch, action: () => { setActiveWorkspaceTab('research'); } },
+        { id: 'notes', label: 'Workspace strategic notes', checked: hasNotes, action: handleOpenAddNoteModal }
+      ];
+
+      return (
+        <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
+          <View style={{ alignItems: 'center', marginVertical: 20 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 }}>Case Readiness Score</Text>
+            <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 16 }}>Meet minimum workspace requirements for zero-hallucination analysis</Text>
+            
+            {/* Circular Gauge Score */}
+            <View style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 8, borderColor: readinessScore >= 70 ? theme.success : readinessScore >= 40 ? theme.warning : theme.danger, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}>
+              <Text style={{ fontSize: 36, fontWeight: '900', color: theme.textPrimary }}>{readinessScore}%</Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: theme.textSecondary }}>Readiness</Text>
+            </View>
+          </View>
+
+          {/* Checklist Container */}
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 20 }}>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: theme.textPrimary, marginBottom: 12 }}>Case Completeness Checklist</Text>
+            {checklistItems.map((item) => (
+              <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <Ionicons 
+                    name={item.checked ? "checkbox" : "square-outline"} 
+                    size={20} 
+                    color={item.checked ? theme.success : theme.textMuted} 
+                    style={{ marginRight: 10 }}
+                  />
+                  <Text style={{ fontSize: 13, color: item.checked ? theme.textPrimary : theme.textSecondary, textDecorationLine: item.checked ? 'line-through' : 'none' }}>
+                    {item.label}
+                  </Text>
+                </View>
+                {!item.checked && (
+                  <TouchableOpacity onPress={item.action} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: '#EFF6FF' }}>
+                    <Text style={{ fontSize: 11, color: '#2563EB', fontWeight: '700' }}>Add</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </View>
+
+          {/* Bottom Actions */}
+          <View style={{ alignItems: 'center', marginBottom: 30 }}>
+            <TouchableOpacity
+              style={[styles.syncBatchBtn, { paddingHorizontal: 36, backgroundColor: readinessScore >= 40 ? '#6D5DFC' : '#9CA3AF' }]}
+              onPress={handleContinueAnalysis}
+            >
+              <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+              <Text style={styles.syncBatchBtnText}>Analyze Case Workspace</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      );
+    }
+
+    const isCurrentActive = meta?._id === latestAnalysis?._id;
+
+    return (
+      <View style={styles.tabContent}>
+        {/* Comparison Header Banner if inspecting older run */}
+        {!isCurrentActive && (
+          <View style={{ backgroundColor: theme.warningLight, padding: 12, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: theme.warning }}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.warning }}>Inspecting Past Analysis Run (V{meta.version})</Text>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>You are viewing cached legal suggestions from {new Date(meta.generatedAt || meta.createdAt).toLocaleDateString()}.</Text>
+            </View>
+            <TouchableOpacity
+              style={{ backgroundColor: theme.warning, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              onPress={() => setViewedAnalysisRun(latestAnalysis)}
+            >
+              <Text style={{ fontSize: 10, fontWeight: '800', color: '#FFFFFF' }}>Restore Latest</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Dynamic Double Gauge Metrics */}
+        <View style={styles.analysisMetricsRow}>
+          <View style={[styles.analysisMetricCard, { borderColor: theme.success }]}>
+            <Ionicons name="shield-checkmark" size={22} color={theme.success} />
+            <Text style={styles.analysisMetricVal}>{report.strengthScore || 0}%</Text>
+            <Text style={styles.analysisMetricLbl}>Case Strength Score</Text>
+          </View>
+          {report.winProbability !== 'Unavailable' && (
+            <View style={[styles.analysisMetricCard, { borderColor: theme.info }]}>
+              <Ionicons name="trending-up" size={22} color={theme.info} />
+              <Text style={styles.analysisMetricVal}>{report.winProbability || 0}%</Text>
+              <Text style={styles.analysisMetricLbl}>Win Probability</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Metadata badge row */}
+        <View style={styles.analysisMetaBadgeRow}>
+          <View style={styles.analysisMetaBadge}>
+            <Text style={styles.analysisMetaBadgeText}>Version: V{meta.version || 1}</Text>
+          </View>
+          <View style={styles.analysisMetaBadge}>
+            <Text style={styles.analysisMetaBadgeText}>Model: {meta.modelUsed || 'Gemini 2.5 Pro'}</Text>
+          </View>
+          <View style={styles.analysisMetaBadge}>
+            <Text style={styles.analysisMetaBadgeText}>Status: {meta.status || 'Completed'}</Text>
+          </View>
+          {meta.confidence && (
+            <View style={[styles.analysisMetaBadge, { backgroundColor: meta.confidence === 'High' ? '#D1FAE5' : '#FEF3C7' }]}>
+              <Text style={[styles.analysisMetaBadgeText, { color: meta.confidence === 'High' ? '#065F46' : '#92400E' }]}>
+                Confidence: {meta.confidence}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Overview Banner */}
+        <View style={styles.analysisOverviewCard}>
+          <View style={styles.analysisOverviewCardHeader}>
+            <Text style={styles.analysisOverviewLabel}>Risk Assessment</Text>
+            <View style={[styles.analysisRiskBadge, { backgroundColor: report.riskAssessment === 'Low' ? theme.success : report.riskAssessment === 'Medium' ? theme.warning : theme.danger }]}>
+              <Text style={styles.analysisRiskBadgeText}>{report.riskAssessment || 'Medium'}</Text>
+            </View>
+          </View>
+          {report.settlementPossibility ? (
+            <View style={{ marginTop: 8 }}>
+              <Text style={[styles.analysisOverviewLabel, { fontSize: 10, color: theme.textSecondary }]}>Settlement Possibility</Text>
+              <Text style={[styles.analysisOverviewText, { marginTop: 2 }]}>{report.settlementPossibility}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Expandable Accordions */}
+        
+        {/* Accordion 1: Executive Case Summary */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('summary')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="document-text-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Executive Case Summary</Text>
+            </View>
+            <Ionicons name={expandedSections.summary ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.summary && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportTextParagraph}>{report.caseSummary}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 2: Major Legal Issues & Applicable Laws */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('issues')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="git-network-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Legal Issues & Statutory Rules</Text>
+            </View>
+            <Ionicons name={expandedSections.issues ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.issues && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportSubSectionTitle}>Major Legal Issues</Text>
+              {report.majorLegalIssues && report.majorLegalIssues.length > 0 ? (
+                report.majorLegalIssues.map((issue: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Text style={styles.analysisReportBulletDot}>•</Text>
+                    <Text style={styles.analysisReportBulletText}>{issue}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No specific legal issues declared.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Applicable Laws</Text>
+              {report.applicableLaws && report.applicableLaws.length > 0 ? (
+                report.applicableLaws.map((law: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Text style={styles.analysisReportBulletDot}>•</Text>
+                    <Text style={styles.analysisReportBulletText}>{law}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No laws recorded.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Specific Sections</Text>
+              {report.applicableSections && report.applicableSections.length > 0 ? (
+                report.applicableSections.map((sec: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Text style={styles.analysisReportBulletDot}>•</Text>
+                    <Text style={styles.analysisReportBulletText}>{sec}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No specific sections mapped.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 3: Precedents & Judgments */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('precedents')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="library-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Judgments & Precedents</Text>
+            </View>
+            <Ionicons name={expandedSections.precedents ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.precedents && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportSubSectionTitle}>Supreme Court Judgments</Text>
+              {report.supremeCourtJudgments && report.supremeCourtJudgments.length > 0 ? (
+                report.supremeCourtJudgments.map((j: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="bookmarks-outline" size={11} color={theme.primary} style={{ marginTop: 3 }} />
+                    <Text style={styles.analysisReportBulletText}>{j}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No Supreme Court references.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>High Court Judgments</Text>
+              {report.highCourtJudgments && report.highCourtJudgments.length > 0 ? (
+                report.highCourtJudgments.map((j: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="bookmarks-outline" size={11} color={theme.primary} style={{ marginTop: 3 }} />
+                    <Text style={styles.analysisReportBulletText}>{j}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No High Court references.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Important Precedents to Cite</Text>
+              {report.importantPrecedents && report.importantPrecedents.length > 0 ? (
+                report.importantPrecedents.map((p: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="chevron-forward" size={12} color={theme.primary} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{p}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No precedents catalogued.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 4: Evidence Vault Audit */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('evidence')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="shield-checkmark-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Evidence & Gaps Audit</Text>
+            </View>
+            <Ionicons name={expandedSections.evidence ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.evidence && (
+            <View style={styles.analysisAccordionContent}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <Text style={styles.analysisReportSubSectionTitle}>Evidence Quality:</Text>
+                <View style={{ backgroundColor: report.evidenceStrength === 'Strong' ? theme.successLight : report.evidenceStrength === 'Medium' ? theme.warningLight : theme.dangerLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginTop: 10 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: report.evidenceStrength === 'Strong' ? theme.success : report.evidenceStrength === 'Medium' ? theme.warning : theme.danger }}>{report.evidenceStrength || 'Medium'}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.analysisReportSubSectionTitle}>Weaknesses & procedural risks</Text>
+              {report.weaknesses && report.weaknesses.length > 0 ? (
+                report.weaknesses.map((w: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="alert-circle-outline" size={14} color={theme.danger} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{w}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No weaknesses detected.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Contradictions & inconsistencies</Text>
+              {report.contradictions && report.contradictions.length > 0 ? (
+                report.contradictions.map((c: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="alert-circle-outline" size={14} color={theme.danger} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{c}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No timeline contradictions detected.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Missing Evidence Needed</Text>
+              {report.missingEvidence && report.missingEvidence.length > 0 ? (
+                report.missingEvidence.map((me: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="add-circle-outline" size={14} color={theme.warning} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{me}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No evidence items pending.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Missing Official Documents</Text>
+              {report.missingDocuments && report.missingDocuments.length > 0 ? (
+                report.missingDocuments.map((md: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="document-outline" size={14} color={theme.warning} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{md}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No documents pending.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 5: Trial Strategy & Strategic Actions */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('strategy')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="bulb-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Trial Strategy & Actions</Text>
+            </View>
+            <Ionicons name={expandedSections.strategy ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.strategy && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportSubSectionTitle}>Litigation Plan</Text>
+              <Text style={styles.analysisReportTextParagraph}>{report.litigationStrategy}</Text>
+
+              <Text style={styles.analysisReportSubSectionTitle}>Recommended Next Steps</Text>
+              {report.recommendedNextSteps && report.recommendedNextSteps.length > 0 ? (
+                report.recommendedNextSteps.map((s: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="checkmark-circle-outline" size={14} color={theme.success} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{s}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No next steps defined.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Winning Arguments to Advance</Text>
+              {report.argumentsToUse && report.argumentsToUse.length > 0 ? (
+                report.argumentsToUse.map((a: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="add-outline" size={14} color={theme.success} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{a}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No arguments defined.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Weak Arguments to Avoid</Text>
+              {report.argumentsToAvoid && report.argumentsToAvoid.length > 0 ? (
+                report.argumentsToAvoid.map((a: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="close-outline" size={14} color={theme.danger} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{a}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No arguments flagged to avoid.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 6: Court Prep & Demeanor */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('prep')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="people-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Court Prep & Counsel Notes</Text>
+            </View>
+            <Ionicons name={expandedSections.prep ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.prep && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportSubSectionTitle}>Judge Presentation & Demeanor</Text>
+              <Text style={styles.analysisReportTextParagraph}>{report.judgePreparation || 'N/A'}</Text>
+
+              <Text style={styles.analysisReportSubSectionTitle}>Cross Examination Pointers</Text>
+              <Text style={styles.analysisReportTextParagraph}>{report.crossExaminationNotes || 'N/A'}</Text>
+
+              <Text style={styles.analysisReportSubSectionTitle}>Questions to Ask Client</Text>
+              {report.questionsToAskClient && report.questionsToAskClient.length > 0 ? (
+                report.questionsToAskClient.map((q: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="help-circle-outline" size={14} color={theme.primary} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{q}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No client questions drafted.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>AI Draft Recommendations</Text>
+              {report.draftRecommendations && report.draftRecommendations.length > 0 ? (
+                report.draftRecommendations.map((dr: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="create-outline" size={13} color={theme.primary} style={{ marginTop: 3 }} />
+                    <Text style={styles.analysisReportBulletText}>{dr}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No drafts recommended.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 7: Timeline & Statute of Limitations */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('risks')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="time-outline" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Timeline & Limitation Audits</Text>
+            </View>
+            <Ionicons name={expandedSections.risks ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.risks && (
+            <View style={styles.analysisAccordionContent}>
+              <Text style={styles.analysisReportSubSectionTitle}>Limitation & Latches Risks</Text>
+              {report.limitationRisks && report.limitationRisks.length > 0 ? (
+                report.limitationRisks.map((lr: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="warning-outline" size={14} color={theme.danger} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{lr}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No limitation risks identified.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Date Calculations & Delays</Text>
+              {report.timelineIssues && report.timelineIssues.length > 0 ? (
+                report.timelineIssues.map((ti: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="warning-outline" size={14} color={theme.warning} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{ti}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No timeline errors detected.</Text>
+              )}
+
+              <Text style={styles.analysisReportSubSectionTitle}>Compliance Checklists</Text>
+              {report.complianceChecklist && report.complianceChecklist.length > 0 ? (
+                report.complianceChecklist.map((item: string, idx: number) => (
+                  <View key={idx} style={styles.analysisReportBullet}>
+                    <Ionicons name="checkbox-outline" size={14} color={theme.success} style={{ marginTop: 2 }} />
+                    <Text style={styles.analysisReportBulletText}>{item}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No compliance items listed.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Accordion 8: Run History */}
+        <View style={styles.analysisAccordionCard}>
+          <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('history')}>
+            <View style={styles.analysisAccordionHeaderLeft}>
+              <Ionicons name="time" size={18} color={theme.primary} />
+              <Text style={styles.analysisAccordionTitle}>Analysis Run History</Text>
+            </View>
+            <Ionicons name={expandedSections.history ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+          </TouchableOpacity>
+          {expandedSections.history && (
+            <View style={styles.analysisAccordionContent}>
+              {analysisHistory && analysisHistory.length > 0 ? (
+                analysisHistory.map((run: any) => {
+                  const isActiveRun = run._id === meta?._id;
+                  return (
+                    <View key={run._id} style={styles.analysisHistoryRow}>
+                      <View style={styles.analysisHistoryTextCol}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.analysisHistoryVersionText}>Version V{run.version}</Text>
+                          {run._id === latestAnalysis?._id && (
+                            <View style={{ backgroundColor: theme.primaryLight, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '800', color: theme.primary }}>LATEST</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.analysisHistoryDateText}>{new Date(run.generatedAt || run.createdAt).toLocaleString()}</Text>
+                        <Text style={styles.analysisHistorySummaryText} numberOfLines={2}>{run.summary || 'Comprehensive legal analysis report run.'}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.analysisHistoryLoadBtn, isActiveRun && { backgroundColor: theme.border }]}
+                        onPress={() => setViewedAnalysisRun(run)}
+                        disabled={isActiveRun}
+                      >
+                        <Text style={[styles.analysisHistoryLoadBtnText, isActiveRun && { color: theme.textMuted }]}>
+                          {isActiveRun ? 'Viewing' : 'Inspect'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.analysisReportEmptyText}>No previous runs cached in history.</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Action Buttons: Analyze Again */}
+        <View style={styles.analysisReportActionButtons}>
+          <TouchableOpacity
+            style={[styles.syncBatchBtn, { flex: 1, backgroundColor: theme.primary }]}
+            onPress={handleContinueAnalysis}
+          >
+            <Ionicons name="sync-outline" size={14} color="#FFFFFF" />
+            <Text style={styles.syncBatchBtnText}>Analyze Again</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   // Render sub-section layouts
   const renderActiveSection = () => {
     switch (activeWorkspaceTab) {
+      case 'analysis':
+        return renderAnalysisTab();
       case 'timeline':
         return renderTimelineTab();
       case 'hearings':
@@ -11592,6 +12695,107 @@ Through Counsel
       default:
         return renderOverviewTab();
     }
+  };
+
+  const renderValidationErrorModal = () => {
+    if (!validationError) return null;
+    const isGarbage = validationError.type === 'garbage_summary';
+    
+    return (
+      <Modal visible={showValidationErrorModal} transparent={true} animationType="fade">
+        <View style={styles.analysisErrorOverlay}>
+          <View style={[styles.analysisErrorModalContent, { width: '90%', padding: 24, borderRadius: 16 }]}>
+            <Ionicons 
+              name={isGarbage ? "alert-circle" : "shield-alert"} 
+              size={48} 
+              color={theme.danger} 
+              style={{ marginBottom: 12 }} 
+            />
+            <Text style={[styles.analysisErrorModalTitle, { fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 8 }]}>
+              {isGarbage ? 'Invalid Case Summary' : 'Insufficient Case Details'}
+            </Text>
+            <Text style={[styles.analysisErrorModalDesc, { fontSize: 13, color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
+              {isGarbage 
+                ? 'Your case summary appears incomplete, repetitive, or contains keyboard spam. Please write a meaningful summary of at least 100 characters before running AI analysis.'
+                : 'The AI Zero Hallucination Engine requires more information to proceed. It is programmatically blocked from analyzing when case fields are empty to prevent hallucinating facts.'}
+            </Text>
+
+            {!isGarbage && validationError.readinessScore !== undefined && (
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary, marginBottom: 6 }}>
+                  Current Case Readiness Score: {validationError.readinessScore}%
+                </Text>
+                <View style={{ width: '100%', height: 8, backgroundColor: '#E5E7EB', borderRadius: 4, overflow: 'hidden' }}>
+                  <View style={{ width: `${validationError.readinessScore}%`, height: '100%', backgroundColor: theme.danger }} />
+                </View>
+              </View>
+            )}
+
+            {!isGarbage && validationError.missingFields && validationError.missingFields.length > 0 && (
+              <View style={{ width: '100%', backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, marginBottom: 20, maxHeight: 180 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.textPrimary, marginBottom: 8 }}>
+                  Required details to complete:
+                </Text>
+                <ScrollView nestedScrollEnabled={true}>
+                  {validationError.missingFields.map((field) => (
+                    <View key={field} style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4 }}>
+                      <Ionicons name="close-circle" size={14} color={theme.danger} style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 12, color: theme.textPrimary }}>{field}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+              <TouchableOpacity
+                style={[styles.analysisErrorBtn, styles.analysisErrorBtnOutline, { flex: 1 }]}
+                onPress={() => setShowValidationErrorModal(false)}
+              >
+                <Text style={[styles.analysisErrorBtnText, { color: theme.textSecondary }]}>Dismiss</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.analysisErrorBtn, styles.analysisErrorBtnPrimary, { flex: 1, backgroundColor: theme.primary }]}
+                onPress={() => {
+                  setShowValidationErrorModal(false);
+                  if (isGarbage || (validationError.missingFields && validationError.missingFields.includes('Summary'))) {
+                    setSummaryInputText(workspace?.summary || workspace?.caseSummary || '');
+                    setModalType('edit_summary');
+                    setIsModalOpen(true);
+                  } else {
+                    // Navigate to appropriate tab
+                    const missing = validationError.missingFields || [];
+                    if (missing.includes('Timeline')) {
+                      setActiveWorkspaceTab('timeline');
+                      setModalType('timeline');
+                      setIsModalOpen(true);
+                    } else if (missing.includes('Evidence')) {
+                      setActiveWorkspaceTab('evidence');
+                      handleEvidenceFilePick();
+                    } else if (missing.includes('Hearings')) {
+                      setActiveWorkspaceTab('hearings');
+                      setModalType('hearing');
+                      setIsModalOpen(true);
+                    } else if (missing.includes('Court Orders')) {
+                      setActiveWorkspaceTab('documents');
+                      setModalType('court_order');
+                      setIsModalOpen(true);
+                    } else {
+                      setActiveWorkspaceTab('overview');
+                    }
+                  }
+                }}
+              >
+                <Text style={[styles.analysisErrorBtnText, { color: '#FFFFFF' }]}>
+                  {isGarbage || (validationError.missingFields && validationError.missingFields.includes('Summary')) ? 'Fix Summary' : 'Complete Case'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
   };
 
   if (loading) {
@@ -11652,10 +12856,10 @@ Through Counsel
           </Text>
           <View style={styles.appBarBadgesRow}>
             <View style={[styles.appBadge, styles.appBadgeStatus]}>
-              <Text style={styles.appBadgeText}>{workspace.status || 'Active'}</Text>
+              <Text style={styles.appBadgeText}>{t('enums.status.' + (workspace.status || 'Active').toUpperCase()) || workspace.status}</Text>
             </View>
             <View style={[styles.appBadge, styles.appBadgePriority]}>
-              <Text style={[styles.appBadgeText, { color: theme.danger }]}>{workspace.priority || 'High'} Priority</Text>
+              <Text style={[styles.appBadgeText, { color: theme.danger }]}>{t('enums.priority.' + (workspace.priority || 'High').toUpperCase()) || workspace.priority}</Text>
             </View>
           </View>
         </View>
@@ -11694,6 +12898,138 @@ Through Counsel
           </TouchableOpacity>
         )}
       </View>
+
+      {/* --- AI LEGAL ANALYSIS WORKFLOW MODALS --- */}
+      {/* Elegant Immersive Loading Modal */}
+      <Modal visible={isAnalyzing} transparent={true} animationType="slide">
+        <View style={styles.analysisLoadingOverlay}>
+          <SafeAreaView style={styles.analysisLoadingSafeArea} edges={['top', 'bottom']}>
+            <View style={styles.analysisLoadingHeader}>
+              <Ionicons name="sparkles" size={28} color={theme.primary} />
+              <Text style={styles.analysisLoadingTitle}>🧠 AI Legal Analysis</Text>
+              <Text style={styles.analysisLoadingSubtitle}>Analyzing your case...</Text>
+            </View>
+
+            <View style={styles.analysisLoadingChecklist}>
+              {(() => {
+                const stepsList = [
+                  'Reading Case Details',
+                  'Reviewing Timeline',
+                  'Checking Hearings',
+                  'Processing Uploaded Documents',
+                  'Reviewing Evidence',
+                  'Researching Applicable Laws',
+                  'Finding Similar Judgments',
+                  'Preparing Legal Strategy'
+                ];
+
+                return stepsList.map((stepText, idx) => {
+                  const stepNum = idx + 1;
+                  const isCompleted = currentAnalysisStep > stepNum;
+                  const isActive = currentAnalysisStep === stepNum;
+                  const isPending = currentAnalysisStep < stepNum;
+
+                  return (
+                    <View key={idx} style={styles.analysisChecklistRow}>
+                      <View style={styles.analysisChecklistIconContainer}>
+                        {isCompleted ? (
+                          <Ionicons name="checkmark-circle" size={20} color={theme.success} />
+                        ) : isActive ? (
+                          <ActivityIndicator size="small" color={theme.primary} />
+                        ) : (
+                          <View style={styles.analysisPendingDot} />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.analysisChecklistText,
+                          isCompleted && styles.analysisChecklistTextCompleted,
+                          isActive && styles.analysisChecklistTextActive,
+                          isPending && styles.analysisChecklistTextPending,
+                        ]}
+                      >
+                        {stepText}
+                      </Text>
+                    </View>
+                  );
+                });
+              })()}
+            </View>
+
+            <View style={styles.analysisLoadingFooter}>
+              <Text style={styles.analysisLoadingFooterText}>Please wait...</Text>
+              <TouchableOpacity
+                style={styles.analysisCancelLoadingBtn}
+                onPress={() => {
+                  setIsAnalyzing(false);
+                  showToast('info', 'Analysis Cancelled', 'The case analysis process was cancelled.');
+                }}
+              >
+                <Text style={styles.analysisCancelLoadingBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* Confirmation Modal (Analyze Again?) */}
+      <Modal visible={showAnalysisAgainPrompt} transparent={true} animationType="fade">
+        <View style={styles.analysisPromptOverlay}>
+          <View style={styles.analysisPromptModalContent}>
+            <Ionicons name="sparkles" size={40} color={theme.primary} style={{ marginBottom: 16 }} />
+            <Text style={styles.analysisPromptModalTitle}>Analyze Again?</Text>
+            <Text style={styles.analysisPromptModalDesc}>This will refresh the previous AI report using the latest case data.</Text>
+            <View style={styles.analysisPromptModalButtons}>
+              <TouchableOpacity
+                style={[styles.analysisPromptBtn, styles.analysisPromptBtnOutline]}
+                onPress={() => setShowAnalysisAgainPrompt(false)}
+              >
+                <Text style={[styles.analysisPromptBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.analysisPromptBtn, styles.analysisPromptBtnPrimary]}
+                onPress={() => {
+                  setShowAnalysisAgainPrompt(false);
+                  handleStartAnalysis();
+                }}
+              >
+                <Text style={[styles.analysisPromptBtnText, { color: '#FFFFFF' }]}>Analyze</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error handling Modal (Retry / Cancel) */}
+      <Modal visible={showAnalysisErrorModal} transparent={true} animationType="fade">
+        <View style={styles.analysisErrorOverlay}>
+          <View style={styles.analysisErrorModalContent}>
+            <Ionicons name="cloud-offline-outline" size={48} color={theme.danger} style={{ marginBottom: 16 }} />
+            <Text style={styles.analysisErrorModalTitle}>Unable to analyze case.</Text>
+            <Text style={styles.analysisErrorModalDesc}>Please check your internet connection or try again later.</Text>
+            <View style={styles.analysisErrorModalButtons}>
+              <TouchableOpacity
+                style={[styles.analysisErrorBtn, styles.analysisErrorBtnOutline]}
+                onPress={() => setShowAnalysisErrorModal(false)}
+              >
+                <Text style={[styles.analysisErrorBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.analysisErrorBtn, styles.analysisErrorBtnPrimary]}
+                onPress={() => {
+                  setShowAnalysisErrorModal(false);
+                  handleStartAnalysis();
+                }}
+              >
+                <Text style={[styles.analysisErrorBtnText, { color: '#FFFFFF' }]}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Zero Hallucination Validation Error Modal */}
+      {renderValidationErrorModal()}
 
       {/* --- THREE DOT OPTIONS DIALOG --- */}
       <Modal visible={isThreeDotOpen} transparent={true} animationType="slide">
@@ -11745,6 +13081,36 @@ Through Counsel
             <TouchableWithoutFeedback>
               <View style={[styles.modalContent, { maxHeight: '90%' }]}>
                 <ScrollView showsVerticalScrollIndicator={false}>
+                {/* EDIT SUMMARY FORM */}
+                {modalType === 'edit_summary' && (
+                  <View style={styles.formContainer}>
+                    <View style={styles.formHeaderRow}>
+                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Edit Case Summary</Text>
+                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                        <Ionicons name="close" size={24} color="#4B5563" />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.inputLabel}>Case Summary Brief</Text>
+                    <TextInput
+                      style={[styles.formInput, { height: 180, textAlignVertical: 'top' }]}
+                      placeholder="Write a clear, detailed summary of the case (at least 100 characters to build case readiness)..."
+                      placeholderTextColor="#9CA3AF"
+                      multiline={true}
+                      value={summaryInputText}
+                      onChangeText={setSummaryInputText}
+                    />
+                    <Pressable
+                      style={styles.formSubmitBtn}
+                      onPress={async () => {
+                        handleUpdateField({ summary: summaryInputText });
+                        setIsModalOpen(false);
+                      }}
+                    >
+                      <Text style={styles.formSubmitBtnText}>Save Case Summary</Text>
+                    </Pressable>
+                  </View>
+                )}
+
                 {/* TIMELINE FORM */}
                 {modalType === 'timeline' && (
                   <View style={styles.formContainer}>
@@ -12449,9 +13815,10 @@ Through Counsel
       )}
       {/* --- DRAFT EDITOR MODAL --- */}
       <Modal visible={isEditorOpen} animationType="slide" presentationStyle="fullScreen">
-        <SafeAreaView style={styles.editorModalContainer}>
+        <View style={[styles.editorModalContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+            enabled={Platform.OS === 'ios'}
             style={{ flex: 1 }}
           >
             {/* STICKY HEADER */}
@@ -12843,12 +14210,12 @@ Through Counsel
               )}
             </View>
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* --- DRAFT VIEWER MODAL --- */}
       <Modal visible={isPreviewOpen && !!previewDraft} animationType="slide" presentationStyle="fullScreen">
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom }}>
           {/* Header */}
           <View style={[styles.appBar, { borderBottomWidth: 1, borderBottomColor: '#ECECEC' }]}>
             <TouchableOpacity 
@@ -12954,7 +14321,7 @@ Through Counsel
             <Ionicons name="create" size={18} color="#FFFFFF" />
             <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>Edit Draft</Text>
           </TouchableOpacity>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* --- CARD MORE MENU BOTTOM SHEET --- */}
@@ -13471,6 +14838,33 @@ Through Counsel
               </View>
             </View>
 
+            {/* AI Analysis Trigger Panel (Only shown if unanalyzed) */}
+            {!selectedEvidence?.ocrData?.text && !selectedEvidence?.aiAnalysis?.relevance && (
+              <View style={{ padding: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEECFF15', borderRadius: 12, borderWidth: 1, borderColor: '#EEECFF', marginBottom: 20, marginHorizontal: 16 }}>
+                <Ionicons name="sparkles" size={32} color="#6D5DFC" style={{ marginBottom: 12 }} />
+                <Text style={{ fontSize: 15, fontWeight: '700', color: '#1F2937', marginBottom: 6 }}>Unanalyzed Document Exhibit</Text>
+                <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', lineHeight: 18, marginBottom: 16 }}>
+                  Run the AI Co-Counsel analysis engine to perform character extraction (OCR) and compile admissibility findings.
+                </Text>
+                {isAnalyzingEvidenceDetail ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator size="small" color="#6D5DFC" />
+                    <Text style={{ fontSize: 13, color: '#6D5DFC', fontWeight: '600' }}>Analyzing Document... {evidenceAnalysisProgress}%</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    style={({ pressed }) => [
+                      { paddingHorizontal: 20, height: 40, borderRadius: 8, backgroundColor: '#6D5DFC', justifyContent: 'center', alignItems: 'center' },
+                      pressed && { opacity: 0.8 }
+                    ]}
+                    onPress={() => handleRunEvidenceAIAnalysis(selectedEvidence?.id || selectedEvidence?._id || '')}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13 }}>Run AI & OCR Analysis</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
             {/* OCR Extracted Text Preview */}
             <View style={styles.ocrSection}>
               <View style={styles.ocrHeaderRow}>
@@ -13488,7 +14882,7 @@ Through Counsel
               </View>
               <ScrollView style={styles.ocrTextScroll} nestedScrollEnabled>
                 <Text style={styles.ocrTextContent}>
-                  {selectedEvidence?.ocrData?.text || 'No scan text available for this file type.'}
+                  {selectedEvidence?.ocrData?.text || 'No scan text available yet. Run AI Analysis to extract characters.'}
                 </Text>
               </ScrollView>
             </View>
@@ -13507,7 +14901,7 @@ Through Counsel
 
               <Text style={styles.findingsSubLabel}>Legal Relevance & Analysis</Text>
               <Text style={styles.findingsValue}>
-                {selectedEvidence?.aiAnalysis?.relevance || 'No relevance analysis computed.'}
+                {selectedEvidence?.aiAnalysis?.relevance || 'No relevance analysis computed yet. Run AI Analysis to evaluate evidence.'}
               </Text>
 
               <Text style={styles.findingsSubLabel}>Detected Entities</Text>
@@ -13619,6 +15013,265 @@ Through Counsel
         </SafeAreaView>
       </Modal>
 
+      {/* Document Scanner Wizard Modal */}
+      <Modal
+        visible={isScannerWizardOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+          {/* Scanner Header */}
+          <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC' }}>
+            <TouchableOpacity onPress={() => setIsScannerWizardOpen(false)} style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="close" size={24} color="#1F2937" />
+            </TouchableOpacity>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1F2937' }}>Document Scanner</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Progress Tracker Steps */}
+          <View style={{ flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, backgroundColor: '#F9FAFB', borderBottomWidth: 1, borderBottomColor: '#ECECEC', justifyContent: 'space-between', alignItems: 'center' }}>
+            {[
+              { label: 'Capture', step: 'capture' },
+              { label: 'Crop', step: 'crop' },
+              { label: 'Enhance', step: 'filter' },
+              { label: 'Compile', step: 'preview' }
+            ].map((st, index) => {
+              const stepsList = ['capture', 'crop', 'filter', 'preview'];
+              const currentIdx = stepsList.indexOf(scannerStep);
+              const isActive = st.step === scannerStep;
+              const isDone = stepsList.indexOf(st.step) < currentIdx;
+              
+              return (
+                <View key={st.step} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: isActive ? '#6D5DFC' : isDone ? '#10B981' : '#ECECEC',
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}>
+                    {isDone ? (
+                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                    ) : (
+                      <Text style={{ color: isActive ? '#FFFFFF' : '#9CA3AF', fontSize: 11, fontWeight: '700' }}>{index + 1}</Text>
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500', color: isActive ? '#6D5DFC' : '#9CA3AF' }}>{st.label}</Text>
+                  {index < 3 && <Ionicons name="chevron-forward" size={12} color="#9CA3AF" style={{ marginLeft: 6 }} />}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Scanner Step Body */}
+          <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24 }} showsVerticalScrollIndicator={false}>
+            {scannerStep === 'capture' && (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: '#EEECFF', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+                  <Ionicons name="camera-outline" size={56} color="#6D5DFC" />
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 8, textAlign: 'center' }}>Capture Document Pages</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 20, marginBottom: 32, paddingHorizontal: 16 }}>
+                  Align the document inside the scanner camera viewfinder. Edge detection and enhancements will apply in the next step.
+                </Text>
+
+                {scannedPages.length > 0 && (
+                  <View style={{ width: '100%', marginBottom: 32 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#4B5563', marginBottom: 12 }}>Captured Pages ({scannedPages.length})</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                      {scannedPages.map((uri, idx) => (
+                        <View key={idx} style={{ width: 100, height: 130, borderRadius: 8, borderWidth: 1, borderColor: '#ECECEC', overflow: 'hidden', position: 'relative' }}>
+                          <Image source={{ uri }} style={{ width: '100%', height: '100%' }} />
+                          <View style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>{idx + 1}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <View style={{ width: '100%', gap: 12 }}>
+                  <Pressable
+                    style={{ width: '100%', height: 48, borderRadius: 8, backgroundColor: '#6D5DFC', justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 8 }}
+                    onPress={() => setIsScannerCameraVisible(true)}
+                  >
+                    <Ionicons name="camera" size={18} color="#FFFFFF" />
+                    <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 15 }}>
+                      {scannedPages.length > 0 ? 'Capture Another Page' : 'Start Camera Capture'}
+                    </Text>
+                  </Pressable>
+
+                  {scannedPages.length > 0 && (
+                    <Pressable
+                      style={{ width: '100%', height: 48, borderRadius: 8, borderWidth: 1, borderColor: '#6D5DFC', backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 8 }}
+                      onPress={handleScannerCropDone}
+                    >
+                      <Text style={{ color: '#6D5DFC', fontWeight: '600', fontSize: 15 }}>Continue to Crop Borders</Text>
+                      <Ionicons name="arrow-forward" size={18} color="#6D5DFC" />
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {scannerStep === 'crop' && (
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 4 }}>Auto Edge Detection</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Smart contours detected. Adjust border anchors if necessary.</Text>
+                
+                {/* Crop Canvas Visualizer */}
+                <View style={{ flex: 1, height: 350, backgroundColor: '#F3F4F6', borderRadius: 12, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                  {scannedPages.length > 0 && (
+                    <Image source={{ uri: scannedPages[scannedPages.length - 1] }} style={{ width: '90%', height: '90%', borderRadius: 4 }} resizeMode="contain" />
+                  )}
+                  {/* Neon Green edge contours overlay */}
+                  <View style={{ position: 'absolute', width: '82%', height: '82%', borderWidth: 2, borderColor: '#10B981', borderStyle: 'solid', borderRadius: 4 }}>
+                    {/* Corners */}
+                    <View style={{ position: 'absolute', top: -6, left: -6, width: 12, height: 12, backgroundColor: '#10B981', borderRadius: 6 }} />
+                    <View style={{ position: 'absolute', top: -6, right: -6, width: 12, height: 12, backgroundColor: '#10B981', borderRadius: 6 }} />
+                    <View style={{ position: 'absolute', bottom: -6, left: -6, width: 12, height: 12, backgroundColor: '#10B981', borderRadius: 6 }} />
+                    <View style={{ position: 'absolute', bottom: -6, right: -6, width: 12, height: 12, backgroundColor: '#10B981', borderRadius: 6 }} />
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+                  <Pressable
+                    style={{ flex: 1, height: 48, borderRadius: 8, borderWidth: 1, borderColor: '#ECECEC', justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => setScannerStep('capture')}
+                  >
+                    <Text style={{ color: '#4B5563', fontWeight: '600' }}>Retake</Text>
+                  </Pressable>
+                  <Pressable
+                    style={{ flex: 1, height: 48, borderRadius: 8, backgroundColor: '#6D5DFC', justifyContent: 'center', alignItems: 'center' }}
+                    onPress={handleScannerCropDone}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Apply Crop</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {scannerStep === 'filter' && (
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 4 }}>Image Enhancement Filters</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Apply contrast enhancements to maximize OCR text extraction quality.</Text>
+
+                {/* Filter Canvas Preview */}
+                <View style={{ flex: 1, height: 350, backgroundColor: '#F3F4F6', borderRadius: 12, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
+                  {scannedPages.length > 0 && (
+                    <Image
+                      source={{ uri: scannedPages[0] }}
+                      style={[
+                        { width: '90%', height: '90%', borderRadius: 4 },
+                        scannerFilter === 'bw' && { tintColor: '#000000', opacity: 0.85 }, // simulated high-contrast black and white filter style
+                        scannerFilter === 'gray' && { opacity: 0.75 },
+                        scannerFilter === 'magic' && { tintColor: '#6D5DFC', opacity: 0.95 }
+                      ]}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+
+                {/* Filters selection row */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 20, justifyContent: 'space-between' }}>
+                  {[
+                    { label: 'Original', code: 'original' },
+                    { label: 'B&W Document', code: 'bw' },
+                    { label: 'Grayscale', code: 'gray' },
+                    { label: 'Magic Color', code: 'magic' }
+                  ].map((filt) => {
+                    const isSel = scannerFilter === filt.code;
+                    return (
+                      <Pressable
+                        key={filt.code}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: isSel ? '#6D5DFC' : '#ECECEC',
+                          backgroundColor: isSel ? '#EEECFF' : '#FFFFFF'
+                        }}
+                        onPress={() => setScannerFilter(filt.code as any)}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: isSel ? '#6D5DFC' : '#4B5563' }}>{filt.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Pressable
+                  style={{ width: '100%', height: 48, borderRadius: 8, backgroundColor: '#6D5DFC', justifyContent: 'center', alignItems: 'center', marginTop: 24 }}
+                  onPress={handleScannerFilterDone}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Enhance Image</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {scannerStep === 'preview' && (
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 4 }}>PDF Compilation Preview</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Review your finalized document layout. Click confirm to compile and upload.</Text>
+
+                <View style={{ padding: 16, borderWidth: 1, borderColor: '#ECECEC', borderRadius: 12, backgroundColor: '#F9FAFB', marginBottom: 24 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280' }}>Filename:</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Scanned_Exhibit_Doc.pdf</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280' }}>Exhibit Number:</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>Exhibit A- (Sequential Auto)</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280' }}>Total Pages:</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }}>{scannedPages.length} Pages</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280' }}>Upload Destination:</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#6D5DFC' }}>Evidence Vault</Text>
+                  </View>
+                </View>
+
+                {/* Scanned Pages Carousel View */}
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ height: 200, backgroundColor: '#ECECEC', borderRadius: 8, marginBottom: 24 }}>
+                  {scannedPages.map((uri, idx) => (
+                    <View key={idx} style={{ width: width - 80, height: 200, justifyContent: 'center', alignItems: 'center' }}>
+                      <Image source={{ uri }} style={{ width: '80%', height: '90%', borderRadius: 4 }} resizeMode="contain" />
+                    </View>
+                  ))}
+                </ScrollView>
+
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <Pressable
+                    style={{ flex: 1, height: 48, borderRadius: 8, borderWidth: 1, borderColor: '#ECECEC', backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => setScannerStep('filter')}
+                  >
+                    <Text style={{ color: '#4B5563', fontWeight: '600' }}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    style={{ flex: 1, height: 48, borderRadius: 8, backgroundColor: '#10B981', justifyContent: 'center', alignItems: 'center' }}
+                    onPress={handleScannerSaveUpload}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Confirm & Save</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Document Scanner viewfinder modal */}
+      <CustomCameraModal
+        visible={isScannerCameraVisible}
+        onClose={() => setIsScannerCameraVisible(false)}
+        onConfirm={handleScannerCameraConfirm}
+      />
+
       {/* Verification Status Modal */}
       <Modal
         visible={isVerifyModalOpen}
@@ -13639,7 +15292,7 @@ Through Counsel
 
                 <Pressable
                   style={[styles.statusSelectOption, { borderLeftColor: '#10B981', borderLeftWidth: 4 }]}
-                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Verified')}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatusReal(verifyTargetId, 'Verified')}
                 >
                   <Ionicons name="checkmark-circle" size={20} color="#10B981" />
                   <View style={{ marginLeft: 12 }}>
@@ -13650,7 +15303,7 @@ Through Counsel
 
                 <Pressable
                   style={[styles.statusSelectOption, { borderLeftColor: '#F59E0B', borderLeftWidth: 4 }]}
-                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Pending')}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatusReal(verifyTargetId, 'Pending')}
                 >
                   <Ionicons name="time" size={20} color="#F59E0B" />
                   <View style={{ marginLeft: 12 }}>
@@ -13661,7 +15314,7 @@ Through Counsel
 
                 <Pressable
                   style={[styles.statusSelectOption, { borderLeftColor: '#EF4444', borderLeftWidth: 4 }]}
-                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Rejected')}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatusReal(verifyTargetId, 'Rejected')}
                 >
                   <Ionicons name="close-circle" size={20} color="#EF4444" />
                   <View style={{ marginLeft: 12 }}>
@@ -13672,7 +15325,7 @@ Through Counsel
 
                 <Pressable
                   style={[styles.statusSelectOption, { borderLeftColor: '#3B82F6', borderLeftWidth: 4 }]}
-                  onPress={() => verifyTargetId && handleUpdateEvidenceStatus(verifyTargetId, 'Disputed')}
+                  onPress={() => verifyTargetId && handleUpdateEvidenceStatusReal(verifyTargetId, 'Disputed')}
                 >
                   <Ionicons name="alert-circle" size={20} color="#3B82F6" />
                   <View style={{ marginLeft: 12 }}>
@@ -13789,34 +15442,34 @@ Through Counsel
 }
 
 // TouchableWithoutFeedback helper for dismissals
-import { TouchableWithoutFeedback } from 'react-native';
 
-const styles = StyleSheet.create({
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     gap: 12,
   },
   loadingText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: theme.textSecondary,
   },
   errorText: {
     fontSize: 14,
-    color: '#EF4444',
+    color: theme.danger,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
   },
   retryBtn: {
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -13833,7 +15486,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
   },
   backBtn: {
     width: 40,
@@ -13843,7 +15497,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   pressed: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.pressed,
   },
   appBarTitleContainer: {
     flex: 1,
@@ -13852,11 +15506,11 @@ const styles = StyleSheet.create({
   appBarTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   appBarSubtitle: {
     fontSize: 10,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 2,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -13868,8 +15522,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#EEECFF',
-    backgroundColor: '#F9FAFB',
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
   },
   scrollContainer: {
     flexGrow: 1,
@@ -13884,11 +15538,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   kpiCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.02,
@@ -13904,7 +15558,7 @@ const styles = StyleSheet.create({
   kpiLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textTransform: 'uppercase',
     marginBottom: 8,
   },
@@ -13916,39 +15570,39 @@ const styles = StyleSheet.create({
   winProbValue: {
     fontSize: 32,
     fontWeight: '800',
-    color: '#10B981',
+    color: theme.success,
   },
   winProbCaption: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   taskProgressValue: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#6D5DFC',
+    color: theme.primary,
   },
   taskProgressCaption: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 2,
     fontWeight: '600',
   },
   progressBarBg: {
     height: 6,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 3,
     marginTop: 8,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
   },
   hearingAlert: {
     flexDirection: 'row',
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
+    backgroundColor: isDark ? 'rgba(109, 93, 252, 0.15)' : '#EEECFF',
+    borderColor: isDark ? 'rgba(109, 93, 252, 0.3)' : '#E1DDFF',
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
@@ -13958,7 +15612,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -13969,25 +15623,25 @@ const styles = StyleSheet.create({
   hearingAlertTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#5B4EDB',
+    color: theme.primary,
     textTransform: 'uppercase',
   },
   hearingAlertDate: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginTop: 4,
   },
   hearingAlertNotes: {
     fontSize: 12,
-    color: '#4B5563',
+    color: theme.textSecondary,
     marginTop: 2,
     fontStyle: 'italic',
   },
   gridSectionTitle: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -14000,9 +15654,9 @@ const styles = StyleSheet.create({
   gridCell: {
     width: (width - 52) / 3,
     aspectRatio: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
@@ -14014,7 +15668,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   gridCellPressed: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     transform: [{ scale: 0.98 }],
   },
   gridIconWrapper: {
@@ -14028,7 +15682,7 @@ const styles = StyleSheet.create({
   gridLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#4B5563',
+    color: theme.textSecondary,
     textAlign: 'center',
   },
 
@@ -14041,28 +15695,28 @@ const styles = StyleSheet.create({
   moduleTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   moduleHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
+    backgroundColor: isDark ? 'rgba(109, 93, 252, 0.15)' : '#EEECFF',
+    borderColor: isDark ? 'rgba(109, 93, 252, 0.3)' : '#E1DDFF',
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
   },
   moduleHeaderBtnText: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontSize: 12,
     fontWeight: '700',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 8,
     paddingHorizontal: 12,
     height: 40,
@@ -14072,7 +15726,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     fontSize: 14,
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   ocrPromptContainer: {
     marginBottom: 16,
@@ -14585,23 +16239,23 @@ const styles = StyleSheet.create({
   commandCenterContainer: {
     padding: 16,
     gap: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     paddingBottom: Platform.OS === 'ios' ? 100 : 80,
   },
   caseInfoCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surface,
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
   },
   caseInfoLabel: {
     fontWeight: '700',
-    color: '#6B7280',
+    color: theme.textSecondary,
   },
   caseInfoRow: {
     fontSize: 11,
-    color: '#4B5563',
+    color: theme.textPrimary,
     lineHeight: 16,
     fontWeight: '500',
   },
@@ -14615,15 +16269,15 @@ const styles = StyleSheet.create({
   insightCard: {
     width: 130,
     height: 80,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 10,
     justifyContent: 'space-between',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.01,
+    shadowOpacity: isDark ? 0.2 : 0.01,
     shadowRadius: 3,
     elevation: 1,
   },
@@ -14635,29 +16289,29 @@ const styles = StyleSheet.create({
   insightCardTitle: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
     flex: 1,
   },
   insightCardValue: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   insightCardSub: {
     fontSize: 8,
-    color: '#6B7280',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   aiAssistantCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E1DDFF',
+    borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
     padding: 16,
-    shadowColor: '#6D5DFC',
+    shadowColor: isDark ? '#000000' : '#6D5DFC',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
+    shadowOpacity: isDark ? 0.3 : 0.03,
     shadowRadius: 10,
     elevation: 2,
     gap: 12,
@@ -14670,7 +16324,7 @@ const styles = StyleSheet.create({
   aiAssistantTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#6D5DFC',
+    color: theme.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -14679,20 +16333,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: theme.divider,
     paddingBottom: 8,
     gap: 12,
   },
   aiAssistantLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
     width: 100,
   },
   aiAssistantValue: {
     fontSize: 12,
-    color: '#4B5563',
+    color: theme.textPrimary,
     fontWeight: '600',
     flex: 1,
     textAlign: 'right',
@@ -14705,7 +16359,7 @@ const styles = StyleSheet.create({
   aiButton: {
     flex: 1,
     height: 36,
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     borderRadius: 8,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -14713,9 +16367,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   aiButtonOutline: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#6D5DFC',
+    borderColor: theme.primary,
   },
   aiButtonText: {
     fontSize: 11,
@@ -14728,7 +16382,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -14740,7 +16394,7 @@ const styles = StyleSheet.create({
   viewAllText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#6D5DFC',
+    color: theme.primary,
   },
   tilesContainer: {
     gap: 8,
@@ -14748,20 +16402,20 @@ const styles = StyleSheet.create({
   navTile: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 12,
     padding: 10,
     height: 52,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.01,
+    shadowOpacity: isDark ? 0.2 : 0.01,
     shadowRadius: 2,
     elevation: 1,
   },
   navTilePressed: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.pressed,
   },
   navTileIconBg: {
     width: 32,
@@ -14777,25 +16431,25 @@ const styles = StyleSheet.create({
   navTileLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   navTileDesc: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     fontWeight: '500',
     marginTop: 1,
   },
   previewSection: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     padding: 16,
     gap: 12,
   },
   previewEmptyText: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     textAlign: 'center',
     paddingVertical: 12,
     fontWeight: '600',
@@ -14816,12 +16470,12 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     marginTop: 4,
   },
   previewVerticalLine: {
     width: 2,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.divider,
     flex: 1,
     marginVertical: 4,
   },
@@ -14832,24 +16486,24 @@ const styles = StyleSheet.create({
   previewItemDate: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: theme.textSecondary,
   },
   previewItemTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginTop: 2,
   },
   previewItemDesc: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 1,
   },
   viewTimelineBtn: {
     height: 38,
-    backgroundColor: '#EEECFF',
+    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
     borderWidth: 1,
-    borderColor: '#E1DDFF',
+    borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
@@ -14857,7 +16511,7 @@ const styles = StyleSheet.create({
   viewTimelineBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#6D5DFC',
+    color: theme.primary,
   },
   activityList: {
     gap: 10,
@@ -14880,18 +16534,18 @@ const styles = StyleSheet.create({
   activityType: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
   },
   activityTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginTop: 1,
   },
   activityTime: {
     fontSize: 10,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 1,
   },
   assistantContainer: {
@@ -15325,9 +16979,9 @@ const styles = StyleSheet.create({
   drawerContainer: {
     width: width * 0.8,
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderRightWidth: 1,
-    borderRightColor: '#ECECEC',
+    borderRightColor: theme.border,
     paddingHorizontal: 16,
   },
   drawerHeader: {
@@ -15336,18 +16990,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
   },
   drawerTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   drawerNewChatBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
     paddingVertical: 10,
     borderRadius: 8,
     marginVertical: 12,
@@ -15362,9 +17016,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginBottom: 12,
@@ -15372,7 +17026,7 @@ const styles = StyleSheet.create({
   drawerSearchInput: {
     flex: 1,
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     padding: 0,
   },
   drawerList: {
@@ -15380,7 +17034,7 @@ const styles = StyleSheet.create({
   },
   drawerEmptyText: {
     fontSize: 12.5,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textAlign: 'center',
     marginTop: 24,
     fontStyle: 'italic',
@@ -15393,7 +17047,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   drawerItemActive: {
-    backgroundColor: '#EEECFF',
+    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
   },
   drawerItemTextContainer: {
     flex: 1,
@@ -15402,25 +17056,25 @@ const styles = StyleSheet.create({
   },
   drawerItemText: {
     fontSize: 13,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '500',
   },
   drawerItemTextActive: {
-    color: '#6D5DFC',
+    color: theme.primary,
     fontWeight: '700',
   },
   drawerItemSubtext: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     marginTop: 2,
   },
   drawerRenameInput: {
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     fontWeight: '600',
     flex: 1,
     borderBottomWidth: 1,
-    borderBottomColor: '#6D5DFC',
+    borderBottomColor: theme.primary,
     padding: 0,
   },
   drawerActionIcon: {
@@ -18553,6 +20207,123 @@ const styles = StyleSheet.create({
     color: '#6D5DFC',
     fontWeight: '700',
   },
+
+  activeCaseBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  activeCaseLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  activeCaseLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  activeCaseName: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  activeCaseSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeCaseSubtext: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  activeCaseRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  activeStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 4,
+  },
+  activeStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10B981',
+    textTransform: 'uppercase',
+  },
+  changeCaseBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  changeCaseBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.primary,
+  },
+  drawerActionsRow: {
+    flexDirection: 'row',
+    marginVertical: 12,
+    gap: 8,
+  },
+  drawerActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  drawerActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  historySectionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: theme.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  historyEmptySubtext: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: theme.textMuted,
+    paddingLeft: 12,
+    marginVertical: 4,
+  },
+  historyCaseGroup: {
+    marginTop: 4,
+  },
+  historyCaseNameHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  historyGroupDivider: {
+    height: 1,
+    marginVertical: 8,
+    opacity: 0.5,
+  },
+
   // --- Case Notes Stylesheet ---
   noteDashboardContainer: {
     marginVertical: 12,
@@ -20097,4 +21868,416 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#10B981',
   },
+  // --- NEW WORKSPACE ANALYSIS STYLES ---
+  analysisLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.95)', // Sleek dark slate glassmorphism
+    justifyContent: 'center',
+    padding: 24,
+  },
+  analysisLoadingSafeArea: {
+    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  analysisLoadingHeader: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  analysisLoadingTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginTop: 12,
+    letterSpacing: 0.5,
+  },
+  analysisLoadingSubtitle: {
+    fontSize: 14,
+    color: '#94A3B8',
+    marginTop: 6,
+  },
+  analysisLoadingChecklist: {
+    width: '100%',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 16,
+    marginVertical: 30,
+  },
+  analysisChecklistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  analysisChecklistIconContainer: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  analysisPendingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#475569',
+  },
+  analysisChecklistText: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  analysisChecklistTextCompleted: {
+    color: '#34D399', // Mint/success green
+    textDecorationLine: 'none',
+  },
+  analysisChecklistTextActive: {
+    color: '#6D5DFC', // Theme primary
+    fontWeight: '700',
+  },
+  analysisChecklistTextPending: {
+    color: '#64748B',
+  },
+  analysisLoadingFooter: {
+    alignItems: 'center',
+    width: '100%',
+    gap: 16,
+  },
+  analysisLoadingFooterText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontStyle: 'italic',
+  },
+  analysisCancelLoadingBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#475569',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  analysisCancelLoadingBtnText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Error modal & prompts
+  analysisErrorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  analysisErrorModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  analysisErrorModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  analysisErrorModalDesc: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 24,
+  },
+  analysisErrorModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  analysisErrorBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analysisErrorBtnOutline: {
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    backgroundColor: '#FFFFFF',
+  },
+  analysisErrorBtnPrimary: {
+    backgroundColor: '#EF4444',
+  },
+  analysisErrorBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  analysisPromptOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  analysisPromptModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  analysisPromptModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  analysisPromptModalDesc: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 24,
+  },
+  analysisPromptModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  analysisPromptBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analysisPromptBtnOutline: {
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    backgroundColor: '#FFFFFF',
+  },
+  analysisPromptBtnPrimary: {
+    backgroundColor: '#6D5DFC',
+  },
+  analysisPromptBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Analysis report tab
+  analysisMetricsRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 16,
+  },
+  analysisMetricCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  analysisMetricVal: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#1F2937',
+    marginTop: 6,
+  },
+  analysisMetricLbl: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  analysisMetaBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  analysisMetaBadge: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  analysisMetaBadgeText: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  analysisOverviewCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    marginBottom: 16,
+  },
+  analysisOverviewCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  analysisOverviewLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#4B5563',
+    textTransform: 'uppercase',
+  },
+  analysisRiskBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  analysisRiskBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  analysisOverviewText: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 18,
+  },
+  analysisAccordionCard: {
+    backgroundColor: theme.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  analysisAccordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: theme.card,
+  },
+  analysisAccordionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  analysisAccordionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: theme.textPrimary,
+  },
+  analysisAccordionContent: {
+    padding: 16,
+    backgroundColor: theme.surfaceVariant,
+    borderTopWidth: 1,
+    borderTopColor: theme.divider,
+  },
+  analysisReportTextParagraph: {
+    fontSize: 13,
+    color: theme.textSecondary,
+    lineHeight: 20,
+  },
+  analysisReportSubSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  analysisReportBullet: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginVertical: 4,
+    paddingRight: 12,
+  },
+  analysisReportBulletDot: {
+    fontSize: 12,
+    color: theme.primary,
+    marginTop: 1,
+  },
+  analysisReportBulletText: {
+    fontSize: 13,
+    color: theme.textSecondary,
+    lineHeight: 18,
+    flex: 1,
+  },
+  analysisReportEmptyText: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontStyle: 'italic',
+  },
+  analysisHistoryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.divider,
+  },
+  analysisHistoryTextCol: {
+    flex: 1,
+    marginRight: 10,
+  },
+  analysisHistoryVersionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  analysisHistoryDateText: {
+    fontSize: 10,
+    color: theme.textSecondary,
+    marginTop: 2,
+  },
+  analysisHistorySummaryText: {
+    fontSize: 11,
+    color: theme.textSecondary,
+    marginTop: 4,
+  },
+  analysisHistoryLoadBtn: {
+    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  analysisHistoryLoadBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.primary,
+  },
+  analysisReportActionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 32,
+  },
 });
+}

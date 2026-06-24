@@ -327,21 +327,20 @@ export default function HelpSupportScreen() {
                   </View>
                 </Pressable>
 
-                {/* Live Chat Card (Coming Soon) */}
-                <View style={[styles.contactCard, styles.disabledContactCard]}>
-                  <View style={[styles.contactIconContainer, styles.disabledIconBg]}>
-                    <Ionicons name="chatbox-ellipses-outline" size={20} color="#9CA3AF" />
+                {/* AI Product Guide Card */}
+                <Pressable style={styles.contactCard} onPress={() => router.push('/settings/guide')}>
+                  <View style={styles.contactIconContainer}>
+                    <Ionicons name="sparkles-outline" size={20} color="#6D5DFC" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={styles.contactTitleRow}>
-                      <Text style={styles.disabledCardTitle}>Live Chat Helper</Text>
-                      <View style={styles.comingSoonBadge}>
-                        <Text style={styles.comingSoonText}>COMING SOON</Text>
-                      </View>
+                      <Text style={styles.contactCardTitle}>AI Product Guide</Text>
+                      <Ionicons name="chevron-forward" size={14} color="#6D5DFC" style={{ alignSelf: 'center', marginLeft: 4 }} />
                     </View>
                     <Text style={styles.contactCardVal}>Interactive workspace assistance</Text>
+                    <Text style={styles.contactResponseTime}>Available 24/7 • Step-by-Step guide</Text>
                   </View>
-                </View>
+                </Pressable>
               </View>
             </View>
 

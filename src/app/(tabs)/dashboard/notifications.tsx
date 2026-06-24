@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,10 +19,13 @@ import { formatDate } from '@/utils/formatters';
 import { NotificationInboxItem } from '@/types';
 import { useRouter } from 'expo-router';
 import { useToastContext } from '@/providers';
+import { useThemeContext } from '@/providers/theme-provider';
 
 export default function NotificationsScreen() {
   useAuthGuard();
   const router = useRouter();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const { showToast } = useToastContext();
   const {
     notifications,
@@ -188,7 +191,7 @@ export default function NotificationsScreen() {
           }}
           style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
         >
-          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+          <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
         </Pressable>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.title}>Inbox Alerts</Text>
@@ -215,12 +218,12 @@ export default function NotificationsScreen() {
             <Ionicons
               name="checkmark-done"
               size={16}
-              color={unreadCount === 0 ? '#9CA3AF' : '#6D5DFC'}
+              color={unreadCount === 0 ? theme.disabled : theme.primary}
             />
             <Text
               style={[
                 styles.toolbarBtnText,
-                unreadCount === 0 && { color: '#9CA3AF' },
+                unreadCount === 0 && { color: theme.disabled },
               ]}
             >
               Mark all read
@@ -231,8 +234,8 @@ export default function NotificationsScreen() {
             onPress={clearAll}
             style={({ pressed }) => [styles.toolbarBtn, pressed && styles.toolbarBtnPressed]}
           >
-            <Ionicons name="trash-outline" size={16} color="#EF4444" />
-            <Text style={[styles.toolbarBtnText, { color: '#EF4444' }]}>
+            <Ionicons name="trash-outline" size={16} color={theme.danger} />
+            <Text style={[styles.toolbarBtnText, { color: theme.danger }]}>
               Clear all
             </Text>
           </Pressable>
@@ -241,7 +244,7 @@ export default function NotificationsScreen() {
 
       {isLoading && notifications.length === 0 ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6D5DFC" />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={styles.loadingText}>Fetching inbox alerts...</Text>
         </View>
       ) : (
@@ -256,8 +259,8 @@ export default function NotificationsScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              colors={['#6D5DFC']}
-              tintColor="#6D5DFC"
+              colors={[theme.primary]}
+              tintColor={theme.primary}
             />
           }
         />
@@ -266,10 +269,10 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
   },
   header: {
     flexDirection: 'row',
@@ -278,7 +281,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
   },
   backBtn: {
     width: 40,
@@ -297,11 +300,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   subtitle: {
     fontSize: 13,
-    color: '#6B7280',
+    color: theme.textSecondary,
     marginTop: 4,
   },
   toolbar: {
@@ -310,8 +313,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    backgroundColor: '#F9FAFB',
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
   },
   toolbarBtn: {
     flexDirection: 'row',
@@ -322,7 +325,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   toolbarBtnPressed: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.pressed,
   },
   toolbarBtnDisabled: {
     opacity: 0.5,
@@ -330,7 +333,7 @@ const styles = StyleSheet.create({
   toolbarBtnText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#6D5DFC',
+    color: theme.primary,
   },
   listContent: {
     flexGrow: 1,
@@ -341,12 +344,12 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.02,
@@ -354,12 +357,12 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   cardUnread: {
-    backgroundColor: '#F9FBFD',
-    borderColor: '#E1EDF7',
+    backgroundColor: theme.surfaceVariant,
+    borderColor: theme.primary,
   },
   cardPressed: {
     opacity: 0.9,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.pressed,
   },
   iconContainer: {
     width: 40,
@@ -381,21 +384,21 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#4B5563',
+    color: theme.textSecondary,
     flex: 1,
     marginRight: 8,
   },
   cardTitleUnread: {
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   timeText: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: theme.textSecondary,
   },
   descText: {
     fontSize: 13,
-    color: '#6B7280',
+    color: theme.textSecondary,
     lineHeight: 18,
   },
   actionColumn: {
@@ -409,21 +412,21 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#6D5DFC',
+    backgroundColor: theme.primary,
   },
   deleteBtn: {
     width: 28,
     height: 28,
     borderRadius: 6,
-    backgroundColor: '#FFF5F5',
+    backgroundColor: theme.dangerLight,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: theme.danger,
   },
   deleteBtnPressed: {
     opacity: 0.7,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: theme.danger,
   },
   loadingContainer: {
     flex: 1,
@@ -433,7 +436,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: theme.textSecondary,
   },
   emptyContainer: {
     flex: 1,
@@ -446,7 +449,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.surfaceVariant,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
@@ -454,12 +457,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.textPrimary,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: theme.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
   },

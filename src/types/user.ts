@@ -56,6 +56,7 @@ export interface UserPersonalizationCore {
   fontSize: string;
   customInstructions: string;
   compactMode?: boolean;
+  accentColor?: 'Purple' | 'Blue' | 'Green' | 'Teal' | 'Black' | 'Professional Gray';
 }
 
 export interface AdvocateProfile {
@@ -115,6 +116,46 @@ export interface UserPersonalizations {
   security?: {
     twoFactor?: boolean;
     recoveryEmail?: string;
+    fingerprintEnabled?: boolean;
+    faceUnlockEnabled?: boolean;
+    pinEnabled?: boolean;
+    autoLockInterval?: 'Immediately' | '30s' | '1m' | '5m' | 'Never';
+  };
+  ai?: {
+    aiModel?: 'Standard' | 'Advanced' | 'Enterprise';
+    responseLength?: 'Short' | 'Medium' | 'Detailed';
+    responseStyle?: 'Professional' | 'Simple' | 'Court Ready' | 'Academic';
+    autoAnalyze?: boolean;
+    autoOcr?: boolean;
+    autoCategorization?: boolean;
+  };
+  legal?: {
+    defaultJurisdiction?: string;
+    defaultCourt?: string;
+    defaultLanguage?: string;
+    defaultClientRole?: string;
+    defaultObjectorRole?: string;
+    defaultDraftFormat?: string;
+    defaultHearingReminder?: string;
+    defaultCourtDiaryView?: string;
+  };
+  workspace?: {
+    autoOpenActiveCase?: boolean;
+    rememberSelectedTool?: boolean;
+    rememberSelectedCaseInTools?: boolean;
+    rememberDraftHistory?: boolean;
+    rememberResearchFilters?: boolean;
+  };
+  privacy?: {
+    analyticsEnabled?: boolean;
+    crashReportsEnabled?: boolean;
+    conversationHistoryLimit?: 'Forever' | '30 Days' | '90 Days' | 'Delete Automatically';
+  };
+  performance?: {
+    imageQuality?: 'Low' | 'Medium' | 'High' | 'Original';
+    wifiOnlyDownload?: boolean;
+    offlineMode?: boolean;
+    backgroundSync?: boolean;
   };
 }
 

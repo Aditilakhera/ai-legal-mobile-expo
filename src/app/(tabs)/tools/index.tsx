@@ -12,8 +12,10 @@ import { useRouter } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthGuard } from '@/navigation/guards';
 import { PageHeader } from '@/components/ui';
+import { useThemeContext } from '@/providers';
+import { useTranslation } from '@/localization';
+import { useAuthGuard } from '@/navigation/guards';
 
 interface ToolItem {
   id: string;
@@ -94,16 +96,41 @@ const TOOLS_LIST: ToolItem[] = [
 export default function ToolsScreen() {
   useAuthGuard();
   const router = useRouter();
+  const { theme } = useThemeContext();
+  const { t } = useTranslation();
+
+  const getToolText = (id: string, field: 'title' | 'description') => {
+    switch (id) {
+      case 'draft-maker':
+        return field === 'title' ? t('tools.draftMaker') : t('tools.draftMakerDesc');
+      case 'legal-precedents':
+        return field === 'title' ? `⚖️ ${t('tools.legalResearch')}` : t('tools.legalResearchDesc');
+      case 'contract-analyzer':
+        return field === 'title' ? t('tools.contractAnalyzer') : t('tools.contractAnalyzerDesc');
+      case 'evidence-analyst':
+        return field === 'title' ? t('tools.ocr') : 'Scan discovery documents to extract critical trial points.';
+      case 'argument-builder':
+        return field === 'title' ? t('tools.argumentsBuilder') : t('tools.argumentsBuilderDesc');
+      case 'strategy-engine':
+        return field === 'title' ? t('tools.strategyEngine') : 'Design litigation roadmaps and active defense strategies.';
+      case 'case-predictor':
+        return field === 'title' ? t('tools.casePredictor') : 'Score success probability using analytical model stats.';
+      case 'research-assistant':
+        return field === 'title' ? t('tools.researchAssistant') : 'Query citations, case law precedents, and statutes.';
+      default:
+        return '';
+    }
+  };
 
   const handleLaunchTool = (route: string) => {
     router.push(route as any);
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <PageHeader
-        title="AI Tools"
-        subtitle="Specialized AI legal modules"
+        title={t('tools.title')}
+        subtitle={t('home.aiLegalAssistant')}
       />
       <SafeAreaView style={{ flex: 1 }} edges={['left', 'right']}>
 
@@ -117,11 +144,12 @@ export default function ToolsScreen() {
               key={tool.id}
               style={({ pressed }) => [
                 styles.toolCard,
-                pressed && styles.toolCardPressed,
+                { backgroundColor: theme.card, borderColor: theme.border },
+                pressed && [styles.toolCardPressed, { backgroundColor: theme.hover }],
               ]}
               onPress={() => handleLaunchTool(tool.route)}
               accessibilityRole="button"
-              accessibilityLabel={`Launch ${tool.title}`}
+              accessibilityLabel={`Launch ${getToolText(tool.id, 'title')}`}
             >
               <View style={styles.cardHeader}>
                 <View
@@ -135,17 +163,17 @@ export default function ToolsScreen() {
                 <Ionicons
                   name="chevron-forward"
                   size={18}
-                  color="#9CA3AF"
+                  color={theme.textMuted}
                   style={styles.chevron}
                 />
               </View>
 
-              <Text style={styles.cardTitle}>{tool.title}</Text>
-              <Text style={styles.cardDescription}>{tool.description}</Text>
+              <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>{getToolText(tool.id, 'title')}</Text>
+              <Text style={[styles.cardDescription, { color: theme.textSecondary }]}>{getToolText(tool.id, 'description')}</Text>
 
               <View style={styles.cardFooter}>
                 <Text style={[styles.actionText, { color: tool.color }]}>
-                  Open Tool
+                  {t('cases.openWorkspace')}
                 </Text>
                 <Ionicons name="arrow-forward" size={14} color={tool.color} />
               </View>

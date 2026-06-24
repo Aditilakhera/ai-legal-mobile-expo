@@ -239,6 +239,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   hideNotifications = false,
 }) => {
   const insets = useSafeAreaInsets();
+  const { theme } = useThemeContext();
   const unreadCount = useNotificationStore((s) => s.getUnreadCount());
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
 
@@ -256,9 +257,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         paddingTop: insets.top > 0 ? insets.top + 8 : 12,
         paddingBottom: 10,
         paddingHorizontal: 16,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: theme.surface,
         borderBottomWidth: 1,
-        borderBottomColor: '#ECECEC',
+        borderBottomColor: theme.border,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -267,11 +268,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
         {leftAction ? <View style={{ marginRight: 10 }}>{leftAction}</View> : null}
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1F2937' }} numberOfLines={1}>
+          <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary }} numberOfLines={1}>
             {title}
           </Text>
           {subtitle ? (
-            <Text style={{ fontSize: 11, color: '#4B5563', marginTop: 1, fontWeight: '500' }} numberOfLines={1}>
+            <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 1, fontWeight: '500' }} numberOfLines={1}>
               {subtitle}
             </Text>
           ) : null}
@@ -296,12 +297,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                 alignItems: 'center',
                 borderRadius: 18,
               },
-              pressed && { backgroundColor: '#F3F4F6' },
+              pressed && { backgroundColor: theme.hover },
             ]}
             accessibilityLabel="Open Notifications"
             accessibilityRole="button"
           >
-            <Ionicons name="notifications-outline" size={22} color="#1F2937" />
+            <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
             {unreadCount > 0 && (
               <View
                 style={{
@@ -311,12 +312,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   minWidth: 15,
                   height: 15,
                   borderRadius: 7.5,
-                  backgroundColor: '#EF4444',
+                  backgroundColor: theme.danger,
                   justifyContent: 'center',
                   alignItems: 'center',
                   paddingHorizontal: 2,
                   borderWidth: 1,
-                  borderColor: '#FFFFFF',
+                  borderColor: theme.surface,
                 }}
               >
                 <Text style={{ color: '#FFFFFF', fontSize: 8, fontWeight: '800', textAlign: 'center' }}>

@@ -29,11 +29,14 @@ import { useAuthGuard } from '@/navigation/guards';
 import { streamAIResponse } from '@/api/client';
 import { Shadows } from '@/theme';
 import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome } from '@/components/ui/chat';
+import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
 import { ChatService } from '@/services/chat.service';
+import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
+import { CaseWorkspace } from '@/types';
+import { CaseService } from '@/services/case.service';
 
 const { width, height } = Dimensions.get('window');
 
@@ -485,6 +488,8 @@ const StructuredReportView: React.FC<{ content: string; searchQuery: string; the
   searchQuery,
   theme,
 }) => {
+  const { isDark } = useThemeContext();
+  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const isStructured =
     content.includes('Research Question') ||
     content.includes('Landmark Judgments') ||
@@ -676,15 +681,107 @@ const RESEARCH_ACTIONS = {
   ]
 };
 
+const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
+  if (!details) return '';
+  let summary = `[Case Context Info]\n`;
+  summary += `Case Name: ${details.name}\n`;
+  if (details.clientName) summary += `Client: ${details.clientName}\n`;
+  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
+  if (details.courtName) summary += `Court: ${details.courtName}\n`;
+  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
+  if (details.summary || details.caseSummary) {
+    summary += `Summary: ${details.summary || details.caseSummary}\n`;
+  }
+  
+  if (details.evidence && details.evidence.length > 0) {
+    summary += `Evidence List:\n`;
+    details.evidence.forEach((ev, idx) => {
+      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
+    });
+  }
+  
+  if (details.hearings && details.hearings.length > 0) {
+    summary += `Hearings List:\n`;
+    details.hearings.forEach((h, idx) => {
+      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
+    });
+  }
+  
+  if (details.documents && details.documents.length > 0) {
+    summary += `Documents List:\n`;
+    details.documents.forEach((doc, idx) => {
+      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
+    });
+  }
+  
+  if (details.facts && details.facts.length > 0) {
+    summary += `Timeline / Facts:\n`;
+    details.facts.forEach((fact, idx) => {
+      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
+    });
+  }
+  
+  summary += `[End of Case Context Info]\n\n`;
+  return summary;
+};
+
 export default function ResearchAssistantScreen() {
   useAuthGuard();
   const router = useRouter();
   const { showToast } = useToastContext();
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
+  const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
+  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
+  const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
+  const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
+
+
+
+  const fetchActiveCaseDetails = async (caseId: string) => {
+    try {
+      const res = await CaseService.getCaseDetails(caseId);
+      const details = (res as any).data || res;
+      if (details) {
+        setActiveCaseDetails(details);
+      }
+    } catch (err) {
+      console.warn('Failed to load active case details:', err);
+    }
+  };
+
+  const fetchAllCaseSummaries = async () => {
+    try {
+      const res = await CaseService.listCases();
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      const mapping: Record<string, string> = {};
+      list.forEach((c: any) => {
+        mapping[c._id] = c.name;
+      });
+      setCaseSummariesMap(mapping);
+    } catch (err) {
+      console.warn('Failed to load case summaries list for history mapping:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeCaseId) {
+      fetchActiveCaseDetails(activeCaseId);
+    } else {
+      setActiveCaseDetails(null);
+    }
+  }, [activeCaseId]);
+
+  useEffect(() => {
+    fetchAllCaseSummaries();
+  }, [sessionId]);
+
   const [inputVal, setInputVal] = useState('');
   const [isSending, setIsSending] = useState(false);
   const streamTimerRef = useRef<any>(null);
@@ -747,6 +844,11 @@ export default function ResearchAssistantScreen() {
       if (detailSession) {
         setSessionId(sId);
         setMessages(detailSession.messages || []);
+        if (detailSession.projectId) {
+          setActiveCaseId(detailSession.projectId);
+        } else {
+          setActiveCaseId(null);
+        }
         showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
       }
     } catch (err) {
@@ -792,6 +894,8 @@ export default function ResearchAssistantScreen() {
     setSessionId(null);
     clearAttachments();
     setInputVal('');
+    setActiveCaseId(null);
+    setShouldComposerFocus(false);
     showToast('info', 'New Chat', 'New chat conversation started.');
   };
 
@@ -804,6 +908,22 @@ export default function ResearchAssistantScreen() {
     }
     return [...list].sort((a, b) => b.lastModified - a.lastModified);
   }, [historySessions, searchHistoryQuery]);
+
+  const groupedHistory = useMemo(() => {
+    const caseGroups: Record<string, any[]> = {};
+    const generalList: any[] = [];
+    filteredHistorySessions.forEach((s) => {
+      if (s.projectId) {
+        if (!caseGroups[s.projectId]) {
+          caseGroups[s.projectId] = [];
+        }
+        caseGroups[s.projectId].push(s);
+      } else {
+        generalList.push(s);
+      }
+    });
+    return { caseGroups, generalList };
+  }, [filteredHistorySessions]);
 
   // Actions bottom sheet
   const [isActionsOpen, setIsActionsOpen] = useState(false);
@@ -937,6 +1057,7 @@ export default function ResearchAssistantScreen() {
     if (!text && attachments.length === 0) return;
 
     setIsSending(true);
+    setShouldComposerFocus(false);
 
     let uploadedAttachments = attachments;
     if (attachments.length > 0 && !editMessageId) {
@@ -1038,13 +1159,22 @@ export default function ResearchAssistantScreen() {
         .filter((m) => m.id !== aiMsgId)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      let contentToSend = text;
+      if (activeCaseDetails && history.length === 0) {
+        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
+      }
+
       const payload: Record<string, any> = {
-        content: text,
+        content: contentToSend,
         sessionId: currentSessionId,
         activeTool: 'researchAssistant',
         stream: true,
         history,
       };
+
+      if (activeCaseId) {
+        payload.projectId = activeCaseId;
+      }
 
       if (uploadedAttachments.length > 0 && !editMessageId) {
         payload.document = uploadedAttachments.map((a) => ({
@@ -1352,45 +1482,42 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
   }, [filteredActions]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#F8FAFC' }]} edges={['top', 'left', 'right']}>
-      {/* HEADER SECTION */}
-      <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={22} color="#475569" />
-        </TouchableOpacity>
-
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: '#0F172A' }]}>Research Assistant</Text>
-        </View>
-
-        <View style={styles.headerRightActions}>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => setIsHistoryOpen(true)}>
-            <Ionicons name="time-outline" size={22} color="#475569" />
+    <KeyboardSafeChatLayout
+      backgroundColor="#F8FAFC"
+      header={
+        <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={22} color="#475569" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleNewChat}>
-            <Ionicons name="add" size={24} color="#475569" />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={{ flex: 1 }}
-      >
-        {/* WORKSPACE CHAT PANEL */}
-        {messages.length === 0 ? (
-          <ChatWelcome 
-            title="Research Assistant" 
-            subtitle="Search case law and statutes..." 
-            icon="📚" 
-          />
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, { color: '#0F172A' }]}>Research Assistant</Text>
+          </View>
+
+          <View style={styles.headerRightActions}>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => setIsHistoryOpen(true)}>
+              <Ionicons name="time-outline" size={22} color="#475569" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      }
+      messages={
+        messages.length === 0 ? (
+          activeCaseDetails ? (
+            <View style={{ flex: 1 }} />
+          ) : (
+            <ChatWelcome 
+              title="Research Assistant" 
+              subtitle="Search case law, precedents, statutes, judgments and legal references."
+              icon="📚" 
+            />
+          )
         ) : (
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
             onScroll={(e) => {
               const offset = e.nativeEvent.contentOffset.y;
               const contentHeight = e.nativeEvent.contentSize.height;
@@ -1422,80 +1549,81 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
               }
             }}
             renderItem={({ item }) => {
-            return (
-              <ChatMessageBubble
-                message={item}
-                aiName="Research Assistant"
-                aiIcon="📚"
-                onCopy={() => {
-                  Clipboard.setString(item.content);
-                  showToast('success', 'Copied', 'Research copied to clipboard.');
-                }}
-                onShare={async () => {
-                  try {
-                    await Share.share({ message: item.content });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-                onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-              />
-            );
-          }}
-        />
-      )}
-
-      {showScrollBtn && (
-        <Animated.View
-          style={[
-            styles.scrollDownBtn,
-            {
-              opacity: scrollBtnOpacity,
-              transform: [{ scale: scrollBtnScale }]
-            }
-          ]}
-        >
-          <Pressable
-            onPress={() => {
-              handleScrollAction(false);
-              scrollToBottom(true);
+              return (
+                <ChatMessageBubble
+                  message={item}
+                  aiName="Research Assistant"
+                  aiIcon="📚"
+                  onCopy={() => {
+                    Clipboard.setString(item.content);
+                    showToast('success', 'Copied', 'Research copied to clipboard.');
+                  }}
+                  onShare={async () => {
+                    try {
+                      await Share.share({ message: item.content });
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
+                />
+              );
             }}
-            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+          />
+        )
+      }
+      scrollBtn={
+        showScrollBtn && (
+          <Animated.View
+            style={[
+              styles.scrollDownBtn,
+              {
+                opacity: scrollBtnOpacity,
+                transform: [{ scale: scrollBtnScale }]
+              }
+            ]}
           >
-            <Ionicons name="arrow-down" size={18} color="#000000" />
-          </Pressable>
-        </Animated.View>
-      )}
-
-      {/* INPUT ATTACHMENTS TRAY BAR */}
-      {attachments.length > 0 && (
-        <View style={styles.attachmentsBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
-            {attachments.map((file) => (
-              <View key={file.name} style={styles.attachmentChip}>
-                <Ionicons name="document-text" size={14} color="#5B21B6" style={{ marginRight: 4 }} />
-                <View>
-                  <Text style={styles.attachmentName} numberOfLines={1}>
-                    {file.name}
-                  </Text>
-                  <View style={styles.detectedBadge}>
-                    <Text style={styles.detectedBadgeText}>{detectedCaseType}</Text>
+            <Pressable
+              onPress={() => {
+                handleScrollAction(false);
+                scrollToBottom(true);
+              }}
+              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Ionicons name="arrow-down" size={18} color="#000000" />
+            </Pressable>
+          </Animated.View>
+        )
+      }
+      attachments={
+        attachments.length > 0 && (
+          <View style={styles.attachmentsBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
+              {attachments.map((file) => (
+                <View key={file.name} style={styles.attachmentChip}>
+                  <Ionicons name="document-text" size={14} color="#5B21B6" style={{ marginRight: 4 }} />
+                  <View>
+                    <Text style={styles.attachmentName} numberOfLines={1}>
+                      {file.name}
+                    </Text>
+                    <View style={styles.detectedBadge}>
+                      <Text style={styles.detectedBadgeText}>{detectedCaseType}</Text>
+                    </View>
                   </View>
+                  <TouchableOpacity onPress={() => handleRemoveAttachment(file.name)} style={{ marginLeft: 6, padding: 2 }}>
+                    <Ionicons name="close-circle" size={16} color="#7C3AED" />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => handleRemoveAttachment(file.name)} style={{ marginLeft: 6, padding: 2 }}>
-                  <Ionicons name="close-circle" size={16} color="#7C3AED" />
-                </TouchableOpacity>
-              </View>
-            ))}
-            <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-              <Ionicons name="add" size={14} color="#475569" />
-              <Text style={styles.addMoreText}>Add File</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* COMPOSER INPUT TOOLBAR */}
+              ))}
+              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
+                <Ionicons name="add" size={14} color="#475569" />
+                <Text style={styles.addMoreText}>Add File</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )
+      }
+      composer={
         <ChatComposer
           value={inputVal}
           onChangeText={setInputVal}
@@ -1504,10 +1632,12 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
           onCancelStream={handleCancelStream}
           onAddAttachment={showAttachmentOptions}
           onPressSparkles={() => setIsActionsOpen(true)}
-          placeholder="Search legal knowledge..."
+          placeholder={activeCaseId ? "Ask anything about this case..." : "Search legal knowledge..."}
+          autoFocus={shouldComposerFocus}
           simulatedVoiceText="Search legal knowledge base for easement rights in tenant disputes."
         />
-      </KeyboardAvoidingView>
+      }
+    >
 
       <AttachmentBottomSheet
         visible={isBottomSheetVisible}
@@ -1891,17 +2021,6 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                 </Pressable>
               </View>
 
-              <Pressable
-                style={styles.drawerNewChatBtn}
-                onPress={() => {
-                  handleNewChat();
-                  setIsHistoryOpen(false);
-                }}
-              >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.drawerNewChatBtnText}>New Conversation</Text>
-              </Pressable>
-
               <View style={styles.drawerSearchContainer}>
                 <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
                 <TextInput
@@ -1913,632 +2032,963 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                 />
               </View>
 
-              <ScrollView style={styles.drawerList}>
+              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
+                <View style={styles.drawerActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
+                    onPress={() => {
+                      setIsHistoryOpen(false);
+                      setIsCaseModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
+                    onPress={() => {
+                      handleNewChat();
+                      setActiveCaseId(null);
+                      setIsHistoryOpen(false);
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
+                  </TouchableOpacity>
+                </View>
+
                 {filteredHistorySessions.length === 0 ? (
                   <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
                 ) : (
-                  filteredHistorySessions.map((item) => (
-                    <View
-                      key={item.sessionId}
-                      style={[
-                        styles.drawerItem,
-                        sessionId === item.sessionId && styles.drawerItemActive,
-                      ]}
-                    >
-                      <Pressable
-                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                        onPress={() => handleSelectSession(item.sessionId)}
-                      >
-                        <Ionicons
-                          name="chatbox-ellipses-outline"
-                          size={16}
-                          color={sessionId === item.sessionId ? '#3B82F6' : '#64748B'}
-                          style={{ marginRight: 10 }}
-                        />
+                  <>
+                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
+                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
+                    ) : (
+                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
+                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
+                        return (
+                          <View key={projId} style={styles.historyCaseGroup}>
+                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
+                              {caseName}
+                            </Text>
+                            {sessions.map((item) => (
+                              <View
+                                key={item.sessionId}
+                                style={[
+                                  styles.drawerItem,
+                                  sessionId === item.sessionId && styles.drawerItemActive,
+                                ]}
+                              >
+                                <Pressable
+                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                                  onPress={() => handleSelectSession(item.sessionId)}
+                                >
+                                  <Ionicons
+                                    name="chatbox-ellipses-outline"
+                                    size={16}
+                                    color={sessionId === item.sessionId ? '#8A5CF5' : '#64748B'}
+                                    style={{ marginRight: 10 }}
+                                  />
 
-                        {editingSessionId === item.sessionId ? (
-                          <TextInput
-                            style={styles.drawerRenameInput}
-                            value={renameTitleVal}
-                            onChangeText={setRenameTitleVal}
-                            autoFocus={true}
-                            onBlur={() => handleRenameConfirm(item.sessionId)}
-                            onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                          />
-                        ) : (
-                          <View style={styles.drawerItemTextContainer}>
-                            <Text
-                              style={[
-                                styles.drawerItemText,
-                                sessionId === item.sessionId && styles.drawerItemTextActive,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {item.title}
-                            </Text>
-                            <Text style={styles.drawerItemSubtext}>
-                              {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </Text>
+                                  {editingSessionId === item.sessionId ? (
+                                    <TextInput
+                                      style={styles.drawerRenameInput}
+                                      value={renameTitleVal}
+                                      onChangeText={setRenameTitleVal}
+                                      autoFocus={true}
+                                      onBlur={() => handleRenameConfirm(item.sessionId)}
+                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                                    />
+                                  ) : (
+                                    <View style={styles.drawerItemTextContainer}>
+                                      <Text
+                                        style={[
+                                          styles.drawerItemText,
+                                          sessionId === item.sessionId && styles.drawerItemTextActive,
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {item.title}
+                                      </Text>
+                                      <Text style={styles.drawerItemSubtext}>
+                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </Pressable>
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                                  <Pressable
+                                    onPress={() => {
+                                      setEditingSessionId(item.sessionId);
+                                      setRenameTitleVal(item.title);
+                                    }}
+                                    style={styles.drawerActionIcon}
+                                  >
+                                    <Ionicons name="create-outline" size={16} color="#64748B" />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleDeleteSession(item.sessionId)}
+                                    style={styles.drawerActionIcon}
+                                  >
+                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                  </Pressable>
+                                </View>
+                              </View>
+                            ))}
+                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
                           </View>
-                        )}
-                      </Pressable>
+                        );
+                      })
+                    )}
 
-                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                        <Pressable
-                          onPress={() => {
-                            setEditingSessionId(item.sessionId);
-                            setRenameTitleVal(item.title);
-                          }}
-                          style={styles.drawerActionIcon}
+                    <Text style={styles.historySectionHeader}>General Conversations</Text>
+                    {groupedHistory.generalList.length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
+                    ) : (
+                      groupedHistory.generalList.map((item) => (
+                        <View
+                          key={item.sessionId}
+                          style={[
+                            styles.drawerItem,
+                            sessionId === item.sessionId && styles.drawerItemActive,
+                          ]}
                         >
-                          <Ionicons name="create-outline" size={16} color="#64748B" />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDeleteSession(item.sessionId)}
-                          style={styles.drawerActionIcon}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
+                          <Pressable
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                            onPress={() => handleSelectSession(item.sessionId)}
+                          >
+                            <Ionicons
+                              name="chatbox-ellipses-outline"
+                              size={16}
+                              color={sessionId === item.sessionId ? '#8A5CF5' : '#64748B'}
+                              style={{ marginRight: 10 }}
+                            />
+
+                            {editingSessionId === item.sessionId ? (
+                              <TextInput
+                                style={styles.drawerRenameInput}
+                                value={renameTitleVal}
+                                onChangeText={setRenameTitleVal}
+                                autoFocus={true}
+                                onBlur={() => handleRenameConfirm(item.sessionId)}
+                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                              />
+                            ) : (
+                              <View style={styles.drawerItemTextContainer}>
+                                <Text
+                                  style={[
+                                    styles.drawerItemText,
+                                    sessionId === item.sessionId && styles.drawerItemTextActive,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+                                <Text style={styles.drawerItemSubtext}>
+                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                              </View>
+                            )}
+                          </Pressable>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                            <Pressable
+                              onPress={() => {
+                                setEditingSessionId(item.sessionId);
+                                setRenameTitleVal(item.title);
+                              }}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="create-outline" size={16} color="#64748B" />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handleDeleteSession(item.sessionId)}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                            </Pressable>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </>
                 )}
               </ScrollView>
             </SafeAreaView>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      <CaseSelectionModal
+        visible={isCaseModalOpen}
+        onClose={() => setIsCaseModalOpen(false)}
+        activeCaseId={activeCaseId}
+        onSelectCase={(caseId) => {
+          setActiveCaseId(caseId);
+          setMessages([]);
+          setSessionId(null);
+          clearAttachments();
+          setInputVal('');
+          setShouldComposerFocus(true);
+          showToast('success', 'Case Workspace', 'Case workspace selected.');
+        }}
+      />
+    </KeyboardSafeChatLayout>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-  },
-  headerBtn: {
-    width: 38,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 19,
-  },
-  headerTitleContainer: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 1,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchInput: {
-    flex: 1,
-    height: 38,
-    borderRadius: 19,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    marginHorizontal: 10,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingBottom: 24,
-  },
-  welcomeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  welcomeIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F5F3FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  welcomeText: {
-    fontSize: 14.5,
-    color: '#475569',
-    textAlign: 'center',
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  bubbleContainer: {
-    flexDirection: 'row',
-    marginVertical: 8,
-    alignSelf: 'stretch',
-  },
-  userAlign: {
-    justifyContent: 'flex-end',
-    paddingLeft: 40,
-  },
-  aiAlign: {
-    justifyContent: 'flex-start',
-    paddingRight: 10,
-  },
-  aiAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#F5F3FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    maxWidth: '100%',
-  },
-  msgAttachments: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 6,
-  },
-  msgAttachChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  msgAttachName: {
-    fontSize: 11,
-    color: '#475569',
-    fontWeight: '600',
-    maxWidth: 120,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    marginTop: 6,
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    gap: 4,
-  },
-  actionBtnLabel: {
-    fontSize: 11,
-    color: '#475569',
-    fontWeight: '600',
-  },
-  followUpRow: {
-    marginTop: 8,
-  },
-  followUpChip: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  followUpChipText: {
-    fontSize: 12,
-    color: '#8A5CF5',
-    fontWeight: '600',
-  },
-  strategyCard: {
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginVertical: 4,
-    alignSelf: 'stretch',
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  cardTitleText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  attachmentsBar: {
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F3FF',
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  attachmentName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#5B21B6',
-  },
-  detectedBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#EDE9FE',
-    borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    marginTop: 1,
-  },
-  detectedBadgeText: {
-    fontSize: 9,
-    color: '#5B21B6',
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  addMoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#94A3B8',
-    borderStyle: 'dashed',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    gap: 4,
-  },
-  addMoreText: {
-    fontSize: 11.5,
-    color: '#475569',
-    fontWeight: '700',
-  },
-  composerContainer: {
-    borderTopWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  composerIconBtn: {
-    width: 38,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  composerInput: {
-    flex: 1,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    fontSize: 14.5,
-    maxHeight: 100,
-  },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    width: '100%',
-    maxWidth: 400,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 16,
-  },
-  mockFilesList: {
-    gap: 10,
-  },
-  mockFileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-    borderRadius: 12,
-  },
-  mockFileName: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  mockFileDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  bottomSheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  bottomSheetContainer: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: height * 0.78,
-    paddingTop: 8,
-  },
-  dragIndicator: {
-    width: 36,
-    height: 5,
-    backgroundColor: '#E2E8F0',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 8,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingBottom: 10,
-  },
-  sheetTitle: {
-    fontSize: 16.5,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  closeBtn: {
-    padding: 4,
-  },
-  sheetSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    marginHorizontal: 18,
-    paddingHorizontal: 12,
-    height: 40,
-    marginBottom: 10,
-  },
-  sheetSearchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#1E293B',
-    padding: 0,
-  },
-  sheetContentScroll: {
-    paddingHorizontal: 18,
-    paddingBottom: 40,
-  },
-  categoryHeading: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  actionsList: {
-    gap: 8,
-  },
-  actionListItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
-    padding: 10,
-    borderRadius: 12,
-  },
-  actionListIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionListTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  actionListDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2.5,
-  },
-  scrollDownBtn: {
-    position: 'absolute',
-    bottom: 96,
-    left: '50%',
-    marginLeft: -21,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 4,
-    zIndex: 999,
-  },
-  drawerOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-  },
-  drawerContainer: {
-    width: width * 0.8,
-    height: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRightWidth: 1,
-    borderRightColor: '#ECECEC',
-    paddingHorizontal: 16,
-  },
-  drawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-  },
-  drawerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  drawerNewChatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3B82F6',
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginVertical: 12,
-    gap: 6,
-  },
-  drawerNewChatBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  drawerSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  drawerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1F2937',
-    padding: 0,
-  },
-  drawerList: {
-    flex: 1,
-  },
-  drawerEmptyText: {
-    fontSize: 12.5,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 24,
-    fontStyle: 'italic',
-  },
-  drawerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
-  },
-  drawerItemActive: {
-    backgroundColor: '#EFF6FF',
-  },
-  drawerItemTextContainer: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  drawerItemText: {
-    fontSize: 13,
-    color: '#4B5563',
-    fontWeight: '500',
-  },
-  drawerItemTextActive: {
-    color: '#3B82F6',
-    fontWeight: '700',
-  },
-  drawerItemSubtext: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  drawerRenameInput: {
-    fontSize: 13,
-    color: '#1F2937',
-    fontWeight: '600',
-    flex: 1,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3B82F6',
-    padding: 0,
-  },
-  drawerActionIcon: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    marginLeft: 4,
-  },
-});
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+    },
+    headerBtn: {
+      width: 38,
+      height: 38,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 19,
+    },
+    headerTitleContainer: {
+      alignItems: 'center',
+      flex: 1,
+    },
+    headerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      fontSize: 10,
+      color: '#94A3B8',
+      marginTop: 1,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    },
+    headerRightActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    searchInput: {
+      flex: 1,
+      height: 38,
+      borderRadius: 19,
+      paddingHorizontal: 16,
+      fontSize: 14,
+      marginHorizontal: 10,
+    },
+    listContent: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      paddingBottom: 110,
+    },
+    absoluteComposerContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: 'transparent',
+    },
+    welcomeCard: {
+      backgroundColor: theme.card,
+      borderRadius: 16,
+      padding: 16,
+      alignItems: 'center',
+      marginVertical: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    welcomeIconCircle: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    welcomeText: {
+      fontSize: 14.5,
+      color: theme.textSecondary,
+      textAlign: 'center',
+      lineHeight: 22,
+      fontWeight: '500',
+    },
+    bubbleContainer: {
+      flexDirection: 'row',
+      marginVertical: 8,
+      alignSelf: 'stretch',
+    },
+    userAlign: {
+      justifyContent: 'flex-end',
+      paddingLeft: 40,
+    },
+    aiAlign: {
+      justifyContent: 'flex-start',
+      paddingRight: 10,
+    },
+    aiAvatar: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    bubble: {
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 16,
+      maxWidth: '100%',
+    },
+    msgAttachments: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginTop: 6,
+    },
+    msgAttachChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.surfaceVariant,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      gap: 4,
+    },
+    msgAttachName: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      fontWeight: '600',
+      maxWidth: 120,
+    },
+    actionRow: {
+      flexDirection: 'row',
+      marginTop: 6,
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    actionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.border,
+      gap: 4,
+    },
+    actionBtnLabel: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      fontWeight: '600',
+    },
+    followUpRow: {
+      marginTop: 8,
+    },
+    followUpChip: {
+      backgroundColor: theme.surfaceVariant,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+    },
+    followUpChipText: {
+      fontSize: 12,
+      color: theme.primary,
+      fontWeight: '600',
+    },
+    strategyCard: {
+      borderLeftWidth: 4,
+      borderRadius: 8,
+      padding: 10,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginVertical: 4,
+      alignSelf: 'stretch',
+    },
+    cardHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    cardTitleText: {
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    attachmentsBar: {
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: theme.card,
+    },
+    attachmentChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(139, 92, 246, 0.3)' : '#DDD6FE',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+    },
+    attachmentName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: isDark ? '#C084FC' : '#5B21B6',
+    },
+    detectedBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
+      borderRadius: 6,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      marginTop: 1,
+    },
+    detectedBadgeText: {
+      fontSize: 9,
+      color: isDark ? '#C084FC' : '#5B21B6',
+      fontWeight: '800',
+      textTransform: 'uppercase',
+    },
+    addMoreBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderStyle: 'dashed',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 12,
+      backgroundColor: theme.surfaceVariant,
+      gap: 4,
+    },
+    addMoreText: {
+      fontSize: 11.5,
+      color: theme.textSecondary,
+      fontWeight: '700',
+    },
+    composerContainer: {
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: theme.card,
+    },
+    composerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    composerIconBtn: {
+      width: 38,
+      height: 38,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    composerInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: theme.border,
+      color: theme.textPrimary,
+      backgroundColor: theme.surfaceVariant,
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      fontSize: 14.5,
+      maxHeight: 100,
+    },
+    sendBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: theme.overlay,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    modalCard: {
+      backgroundColor: theme.card,
+      borderRadius: 16,
+      padding: 16,
+      width: '100%',
+      maxWidth: 400,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+      paddingBottom: 10,
+      marginBottom: 10,
+    },
+    modalTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    modalSubtitle: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginBottom: 16,
+    },
+    mockFilesList: {
+      gap: 10,
+    },
+    mockFileItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 12,
+      borderRadius: 12,
+    },
+    mockFileName: {
+      fontSize: 13.5,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    mockFileDesc: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    bottomSheetOverlay: {
+      flex: 1,
+      backgroundColor: theme.overlay,
+      justifyContent: 'flex-end',
+    },
+    bottomSheetContainer: {
+      backgroundColor: theme.card,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      height: height * 0.78,
+      paddingTop: 8,
+    },
+    dragIndicator: {
+      width: 36,
+      height: 5,
+      backgroundColor: theme.border,
+      borderRadius: 3,
+      alignSelf: 'center',
+      marginBottom: 8,
+    },
+    sheetHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 18,
+      paddingBottom: 10,
+    },
+    sheetTitle: {
+      fontSize: 16.5,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    closeBtn: {
+      padding: 4,
+    },
+    sheetSearchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.surfaceVariant,
+      borderRadius: 12,
+      marginHorizontal: 18,
+      paddingHorizontal: 12,
+      height: 40,
+      marginBottom: 10,
+    },
+    sheetSearchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: theme.textPrimary,
+      padding: 0,
+    },
+    sheetContentScroll: {
+      paddingHorizontal: 18,
+      paddingBottom: 40,
+    },
+    categoryHeading: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginTop: 14,
+      marginBottom: 8,
+    },
+    actionsList: {
+      gap: 8,
+    },
+    actionListItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.card,
+      padding: 10,
+      borderRadius: 12,
+    },
+    actionListIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    actionListTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    actionListDesc: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      marginTop: 2.5,
+    },
+    scrollDownBtn: {
+      position: 'absolute',
+      bottom: 96,
+      left: '50%',
+      marginLeft: -21,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 5,
+      elevation: 4,
+      zIndex: 999,
+    },
+    drawerOverlay: {
+      flex: 1,
+      flexDirection: 'row',
+      backgroundColor: theme.overlay,
+    },
+    drawerContainer: {
+      width: width * 0.8,
+      height: '100%',
+      backgroundColor: theme.background,
+      borderRightWidth: 1,
+      borderRightColor: theme.border,
+      paddingHorizontal: 16,
+    },
+    drawerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    drawerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    drawerSearchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 8,
+      backgroundColor: theme.surfaceVariant,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginBottom: 12,
+    },
+    drawerSearchInput: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.textPrimary,
+      padding: 0,
+    },
+    drawerList: {
+      flex: 1,
+    },
+    drawerEmptyText: {
+      fontSize: 12.5,
+      color: theme.textMuted,
+      textAlign: 'center',
+      marginTop: 24,
+      fontStyle: 'italic',
+    },
+    drawerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 8,
+      marginBottom: 4,
+      backgroundColor: 'transparent',
+    },
+    drawerItemActive: {
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
+    },
+    drawerItemTextContainer: {
+      flex: 1,
+      flexDirection: 'column',
+      justifyContent: 'center',
+    },
+    drawerItemText: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      fontWeight: '500',
+    },
+    drawerItemTextActive: {
+      color: theme.primary,
+      fontWeight: '700',
+    },
+    drawerItemSubtext: {
+      fontSize: 10,
+      color: theme.textMuted,
+      marginTop: 2,
+    },
+    drawerRenameInput: {
+      fontSize: 13,
+      color: theme.textPrimary,
+      fontWeight: '600',
+      flex: 1,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.primary,
+      padding: 0,
+    },
+    drawerActionIcon: {
+      width: 28,
+      height: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 14,
+      marginLeft: 4,
+    },
+    activeCaseBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    activeCaseLeft: {
+      flex: 1,
+      paddingRight: 12,
+    },
+    activeCaseLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: theme.primary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 2,
+    },
+    activeCaseName: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: theme.textPrimary,
+      marginBottom: 2,
+    },
+    activeCaseSubtitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    activeCaseSubtext: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: theme.textSecondary,
+    },
+    activeCaseRight: {
+      alignItems: 'flex-end',
+      gap: 6,
+    },
+    activeStatusPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    activeDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#10B981',
+      marginRight: 4,
+    },
+    activeStatusText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#10B981',
+      textTransform: 'uppercase',
+    },
+    changeCaseBtn: {
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+    },
+    changeCaseBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+    drawerActionsRow: {
+      flexDirection: 'row',
+      marginVertical: 12,
+      gap: 8,
+    },
+    drawerActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    drawerActionBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    historySectionHeader: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginTop: 14,
+      marginBottom: 8,
+    },
+    historyEmptySubtext: {
+      fontSize: 12,
+      fontStyle: 'italic',
+      color: theme.textMuted,
+      paddingLeft: 12,
+      marginVertical: 4,
+    },
+    historyCaseGroup: {
+      marginTop: 4,
+    },
+    historyCaseNameHeader: {
+      fontSize: 13,
+      fontWeight: '700',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      color: theme.textPrimary,
+    },
+    historyGroupDivider: {
+      height: 1,
+      marginVertical: 8,
+      opacity: 0.5,
+      backgroundColor: theme.border,
+    },
+    activeCaseCenterContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      backgroundColor: 'transparent',
+    },
+    activeCaseCenterCard: {
+      width: '100%',
+      backgroundColor: theme.surface,
+      borderRadius: 20,
+      padding: 24,
+      borderWidth: 1,
+      borderColor: theme.border,
+      ...Shadows.md,
+      alignItems: 'center',
+    },
+    activeCaseCenterHeaderLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#8A5CF5',
+      textTransform: 'uppercase',
+      letterSpacing: 1.5,
+      marginBottom: 8,
+    },
+    activeCaseCenterTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: theme.textPrimary,
+      textAlign: 'center',
+      marginBottom: 16,
+    },
+    activeCaseCenterDivider: {
+      width: '100%',
+      height: 1,
+      backgroundColor: theme.border,
+      marginBottom: 16,
+    },
+    activeCaseCenterDetailsGrid: {
+      width: '100%',
+      gap: 12,
+      marginBottom: 20,
+    },
+    activeCaseCenterDetailRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    activeCaseCenterDetailLabel: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      fontWeight: '600',
+    },
+    activeCaseCenterDetailValue: {
+      fontSize: 13,
+      color: theme.textPrimary,
+      fontWeight: '700',
+      maxWidth: '65%',
+      textAlign: 'right',
+    },
+    activeCaseCenterChangeBtn: {
+      marginTop: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: '#8A5CF5',
+      backgroundColor: 'transparent',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 100,
+    },
+    activeCaseCenterChangeBtnText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#8A5CF5',
+    },
+  });
+}

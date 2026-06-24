@@ -8,6 +8,8 @@ import { useChatStore } from '../store/chat';
 import { ChatService } from '../services/chat.service';
 import { streamAIResponse } from '../api/client';
 import { ChatMessage, ChatSession } from '../types';
+import { useUserStore } from '../store/user';
+import { useLocalLanguageStore } from '../localization';
 
 export function useChat() {
   const [sending, setSending] = useState(false);
@@ -226,6 +228,8 @@ export function useChat() {
             .map((m) => ({ role: m.role, content: m.content }))
         : [];
 
+      const userLang = useUserStore.getState().profile?.personalizations?.general?.language || useLocalLanguageStore.getState().localLanguage || 'English';
+
       // Build unified chat query payload
       const payload: Record<string, any> = {
         content,
@@ -233,6 +237,7 @@ export function useChat() {
         activeTool,
         stream: true,
         history,
+        language: userLang,
       };
 
       if (attachments.length > 0) {

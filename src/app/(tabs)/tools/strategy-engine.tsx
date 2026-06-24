@@ -30,10 +30,13 @@ import { streamAIResponse } from '@/api/client';
 import { ChatService } from '@/services/chat.service';
 import { Shadows, Radius } from '@/theme';
 import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome } from '@/components/ui/chat';
+import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
+import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
+import { CaseWorkspace } from '@/types';
+import { CaseService } from '@/services/case.service';
 
 const { width, height } = Dimensions.get('window');
 
@@ -479,6 +482,8 @@ const StructuredStrategyView: React.FC<{ content: string; searchQuery: string; t
   searchQuery,
   theme,
 }) => {
+  const { isDark } = useThemeContext();
+  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const isStructured =
     content.includes('Case Summary') ||
     content.includes('Key Legal Issues') ||
@@ -716,15 +721,107 @@ const INPUT_ACTIONS = [
   { id: 'custom_strategy', label: 'Custom Strategy', desc: 'Submit custom strategic litigation requests', placeholder: 'Describe the specific issue you want strategy for...' }
 ];
 
+const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
+  if (!details) return '';
+  let summary = `[Case Context Info]\n`;
+  summary += `Case Name: ${details.name}\n`;
+  if (details.clientName) summary += `Client: ${details.clientName}\n`;
+  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
+  if (details.courtName) summary += `Court: ${details.courtName}\n`;
+  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
+  if (details.summary || details.caseSummary) {
+    summary += `Summary: ${details.summary || details.caseSummary}\n`;
+  }
+  
+  if (details.evidence && details.evidence.length > 0) {
+    summary += `Evidence List:\n`;
+    details.evidence.forEach((ev, idx) => {
+      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
+    });
+  }
+  
+  if (details.hearings && details.hearings.length > 0) {
+    summary += `Hearings List:\n`;
+    details.hearings.forEach((h, idx) => {
+      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
+    });
+  }
+  
+  if (details.documents && details.documents.length > 0) {
+    summary += `Documents List:\n`;
+    details.documents.forEach((doc, idx) => {
+      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
+    });
+  }
+  
+  if (details.facts && details.facts.length > 0) {
+    summary += `Timeline / Facts:\n`;
+    details.facts.forEach((fact, idx) => {
+      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
+    });
+  }
+  
+  summary += `[End of Case Context Info]\n\n`;
+  return summary;
+};
+
 export default function StrategyEngineScreen() {
   useAuthGuard();
   const router = useRouter();
   const { showToast } = useToastContext();
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
+  const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
+  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
+  const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
+  const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
+
+
+
+  const fetchActiveCaseDetails = async (caseId: string) => {
+    try {
+      const res = await CaseService.getCaseDetails(caseId);
+      const details = (res as any).data || res;
+      if (details) {
+        setActiveCaseDetails(details);
+      }
+    } catch (err) {
+      console.warn('Failed to load active case details:', err);
+    }
+  };
+
+  const fetchAllCaseSummaries = async () => {
+    try {
+      const res = await CaseService.listCases();
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      const mapping: Record<string, string> = {};
+      list.forEach((c: any) => {
+        mapping[c._id] = c.name;
+      });
+      setCaseSummariesMap(mapping);
+    } catch (err) {
+      console.warn('Failed to load case summaries list for history mapping:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeCaseId) {
+      fetchActiveCaseDetails(activeCaseId);
+    } else {
+      setActiveCaseDetails(null);
+    }
+  }, [activeCaseId]);
+
+  useEffect(() => {
+    fetchAllCaseSummaries();
+  }, [sessionId]);
+
   const [inputVal, setInputVal] = useState('');
   const [isSending, setIsSending] = useState(false);
   const streamTimerRef = useRef<any>(null);
@@ -787,6 +884,11 @@ export default function StrategyEngineScreen() {
       if (detailSession) {
         setSessionId(sId);
         setMessages(detailSession.messages || []);
+        if (detailSession.projectId) {
+          setActiveCaseId(detailSession.projectId);
+        } else {
+          setActiveCaseId(null);
+        }
         showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
       }
     } catch (err) {
@@ -832,6 +934,8 @@ export default function StrategyEngineScreen() {
     setSessionId(null);
     clearAttachments();
     setInputVal('');
+    setActiveCaseId(null);
+    setShouldComposerFocus(false);
     showToast('info', 'New Chat', 'New chat conversation started.');
   };
 
@@ -844,6 +948,22 @@ export default function StrategyEngineScreen() {
     }
     return [...list].sort((a, b) => b.lastModified - a.lastModified);
   }, [historySessions, searchHistoryQuery]);
+
+  const groupedHistory = useMemo(() => {
+    const caseGroups: Record<string, any[]> = {};
+    const generalList: any[] = [];
+    filteredHistorySessions.forEach((s) => {
+      if (s.projectId) {
+        if (!caseGroups[s.projectId]) {
+          caseGroups[s.projectId] = [];
+        }
+        caseGroups[s.projectId].push(s);
+      } else {
+        generalList.push(s);
+      }
+    });
+    return { caseGroups, generalList };
+  }, [filteredHistorySessions]);
 
   // Actions bottom sheet
   const [isActionsOpen, setIsActionsOpen] = useState(false);
@@ -973,6 +1093,7 @@ export default function StrategyEngineScreen() {
     if (!text && attachments.length === 0) return;
 
     setIsSending(true);
+    setShouldComposerFocus(false);
 
     let uploadedAttachments = attachments;
     if (attachments.length > 0 && !editMessageId) {
@@ -1075,13 +1196,22 @@ export default function StrategyEngineScreen() {
         .filter((m) => m.id !== aiMsgId)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      let contentToSend = text;
+      if (activeCaseDetails && history.length === 0) {
+        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
+      }
+
       const payload: Record<string, any> = {
-        content: text,
+        content: contentToSend,
         sessionId: currentSessionId,
         activeTool: 'strategyEngine',
         stream: true,
         history,
       };
+
+      if (activeCaseId) {
+        payload.projectId = activeCaseId;
+      }
 
       if (uploadedAttachments.length > 0 && !editMessageId) {
         payload.document = uploadedAttachments.map((a) => ({
@@ -1316,45 +1446,42 @@ export default function StrategyEngineScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* HEADER SECTION */}
-      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
-        </Pressable>
-
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Strategy Engine</Text>
-        </View>
-
-        <View style={styles.headerRightActions}>
-          <Pressable onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
-            <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
+    <KeyboardSafeChatLayout
+      backgroundColor={theme.background}
+      header={
+        <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
           </Pressable>
-          <Pressable onPress={handleNewChat} style={styles.headerBtn}>
-            <Ionicons name="add" size={24} color={theme.textPrimary} />
-          </Pressable>
-        </View>
-      </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={{ flex: 1 }}
-      >
-        {/* CONVERSATION AREA */}
-        {messages.length === 0 ? (
-          <ChatWelcome 
-            title="Strategy Engine" 
-            subtitle="Plan litigation strategy..." 
-            icon="🧠" 
-          />
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Strategy Engine</Text>
+          </View>
+
+          <View style={styles.headerRightActions}>
+            <Pressable onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
+              <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
+            </Pressable>
+          </View>
+        </View>
+      }
+      messages={
+        messages.length === 0 ? (
+          activeCaseDetails ? (
+            <View style={{ flex: 1 }} />
+          ) : (
+            <ChatWelcome 
+              title="Strategy Engine" 
+              subtitle="Design litigation roadmaps and active defense strategies."
+              icon="🧠" 
+            />
+          )
         ) : (
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
             onScroll={(e) => {
               const offset = e.nativeEvent.contentOffset.y;
               const contentHeight = e.nativeEvent.contentSize.height;
@@ -1385,88 +1512,89 @@ export default function StrategyEngineScreen() {
                 scrollToBottom(true);
               }
             }}
-          renderItem={({ item }) => {
-            return (
-              <ChatMessageBubble
-                message={item}
-                aiName="Strategy Engine"
-                aiIcon="🧠"
-                onCopy={() => {
-                  Clipboard.setString(item.content);
-                  showToast('success', 'Copied', 'Strategy copied to clipboard.');
-                }}
-                onShare={async () => {
-                  try {
-                    await Share.share({ message: item.content });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-                onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-              />
-            );
-          }}
-          ListFooterComponent={null}
-        />
-      )}
-
-      {showScrollBtn && (
-        <Animated.View
-          style={[
-            styles.scrollDownBtn,
-            {
-              opacity: scrollBtnOpacity,
-              transform: [{ scale: scrollBtnScale }]
-            }
-          ]}
-        >
-          <Pressable
-            onPress={() => {
-              handleScrollAction(false);
-              scrollToBottom(true);
-            }}
-            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-          >
-            <Ionicons name="arrow-down" size={18} color="#000000" />
-          </Pressable>
-        </Animated.View>
-      )}
-
-      {/* FLOATING ACTIVE ATTACHMENTS BAR */}
-      {attachments.length > 0 && (
-        <View style={styles.attachmentsBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {attachments.map((a) => {
-              const fileMock = MOCK_CASE_FILES.find((f) => f.name === a.name);
-              const docType = fileMock?.detectedType || 'Case File';
+            renderItem={({ item }) => {
               return (
-                <View key={a.name} style={styles.attachmentChip}>
-                  <Ionicons name="document-text" size={16} color="#8A5CF5" />
-                  <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
-                    <Text style={styles.attachmentName} numberOfLines={1}>
-                      {a.name}
-                    </Text>
-                    {detectedCaseType ? (
-                      <View style={styles.detectedBadge}>
-                        <Text style={styles.detectedBadgeText}>{docType}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
-                    <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
-                  </TouchableOpacity>
-                </View>
+                <ChatMessageBubble
+                  message={item}
+                  aiName="Strategy Engine"
+                  aiIcon="🧠"
+                  onCopy={() => {
+                    Clipboard.setString(item.content);
+                    showToast('success', 'Copied', 'Strategy copied to clipboard.');
+                  }}
+                  onShare={async () => {
+                    try {
+                      await Share.share({ message: item.content });
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
+                />
               );
-            })}
-            <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-              <Ionicons name="add" size={16} color="#475569" />
-              <Text style={styles.addMoreText}>Add Document</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* COMPOSER INPUT COMPONENT */}
+            }}
+            ListFooterComponent={null}
+          />
+        )
+      }
+      scrollBtn={
+        showScrollBtn && (
+          <Animated.View
+            style={[
+              styles.scrollDownBtn,
+              {
+                opacity: scrollBtnOpacity,
+                transform: [{ scale: scrollBtnScale }]
+              }
+            ]}
+          >
+            <Pressable
+              onPress={() => {
+                handleScrollAction(false);
+                scrollToBottom(true);
+              }}
+              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Ionicons name="arrow-down" size={18} color="#000000" />
+            </Pressable>
+          </Animated.View>
+        )
+      }
+      attachments={
+        attachments.length > 0 && (
+          <View style={styles.attachmentsBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {attachments.map((a) => {
+                const fileMock = MOCK_CASE_FILES.find((f) => f.name === a.name);
+                const docType = fileMock?.detectedType || 'Case File';
+                return (
+                  <View key={a.name} style={styles.attachmentChip}>
+                    <Ionicons name="document-text" size={16} color="#8A5CF5" />
+                    <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
+                      <Text style={styles.attachmentName} numberOfLines={1}>
+                        {a.name}
+                      </Text>
+                      {detectedCaseType ? (
+                        <View style={styles.detectedBadge}>
+                          <Text style={styles.detectedBadgeText}>{docType}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
+                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
+                <Ionicons name="add" size={16} color="#475569" />
+                <Text style={styles.addMoreText}>Add Document</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )
+      }
+      composer={
         <ChatComposer
           value={inputVal}
           onChangeText={setInputVal}
@@ -1475,10 +1603,12 @@ export default function StrategyEngineScreen() {
           onCancelStream={handleCancelStream}
           onAddAttachment={showAttachmentOptions}
           onPressSparkles={() => { setActionsSearchQuery(''); setIsActionsOpen(true); }}
-          placeholder="Plan legal strategy..."
+          placeholder={activeCaseId ? "Ask anything about this case..." : "Plan legal strategy..."}
+          autoFocus={shouldComposerFocus}
           simulatedVoiceText="Develop a litigation roadmap and settlement strategy for this case."
         />
-      </KeyboardAvoidingView>
+      }
+    >
 
       <AttachmentBottomSheet
         visible={isBottomSheetVisible}
@@ -1830,17 +1960,6 @@ export default function StrategyEngineScreen() {
                 </Pressable>
               </View>
 
-              <Pressable
-                style={styles.drawerNewChatBtn}
-                onPress={() => {
-                  handleNewChat();
-                  setIsHistoryOpen(false);
-                }}
-              >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.drawerNewChatBtnText}>New Conversation</Text>
-              </Pressable>
-
               <View style={styles.drawerSearchContainer}>
                 <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
                 <TextInput
@@ -1852,82 +1971,211 @@ export default function StrategyEngineScreen() {
                 />
               </View>
 
-              <ScrollView style={styles.drawerList}>
+              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
+                <View style={styles.drawerActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
+                    onPress={() => {
+                      setIsHistoryOpen(false);
+                      setIsCaseModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
+                    onPress={() => {
+                      handleNewChat();
+                      setActiveCaseId(null);
+                      setIsHistoryOpen(false);
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
+                  </TouchableOpacity>
+                </View>
+
                 {filteredHistorySessions.length === 0 ? (
                   <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
                 ) : (
-                  filteredHistorySessions.map((item) => (
-                    <View
-                      key={item.sessionId}
-                      style={[
-                        styles.drawerItem,
-                        sessionId === item.sessionId && styles.drawerItemActive,
-                      ]}
-                    >
-                      <Pressable
-                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                        onPress={() => handleSelectSession(item.sessionId)}
-                      >
-                        <Ionicons
-                          name="chatbox-ellipses-outline"
-                          size={16}
-                          color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                          style={{ marginRight: 10 }}
-                        />
+                  <>
+                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
+                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
+                    ) : (
+                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
+                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
+                        return (
+                          <View key={projId} style={styles.historyCaseGroup}>
+                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
+                              {caseName}
+                            </Text>
+                            {sessions.map((item) => (
+                              <View
+                                key={item.sessionId}
+                                style={[
+                                  styles.drawerItem,
+                                  sessionId === item.sessionId && styles.drawerItemActive,
+                                ]}
+                              >
+                                <Pressable
+                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                                  onPress={() => handleSelectSession(item.sessionId)}
+                                >
+                                  <Ionicons
+                                    name="chatbox-ellipses-outline"
+                                    size={16}
+                                    color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
+                                    style={{ marginRight: 10 }}
+                                  />
 
-                        {editingSessionId === item.sessionId ? (
-                          <TextInput
-                            style={styles.drawerRenameInput}
-                            value={renameTitleVal}
-                            onChangeText={setRenameTitleVal}
-                            autoFocus={true}
-                            onBlur={() => handleRenameConfirm(item.sessionId)}
-                            onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                          />
-                        ) : (
-                          <View style={styles.drawerItemTextContainer}>
-                            <Text
-                              style={[
-                                styles.drawerItemText,
-                                sessionId === item.sessionId && styles.drawerItemTextActive,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {item.title}
-                            </Text>
-                            <Text style={styles.drawerItemSubtext}>
-                              {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </Text>
+                                  {editingSessionId === item.sessionId ? (
+                                    <TextInput
+                                      style={styles.drawerRenameInput}
+                                      value={renameTitleVal}
+                                      onChangeText={setRenameTitleVal}
+                                      autoFocus={true}
+                                      onBlur={() => handleRenameConfirm(item.sessionId)}
+                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                                    />
+                                  ) : (
+                                    <View style={styles.drawerItemTextContainer}>
+                                      <Text
+                                        style={[
+                                          styles.drawerItemText,
+                                          sessionId === item.sessionId && styles.drawerItemTextActive,
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {item.title}
+                                      </Text>
+                                      <Text style={styles.drawerItemSubtext}>
+                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </Pressable>
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                                  <Pressable
+                                    onPress={() => {
+                                      setEditingSessionId(item.sessionId);
+                                      setRenameTitleVal(item.title);
+                                    }}
+                                    style={styles.drawerActionIcon}
+                                  >
+                                    <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleDeleteSession(item.sessionId)}
+                                    style={styles.drawerActionIcon}
+                                  >
+                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                  </Pressable>
+                                </View>
+                              </View>
+                            ))}
+                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
                           </View>
-                        )}
-                      </Pressable>
+                        );
+                      })
+                    )}
 
-                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                        <Pressable
-                          onPress={() => {
-                            setEditingSessionId(item.sessionId);
-                            setRenameTitleVal(item.title);
-                          }}
-                          style={styles.drawerActionIcon}
+                    <Text style={styles.historySectionHeader}>General Conversations</Text>
+                    {groupedHistory.generalList.length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
+                    ) : (
+                      groupedHistory.generalList.map((item) => (
+                        <View
+                          key={item.sessionId}
+                          style={[
+                            styles.drawerItem,
+                            sessionId === item.sessionId && styles.drawerItemActive,
+                          ]}
                         >
-                          <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDeleteSession(item.sessionId)}
-                          style={styles.drawerActionIcon}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
+                          <Pressable
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                            onPress={() => handleSelectSession(item.sessionId)}
+                          >
+                            <Ionicons
+                              name="chatbox-ellipses-outline"
+                              size={16}
+                              color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
+                              style={{ marginRight: 10 }}
+                            />
+
+                            {editingSessionId === item.sessionId ? (
+                              <TextInput
+                                style={styles.drawerRenameInput}
+                                value={renameTitleVal}
+                                onChangeText={setRenameTitleVal}
+                                autoFocus={true}
+                                onBlur={() => handleRenameConfirm(item.sessionId)}
+                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                              />
+                            ) : (
+                              <View style={styles.drawerItemTextContainer}>
+                                <Text
+                                  style={[
+                                    styles.drawerItemText,
+                                    sessionId === item.sessionId && styles.drawerItemTextActive,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+                                <Text style={styles.drawerItemSubtext}>
+                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                              </View>
+                            )}
+                          </Pressable>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                            <Pressable
+                              onPress={() => {
+                                setEditingSessionId(item.sessionId);
+                                setRenameTitleVal(item.title);
+                              }}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handleDeleteSession(item.sessionId)}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                            </Pressable>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </>
                 )}
               </ScrollView>
             </SafeAreaView>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      <CaseSelectionModal
+        visible={isCaseModalOpen}
+        onClose={() => setIsCaseModalOpen(false)}
+        activeCaseId={activeCaseId}
+        onSelectCase={(caseId) => {
+          setActiveCaseId(caseId);
+          setMessages([]);
+          setSessionId(null);
+          clearAttachments();
+          setInputVal('');
+          setShouldComposerFocus(true);
+          showToast('success', 'Case Workspace', 'Case workspace selected.');
+        }}
+      />
+    </KeyboardSafeChatLayout>
   );
 }
 
@@ -2041,7 +2289,8 @@ Moderate success probability depending on possession evidence.
 * Collate tax receipts from 2010 onwards.`
 };
 
-const styles = StyleSheet.create({
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -2091,29 +2340,36 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    paddingBottom: 24,
+    paddingBottom: 110,
+  },
+  absoluteComposerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
   },
   welcomeCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
   },
   welcomeIconCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 10,
   },
   welcomeText: {
     fontSize: 14.5,
-    color: '#475569',
+    color: theme.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
     fontWeight: '500',
@@ -2135,12 +2391,12 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
   },
   bubble: {
     paddingHorizontal: 14,
@@ -2154,7 +2410,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 80,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: isDark ? 'rgba(24, 24, 27, 0.95)' : 'rgba(255, 255, 255, 0.95)',
     borderBottomLeftRadius: 16,
     borderBottomRightRadius: 16,
     justifyContent: 'flex-end',
@@ -2164,9 +2420,9 @@ const styles = StyleSheet.create({
   expandButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -2176,7 +2432,7 @@ const styles = StyleSheet.create({
   expandButtonText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#8A5CF5',
+    color: theme.primary,
   },
   collapseToggleRow: {
     flexDirection: 'row',
@@ -2188,7 +2444,7 @@ const styles = StyleSheet.create({
   collapseToggleText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#8A5CF5',
+    color: theme.primary,
   },
   msgAttachments: {
     flexDirection: 'row',
@@ -2199,9 +2455,9 @@ const styles = StyleSheet.create({
   msgAttachChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -2209,7 +2465,7 @@ const styles = StyleSheet.create({
   },
   msgAttachName: {
     fontSize: 11,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '600',
     maxWidth: 120,
   },
@@ -2226,37 +2482,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.border,
     gap: 4,
   },
   actionBtnLabel: {
     fontSize: 11.5,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   followUpRow: {
     marginTop: 8,
   },
   followUpChip: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
   },
   followUpChipText: {
     fontSize: 12,
-    color: '#8A5CF5',
+    color: theme.primary,
     fontWeight: '600',
   },
   strategyCard: {
     borderLeftWidth: 4,
     borderRadius: 8,
     padding: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     marginVertical: 4,
     alignSelf: 'stretch',
   },
@@ -2272,23 +2528,23 @@ const styles = StyleSheet.create({
   progressBarBg: {
     height: 8,
     width: '100%',
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.border,
     borderRadius: 4,
     overflow: 'hidden',
   },
   attachmentsBar: {
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
   },
   attachmentChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     borderWidth: 1,
-    borderColor: '#DDD6FE',
+    borderColor: isDark ? 'rgba(139, 92, 246, 0.3)' : '#DDD6FE',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -2296,11 +2552,11 @@ const styles = StyleSheet.create({
   attachmentName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#5B21B6',
+    color: isDark ? '#C084FC' : '#5B21B6',
   },
   detectedBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#EDE9FE',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
     borderRadius: 6,
     paddingHorizontal: 4,
     paddingVertical: 1,
@@ -2308,7 +2564,7 @@ const styles = StyleSheet.create({
   },
   detectedBadgeText: {
     fontSize: 9,
-    color: '#5B21B6',
+    color: isDark ? '#C084FC' : '#5B21B6',
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -2316,24 +2572,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#94A3B8',
+    borderColor: theme.border,
     borderStyle: 'dashed',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     gap: 4,
   },
   addMoreText: {
     fontSize: 11.5,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   composerContainer: {
     borderTopWidth: 1,
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
   },
   composerRow: {
     flexDirection: 'row',
@@ -2350,11 +2607,13 @@ const styles = StyleSheet.create({
   composerInput: {
     flex: 1,
     borderWidth: 1,
+    borderColor: theme.border,
+    color: theme.textPrimary,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
     fontSize: 14,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     maxHeight: 100,
   },
   micBtnActive: {
@@ -2364,7 +2623,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#8A5CF5',
+    backgroundColor: theme.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2376,12 +2635,12 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: theme.overlay,
     justifyContent: 'flex-end',
   },
   modalCard: {
     width: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
@@ -2393,18 +2652,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: theme.border,
     paddingBottom: 10,
     marginBottom: 10,
   },
   modalTitle: {
     fontSize: 16.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: theme.textPrimary,
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#475569',
+    color: theme.textSecondary,
     lineHeight: 18,
     marginBottom: 14,
   },
@@ -2416,29 +2675,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.card,
   },
   customMockItem: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderStyle: 'dashed',
-    borderColor: '#94A3B8',
+    borderColor: theme.border,
   },
   mockFileName: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#1E293B',
+    color: theme.textPrimary,
   },
   mockFileDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.textSecondary,
     marginTop: 2,
   },
   bottomSheetContainer: {
     width: '100%',
     height: height * 0.75,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 16,
@@ -2448,7 +2707,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.border,
     alignSelf: 'center',
     marginTop: 8,
     marginBottom: 8,
@@ -2459,13 +2718,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: theme.border,
     marginBottom: 12,
   },
   bottomSheetTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#0F172A',
+    color: theme.textPrimary,
   },
   bottomSheetContent: {
     flex: 1,
@@ -2473,7 +2732,7 @@ const styles = StyleSheet.create({
   sheetSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -2482,13 +2741,13 @@ const styles = StyleSheet.create({
   sheetSearchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#0F172A',
+    color: theme.textPrimary,
     padding: 0,
   },
   categoryHeading: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#64748B',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginTop: 14,
@@ -2502,9 +2761,9 @@ const styles = StyleSheet.create({
   recentActionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
@@ -2512,7 +2771,7 @@ const styles = StyleSheet.create({
   recentActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
+    color: theme.textSecondary,
   },
   actionsList: {
     gap: 8,
@@ -2523,39 +2782,39 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
+    borderColor: theme.border,
+    backgroundColor: theme.card,
   },
   actionListIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#EDE9FE',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
     justifyContent: 'center',
     alignItems: 'center',
   },
   actionListTitle: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.textPrimary,
   },
   actionListDesc: {
     fontSize: 10.5,
-    color: '#64748B',
+    color: theme.textSecondary,
     marginTop: 1,
   },
   actionsEmpty: {
     padding: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     borderStyle: 'dashed',
     alignItems: 'center',
   },
   actionsEmptyText: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: theme.textMuted,
     textAlign: 'center',
     lineHeight: 18,
   },
@@ -2567,9 +2826,9 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000000',
@@ -2582,14 +2841,14 @@ const styles = StyleSheet.create({
   drawerOverlay: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: theme.overlay,
   },
   drawerContainer: {
     width: width * 0.8,
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderRightWidth: 1,
-    borderRightColor: '#ECECEC',
+    borderRightColor: theme.border,
     paddingHorizontal: 16,
   },
   drawerHeader: {
@@ -2598,35 +2857,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
   },
   drawerTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
-  },
-  drawerNewChatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#8A5CF5',
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginVertical: 12,
-    gap: 6,
-  },
-  drawerNewChatBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    color: theme.textPrimary,
   },
   drawerSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginBottom: 12,
@@ -2634,7 +2878,7 @@ const styles = StyleSheet.create({
   drawerSearchInput: {
     flex: 1,
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     padding: 0,
   },
   drawerList: {
@@ -2642,7 +2886,7 @@ const styles = StyleSheet.create({
   },
   drawerEmptyText: {
     fontSize: 12.5,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textAlign: 'center',
     marginTop: 24,
     fontStyle: 'italic',
@@ -2655,7 +2899,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   drawerItemActive: {
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
   },
   drawerItemTextContainer: {
     flex: 1,
@@ -2664,25 +2908,25 @@ const styles = StyleSheet.create({
   },
   drawerItemText: {
     fontSize: 13,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '500',
   },
   drawerItemTextActive: {
-    color: '#8A5CF5',
+    color: theme.primary,
     fontWeight: '700',
   },
   drawerItemSubtext: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     marginTop: 2,
   },
   drawerRenameInput: {
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     fontWeight: '600',
     flex: 1,
     borderBottomWidth: 1,
-    borderBottomColor: '#8A5CF5',
+    borderBottomColor: theme.primary,
     padding: 0,
   },
   drawerActionIcon: {
@@ -2693,4 +2937,199 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginLeft: 4,
   },
+  activeCaseBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  activeCaseLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  activeCaseLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  activeCaseName: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  activeCaseSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeCaseSubtext: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  activeCaseRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  activeStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 4,
+  },
+  activeStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10B981',
+    textTransform: 'uppercase',
+  },
+  changeCaseBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  changeCaseBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.primary,
+  },
+  drawerActionsRow: {
+    flexDirection: 'row',
+    marginVertical: 12,
+    gap: 8,
+  },
+  drawerActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  drawerActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  historySectionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: theme.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  historyEmptySubtext: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: theme.textMuted,
+    paddingLeft: 12,
+    marginVertical: 4,
+  },
+  historyCaseGroup: {
+    marginTop: 4,
+  },
+  historyCaseNameHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    color: theme.textPrimary,
+  },
+  historyGroupDivider: {
+    height: 1,
+    marginVertical: 8,
+    opacity: 0.5,
+    backgroundColor: theme.border,
+  },
+  activeCaseCenterContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
+  },
+  activeCaseCenterCard: {
+    width: '100%',
+    backgroundColor: theme.surface,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: theme.border,
+    ...Shadows.md,
+    alignItems: 'center',
+  },
+  activeCaseCenterHeaderLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#8A5CF5',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  activeCaseCenterTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  activeCaseCenterDivider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: theme.border,
+    marginBottom: 16,
+  },
+  activeCaseCenterDetailsGrid: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 20,
+  },
+  activeCaseCenterDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  activeCaseCenterDetailLabel: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontWeight: '600',
+  },
+  activeCaseCenterDetailValue: {
+    fontSize: 13,
+    color: theme.textPrimary,
+    fontWeight: '700',
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  activeCaseCenterChangeBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#8A5CF5',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  activeCaseCenterChangeBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#8A5CF5',
+  },
 });
+}

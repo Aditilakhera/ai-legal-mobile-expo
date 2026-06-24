@@ -21,11 +21,13 @@ import { formatDate } from '@/utils/formatters';
 import { NotificationInboxItem } from '@/types';
 import { useRouter } from 'expo-router';
 import { useToastContext } from '@/providers';
+import { useTranslation, formatRelativeDate } from '@/utils/localization';
 
 export default function NotificationsScreen() {
   useAuthGuard();
   const router = useRouter();
   const { showToast } = useToastContext();
+  const { t, language } = useTranslation();
   const {
     notifications,
     isLoading,
@@ -90,8 +92,8 @@ export default function NotificationsScreen() {
             if (isToday) {
               list.push({
                 id: `virtual-hearing-today-${c._id}-${idx}`,
-                title: `Today's Hearing: ${c.name}`,
-                desc: `Time: ${h.time || '10:00 AM'}  •  Court: ${h.courtName || c.courtName || 'District Court'}\nAgenda: ${h.status || 'Scheduled Hearing'}`,
+                title: `${t('todaysHearingPrefix')}${c.name}`,
+                desc: `${t('timeLabel')}: ${h.time || '10:00 AM'}  •  ${t('courtLabel')}: ${h.courtName || c.courtName || t('districtCourt')}\n${t('agendaLabel')}: ${h.status || t('scheduledHearing')}`,
                 time: h.date,
                 type: 'alert',
                 isRead: false,
@@ -101,8 +103,8 @@ export default function NotificationsScreen() {
             } else if (isFuture) {
               list.push({
                 id: `virtual-hearing-upcoming-${c._id}-${idx}`,
-                title: `Upcoming Hearing: ${c.name}`,
-                desc: `Time: ${h.time || '10:00 AM'}  •  Court: ${h.courtName || c.courtName || 'District Court'}\nAgenda: ${h.status || 'Scheduled Hearing'}`,
+                title: `${t('upcomingHearingPrefix')}${c.name}`,
+                desc: `${t('timeLabel')}: ${h.time || '10:00 AM'}  •  ${t('courtLabel')}: ${h.courtName || c.courtName || t('districtCourt')}\n${t('agendaLabel')}: ${h.status || t('scheduledHearing')}`,
                 time: h.date,
                 type: 'update',
                 isRead: true, // Mark system upcoming events read by default
@@ -122,8 +124,8 @@ export default function NotificationsScreen() {
             if (fDate.getTime() > Date.now()) {
               list.push({
                 id: `virtual-milestone-${c._id}-${idx}`,
-                title: `Milestone: ${f.event}`,
-                desc: `Case: ${c.name}`,
+                title: `${t('milestonePrefix')}${f.event}`,
+                desc: `${t('caseLabel')}: ${c.name}`,
                 time: f.date,
                 type: 'update',
                 isRead: true,
@@ -137,15 +139,15 @@ export default function NotificationsScreen() {
 
       // 3. Tasks / Deadlines
       if (c.tasks) {
-        c.tasks.forEach((t, idx) => {
-          if (t.deadline && t.status !== 'Completed') {
-            const tDate = new Date(t.deadline);
+        c.tasks.forEach((task, idx) => {
+          if (task.deadline && task.status !== 'Completed') {
+            const tDate = new Date(task.deadline);
             if (tDate.getTime() > Date.now()) {
               list.push({
                 id: `virtual-task-${c._id}-${idx}`,
-                title: `Task Deadline: ${t.title}`,
-                desc: `Case: ${c.name}  •  Status: ${t.status || 'Pending'}`,
-                time: t.deadline,
+                title: `${t('taskDeadlinePrefix')}${task.title}`,
+                desc: `${t('caseLabel')}: ${c.name}  •  ${t('statusLabel')}: ${task.status === 'Pending' ? t('pendingStatus') : task.status}`,
+                time: task.deadline,
                 type: 'alert',
                 isRead: false,
                 url: `/workspace/${c._id}?tab=tasks`,
@@ -158,7 +160,7 @@ export default function NotificationsScreen() {
     });
 
     return list;
-  }, [cases]);
+  }, [cases, t]);
 
   const combinedNotifications = useMemo(() => {
     const storeMapped = notifications.map(n => ({
@@ -186,18 +188,18 @@ export default function NotificationsScreen() {
   const handleMarkAllAsRead = async () => {
     try {
       await markAllAsRead();
-      showToast('success', 'Inbox Read', 'All notifications marked as read.');
+      showToast('success', t('inboxReadToastTitle', 'helper'), t('inboxReadToastMsg'));
     } catch (e) {
-      showToast('error', 'Action Failed', 'Failed to mark notifications as read.');
+      showToast('error', t('actionFailedToastTitle', 'helper'), t('inboxReadFailedMsg'));
     }
   };
 
   const handleDeleteNotification = async (id: string) => {
     try {
       await deleteNotification(id);
-      showToast('success', 'Alert Removed', 'Notification deleted successfully.');
+      showToast('success', t('alertRemovedToastTitle', 'helper'), t('alertRemovedToastMsg'));
     } catch (e) {
-      showToast('error', 'Action Failed', 'Failed to delete notification.');
+      showToast('error', t('actionFailedToastTitle', 'helper'), t('alertRemovedFailedMsg'));
     }
   };
 
@@ -276,7 +278,7 @@ export default function NotificationsScreen() {
             >
               {item.title}
             </Text>
-            <Text style={styles.timeText}>{formatDate(item.time) || item.time}</Text>
+            <Text style={styles.timeText}>{formatRelativeDate(item.time, language) || item.time}</Text>
           </View>
           <Text style={styles.descText} numberOfLines={3}>
             {item.desc}
@@ -310,9 +312,9 @@ export default function NotificationsScreen() {
         <View style={styles.emptyIconWrapper}>
           <Ionicons name="notifications-off-outline" size={44} color="#9CA3AF" />
         </View>
-        <Text style={styles.emptyTitle}>All Caught Up!</Text>
+        <Text style={styles.emptyTitle}>{t('emptyInboxTitle')}</Text>
         <Text style={styles.emptySubtitle}>
-          You have no new alerts or litigation updates at the moment.
+          {t('emptyInboxSubtitle', 'description')}
         </Text>
       </View>
     );
@@ -325,11 +327,11 @@ export default function NotificationsScreen() {
       {/* Header Info Panel */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Inbox Alerts</Text>
+          <Text style={styles.title}>{t('inboxAlerts')}</Text>
           <Text style={styles.subtitle}>
             {unreadCount > 0
-              ? `You have ${unreadCount} unread update${unreadCount > 1 ? 's' : ''}`
-              : 'Stay synced with case changes'}
+              ? t('inboxSubtitleUnread').replace('{count}', String(unreadCount))
+              : t('inboxSubtitleEmpty')}
           </Text>
         </View>
       </View>
@@ -351,7 +353,7 @@ export default function NotificationsScreen() {
                 activeTab === tab && styles.tabBtnTextActive,
               ]}
             >
-              {tab === 'AI' ? 'AI Alerts' : tab === 'Deadlines' ? 'Deadlines' : tab}
+              {tab === 'AI' ? t('tabAiAlerts', 'helper') : tab === 'Deadlines' ? t('tabDeadlines', 'helper') : tab === 'Hearings' ? t('tabHearings', 'helper') : t('tabAll', 'helper')}
             </Text>
           </Pressable>
         ))}
@@ -380,7 +382,7 @@ export default function NotificationsScreen() {
                 unreadCount === 0 && { color: '#9CA3AF' },
               ]}
             >
-              Mark all read
+              {t('markAllRead', 'helper')}
             </Text>
           </Pressable>
 
@@ -390,7 +392,7 @@ export default function NotificationsScreen() {
           >
             <Ionicons name="trash-outline" size={16} color="#EF4444" />
             <Text style={[styles.toolbarBtnText, { color: '#EF4444' }]}>
-              Clear all
+              {t('clearAll', 'helper')}
             </Text>
           </Pressable>
         </View>
@@ -399,7 +401,7 @@ export default function NotificationsScreen() {
       {(isLoading || isCasesLoading) && filteredNotifications.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6D5DFC" />
-          <Text style={styles.loadingText}>Fetching inbox alerts...</Text>
+          <Text style={styles.loadingText}>{t('fetchingInboxAlerts')}</Text>
         </View>
       ) : (
         <FlatList

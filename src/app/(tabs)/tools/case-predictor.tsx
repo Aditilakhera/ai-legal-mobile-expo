@@ -29,11 +29,14 @@ import { useAuthGuard } from '@/navigation/guards';
 import { streamAIResponse } from '@/api/client';
 import { Shadows } from '@/theme';
 import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome } from '@/components/ui/chat';
+import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
 import { ChatService } from '@/services/chat.service';
+import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
+import { CaseWorkspace } from '@/types';
+import { CaseService } from '@/services/case.service';
 
 const { width, height } = Dimensions.get('window');
 
@@ -477,6 +480,8 @@ const StructuredReportView: React.FC<{ content: string; searchQuery: string; the
   searchQuery,
   theme,
 }) => {
+  const { isDark } = useThemeContext();
+  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const isStructured =
     content.includes('Case Summary') ||
     content.includes('Winning Probability') ||
@@ -771,15 +776,106 @@ const PREDICTION_ACTIONS = {
   ]
 };
 
+const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
+  if (!details) return '';
+  let summary = `[Case Context Info]\n`;
+  summary += `Case Name: ${details.name}\n`;
+  if (details.clientName) summary += `Client: ${details.clientName}\n`;
+  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
+  if (details.courtName) summary += `Court: ${details.courtName}\n`;
+  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
+  if (details.summary || details.caseSummary) {
+    summary += `Summary: ${details.summary || details.caseSummary}\n`;
+  }
+  
+  if (details.evidence && details.evidence.length > 0) {
+    summary += `Evidence List:\n`;
+    details.evidence.forEach((ev, idx) => {
+      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
+    });
+  }
+  
+  if (details.hearings && details.hearings.length > 0) {
+    summary += `Hearings List:\n`;
+    details.hearings.forEach((h, idx) => {
+      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
+    });
+  }
+  
+  if (details.documents && details.documents.length > 0) {
+    summary += `Documents List:\n`;
+    details.documents.forEach((doc, idx) => {
+      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
+    });
+  }
+  
+  if (details.facts && details.facts.length > 0) {
+    summary += `Timeline / Facts:\n`;
+    details.facts.forEach((fact, idx) => {
+      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
+    });
+  }
+  
+  summary += `[End of Case Context Info]\n\n`;
+  return summary;
+};
+
 export default function CasePredictorScreen() {
   useAuthGuard();
   const router = useRouter();
   const { showToast } = useToastContext();
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
+  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
+  const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
+  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
+  const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
+  const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
+
+
+
+  const fetchActiveCaseDetails = async (caseId: string) => {
+    try {
+      const res = await CaseService.getCaseDetails(caseId);
+      const details = (res as any).data || res;
+      if (details) {
+        setActiveCaseDetails(details);
+      }
+    } catch (err) {
+      console.warn('Failed to load active case details:', err);
+    }
+  };
+
+  const fetchAllCaseSummaries = async () => {
+    try {
+      const res = await CaseService.listCases();
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      const mapping: Record<string, string> = {};
+      list.forEach((c: any) => {
+        mapping[c._id] = c.name;
+      });
+      setCaseSummariesMap(mapping);
+    } catch (err) {
+      console.warn('Failed to load case summaries list for history mapping:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeCaseId) {
+      fetchActiveCaseDetails(activeCaseId);
+    } else {
+      setActiveCaseDetails(null);
+    }
+  }, [activeCaseId]);
+
+  useEffect(() => {
+    fetchAllCaseSummaries();
+  }, [sessionId]);
   const [inputVal, setInputVal] = useState('');
   const [isSending, setIsSending] = useState(false);
   const streamTimerRef = useRef<any>(null);
@@ -842,6 +938,11 @@ export default function CasePredictorScreen() {
       if (detailSession) {
         setSessionId(sId);
         setMessages(detailSession.messages || []);
+        if (detailSession.projectId) {
+          setActiveCaseId(detailSession.projectId);
+        } else {
+          setActiveCaseId(null);
+        }
         showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
       }
     } catch (err) {
@@ -887,6 +988,8 @@ export default function CasePredictorScreen() {
     setSessionId(null);
     clearAttachments();
     setInputVal('');
+    setActiveCaseId(null);
+    setShouldComposerFocus(false);
     showToast('info', 'New Chat', 'New chat conversation started.');
   };
 
@@ -899,6 +1002,22 @@ export default function CasePredictorScreen() {
     }
     return [...list].sort((a, b) => b.lastModified - a.lastModified);
   }, [historySessions, searchHistoryQuery]);
+
+  const groupedHistory = useMemo(() => {
+    const caseGroups: Record<string, any[]> = {};
+    const generalList: any[] = [];
+    filteredHistorySessions.forEach((s) => {
+      if (s.projectId) {
+        if (!caseGroups[s.projectId]) {
+          caseGroups[s.projectId] = [];
+        }
+        caseGroups[s.projectId].push(s);
+      } else {
+        generalList.push(s);
+      }
+    });
+    return { caseGroups, generalList };
+  }, [filteredHistorySessions]);
 
   // Actions bottom sheet
   const [isActionsOpen, setIsActionsOpen] = useState(false);
@@ -1023,6 +1142,7 @@ export default function CasePredictorScreen() {
     if (!text && attachments.length === 0) return;
 
     setIsSending(true);
+    setShouldComposerFocus(false);
 
     let uploadedAttachments = attachments;
     if (attachments.length > 0 && !editMessageId) {
@@ -1127,13 +1247,22 @@ export default function CasePredictorScreen() {
         .filter((m) => m.id !== aiMsgId)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      let contentToSend = text;
+      if (activeCaseDetails && history.length === 0) {
+        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
+      }
+
       const payload: Record<string, any> = {
-        content: text,
+        content: contentToSend,
         sessionId: currentSessionId,
         activeTool: 'casePredictor',
         stream: true,
         history,
       };
+
+      if (activeCaseId) {
+        payload.projectId = activeCaseId;
+      }
 
       if (uploadedAttachments.length > 0 && !editMessageId) {
         payload.document = uploadedAttachments.map((a) => ({
@@ -1443,45 +1572,73 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
   }, [filteredActions]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#F8FAFC' }]} edges={['top', 'left', 'right']}>
-      {/* HEADER SECTION */}
-      <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={22} color="#475569" />
-        </TouchableOpacity>
+    <KeyboardSafeChatLayout
+      backgroundColor="#F8FAFC"
+      header={
+        <React.Fragment>
+          {/* HEADER SECTION */}
+          <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={22} color="#475569" />
+            </TouchableOpacity>
 
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: '#0F172A' }]}>Case Predictor</Text>
-        </View>
+            <View style={styles.headerTitleContainer}>
+              <Text style={[styles.headerTitle, { color: '#0F172A' }]}>Case Predictor</Text>
+            </View>
 
-        <View style={styles.headerRightActions}>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => setIsHistoryOpen(true)}>
-            <Ionicons name="time-outline" size={22} color="#475569" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleNewChat}>
-            <Ionicons name="add" size={24} color="#475569" />
-          </TouchableOpacity>
-        </View>
-      </View>
+            <View style={styles.headerRightActions}>
+              <TouchableOpacity style={styles.headerBtn} onPress={() => setIsHistoryOpen(true)}>
+                <Ionicons name="time-outline" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+          </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={{ flex: 1 }}
-      >
-        {/* WORKSPACE CHAT PANEL */}
-        {messages.length === 0 ? (
-          <ChatWelcome 
-            title="Case Predictor" 
-            subtitle="Predict case outcome..." 
-            icon="📈" 
-          />
+          {activeCaseDetails && (
+            <View style={[styles.activeCaseBanner, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+              <View style={styles.activeCaseLeft}>
+                <Text style={styles.activeCaseLabel}>CURRENT CASE</Text>
+                <Text style={[styles.activeCaseName, { color: theme.textPrimary }]} numberOfLines={1}>
+                  {activeCaseDetails.name}
+                </Text>
+                <View style={styles.activeCaseSubtitleRow}>
+                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
+                    {activeCaseDetails.caseType || 'Labour Dispute'}
+                  </Text>
+                  <Text style={{ color: theme.textMuted, marginHorizontal: 6 }}>•</Text>
+                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
+                    {activeCaseDetails.courtName || (activeCaseDetails as any).jurisdiction || 'District Court'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.activeCaseRight}>
+                <TouchableOpacity
+                  onPress={() => setIsCaseModalOpen(true)}
+                  style={[styles.changeCaseBtn, { borderColor: '#8A5CF5' }]}
+                >
+                  <Text style={styles.changeCaseBtnText}>Change</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </React.Fragment>
+      }
+      messages={
+        messages.length === 0 ? (
+          activeCaseDetails ? (
+            <View style={{ flex: 1 }} />
+          ) : (
+            <ChatWelcome 
+              title="Case Predictor" 
+              subtitle="Score success probability using analytical model stats."
+              icon="📈" 
+            />
+          )
         ) : (
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
             onScroll={(e) => {
               const offset = e.nativeEvent.contentOffset.y;
               const contentHeight = e.nativeEvent.contentSize.height;
@@ -1513,80 +1670,86 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
               }
             }}
             renderItem={({ item }) => {
-            return (
-              <ChatMessageBubble
-                message={item}
-                aiName="Case Predictor"
-                aiIcon="📈"
-                onCopy={() => {
-                  Clipboard.setString(item.content);
-                  showToast('success', 'Copied', 'Prediction copied to clipboard.');
-                }}
-                onShare={async () => {
-                  try {
-                    await Share.share({ message: item.content });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-                onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-              />
-            );
-          }}
-        />
-      )}
-
-      {showScrollBtn && (
-        <Animated.View
-          style={[
-            styles.scrollDownBtn,
-            {
-              opacity: scrollBtnOpacity,
-              transform: [{ scale: scrollBtnScale }]
-            }
-          ]}
-        >
-          <Pressable
-            onPress={() => {
-              handleScrollAction(false);
-              scrollToBottom(true);
+              return (
+                <ChatMessageBubble
+                  message={item}
+                  aiName="Case Predictor"
+                  aiIcon="📈"
+                  onCopy={() => {
+                    Clipboard.setString(item.content);
+                    showToast('success', 'Copied', 'Forensics copied to clipboard.');
+                  }}
+                  onShare={async () => {
+                    try {
+                      await Share.share({ message: item.content });
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
+                />
+              );
             }}
-            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+            ListFooterComponent={null}
+          />
+        )
+      }
+      scrollBtn={
+        showScrollBtn && (
+          <Animated.View
+            style={[
+              styles.scrollDownBtn,
+              {
+                opacity: scrollBtnOpacity,
+                transform: [{ scale: scrollBtnScale }]
+              }
+            ]}
           >
-            <Ionicons name="arrow-down" size={18} color="#000000" />
-          </Pressable>
-        </Animated.View>
-      )}
-
-      {/* INPUT ATTACHMENTS TRAY BAR */}
-      {attachments.length > 0 && (
-        <View style={styles.attachmentsBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
-            {attachments.map((file) => (
-              <View key={file.name} style={styles.attachmentChip}>
-                <Ionicons name="document-text" size={14} color="#5B21B6" style={{ marginRight: 4 }} />
-                <View>
-                  <Text style={styles.attachmentName} numberOfLines={1}>
-                    {file.name}
-                  </Text>
-                  <View style={styles.detectedBadge}>
-                    <Text style={styles.detectedBadgeText}>{detectedCaseType}</Text>
+            <Pressable
+              onPress={() => {
+                handleScrollAction(false);
+                scrollToBottom(true);
+              }}
+              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Ionicons name="arrow-down" size={18} color="#000000" />
+            </Pressable>
+          </Animated.View>
+        )
+      }
+      attachments={
+        attachments.length > 0 && (
+          <View style={styles.attachmentsBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {attachments.map((a) => {
+                const fileMock = MOCK_CASE_FILES.find((f) => f.name === a.name);
+                const docType = fileMock?.detectedType || 'Evidence';
+                return (
+                  <View key={a.name} style={styles.attachmentChip}>
+                    <Ionicons name="document-text" size={16} color="#8A5CF5" />
+                    <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
+                      <Text style={styles.attachmentName} numberOfLines={1}>
+                        {a.name}
+                      </Text>
+                      <View style={styles.detectedBadge}>
+                        <Text style={styles.detectedBadgeText}>{docType}</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
+                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
                   </View>
-                </View>
-                <TouchableOpacity onPress={() => handleRemoveAttachment(file.name)} style={{ marginLeft: 6, padding: 2 }}>
-                  <Ionicons name="close-circle" size={16} color="#7C3AED" />
-                </TouchableOpacity>
-              </View>
-            ))}
-            <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-              <Ionicons name="add" size={14} color="#475569" />
-              <Text style={styles.addMoreText}>Add File</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* COMPOSER INPUT TOOLBAR */}
+                );
+              })}
+              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
+                <Ionicons name="add" size={16} color="#475569" />
+                <Text style={styles.addMoreText}>Add File</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )
+      }
+      composer={
         <ChatComposer
           value={inputVal}
           onChangeText={setInputVal}
@@ -1594,12 +1757,13 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
           onSend={(text) => handleSend(text)}
           onCancelStream={handleCancelStream}
           onAddAttachment={showAttachmentOptions}
-          onPressSparkles={() => setIsActionsOpen(true)}
-          placeholder="Ask outcome prediction..."
-          simulatedVoiceText="Predict the winning probability and success rate for this petition."
+          onPressSparkles={() => { setActionsSearchQuery(''); setIsActionsOpen(true); }}
+          placeholder={activeCaseId ? "Ask anything about this case..." : "Analyze case probability..."}
+          autoFocus={shouldComposerFocus}
+          simulatedVoiceText="Score success probability using analytical model stats for this case."
         />
-      </KeyboardAvoidingView>
-
+      }
+    >
       <AttachmentBottomSheet
         visible={isBottomSheetVisible}
         onClose={hideAttachmentOptions}
@@ -1612,164 +1776,114 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
         onConfirm={handleCameraConfirm}
       />
 
-      {/* LITIGATION ACTIONS SLIDING BOTTOM SHEET */}
-      <Modal visible={isActionsOpen} animationType="slide" transparent>
+      {/* ACTIONS BOTTOM SHEET */}
+      <Modal visible={isActionsOpen} animationType="slide" transparent={true} onRequestClose={() => setIsActionsOpen(false)}>
         <TouchableWithoutFeedback onPress={() => setIsActionsOpen(false)}>
-          <View style={styles.bottomSheetOverlay}>
+          <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
               <View style={[styles.bottomSheetContainer, Shadows.modal]}>
-                {/* Drag Indicator */}
                 <View style={styles.dragIndicator} />
 
-                {/* Bottom Sheet Header */}
                 <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>AI Case Intelligence Actions</Text>
-                  <TouchableOpacity onPress={() => setIsActionsOpen(false)} style={styles.closeBtn}>
+                  <Text style={styles.sheetTitle}>Predictor AI Actions</Text>
+                  <TouchableOpacity onPress={() => setIsActionsOpen(false)}>
                     <Ionicons name="close-circle" size={24} color="#94A3B8" />
                   </TouchableOpacity>
                 </View>
 
-                {/* Search field in Action Sheet */}
+                {/* Actions filter search input */}
                 <View style={styles.sheetSearchContainer}>
                   <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
                   <TextInput
                     style={styles.sheetSearchInput}
-                    placeholder="Search outcome, strength, sections..."
-                    placeholderTextColor="#94A3B8"
+                    placeholder="Search predictor actions (e.g. strength, cost)..."
                     value={actionsSearchQuery}
                     onChangeText={setActionsSearchQuery}
                   />
-                  {actionsSearchQuery.length > 0 && (
+                  {actionsSearchQuery ? (
                     <TouchableOpacity onPress={() => setActionsSearchQuery('')}>
-                      <Ionicons name="close" size={18} color="#64748B" />
+                      <Ionicons name="close" size={18} color="#94A3B8" />
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
 
-                {/* Scrollable Categories List */}
-                <ScrollView contentContainerStyle={styles.sheetContentScroll} showsVerticalScrollIndicator={false}>
-                  {!hasFilteredResults && (
-                    <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-                      <Ionicons name="search-outline" size={32} color="#94A3B8" />
-                      <Text style={{ color: '#64748B', marginTop: 8, fontSize: 14 }}>No matching case intelligence actions found.</Text>
-                    </View>
-                  )}
-
-                  {/* AI RECOMMENDED SECTION */}
-                  {attachments.length > 0 && aiRecommendedActions.length > 0 && !actionsSearchQuery && (
+                <ScrollView style={styles.sheetContentScroll} showsVerticalScrollIndicator={false}>
+                  {/* Recently Used (if no search active) */}
+                  {!actionsSearchQuery && (
                     <>
-                      <Text style={styles.categoryHeading}>✨ AI Recommended for {detectedCaseType}</Text>
-                      <View style={styles.actionsList}>
-                        {aiRecommendedActions.map((action) => {
-                          const isFav = favorites.includes(action.label);
-                          // Match with main configuration
-                          const matchedFull = Object.values(PREDICTION_ACTIONS)
-                            .flat()
-                            .find((a) => a.id === action.id || a.label === action.label) as any;
-                          const isImmediate = matchedFull ? matchedFull.isImmediate : true;
-                          const promptText = matchedFull ? matchedFull.promptText : undefined;
+                      <Text style={styles.categoryHeading}>⭐ Recently Used</Text>
+                      <View style={styles.actionsGrid}>
+                        {recentlyUsed.map((label, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            style={styles.recentActionItem}
+                            onPress={() => {
+                              const item = [...PREDICTION_ACTIONS.outcomePrediction, ...PREDICTION_ACTIONS.strengthAnalysis, ...PREDICTION_ACTIONS.weaknessAnalysis, ...PREDICTION_ACTIONS.riskAnalysis, ...PREDICTION_ACTIONS.evidenceIntelligence, ...PREDICTION_ACTIONS.opponentIntelligence, ...PREDICTION_ACTIONS.legalIntelligence, ...PREDICTION_ACTIONS.settlementIntelligence, ...PREDICTION_ACTIONS.timelinePrediction, ...PREDICTION_ACTIONS.costIntelligence, ...PREDICTION_ACTIONS.courtSimulation].find((a) => a.label === label);
+                              if (item) handleExecuteAction(item);
+                            }}
+                          >
+                            <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+                            <Text style={styles.recentActionText}>{label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
 
-                          return (
-                            <TouchableOpacity
-                              key={action.id}
-                              style={[styles.actionListItem, { borderColor: '#DDD6FE', backgroundColor: '#FAF5FF' }]}
-                              onPress={() => handleExecuteAction({ id: action.id, label: action.label, desc: action.desc, isImmediate, promptText })}
-                            >
-                              <View style={[styles.actionListIcon, { backgroundColor: '#8A5CF5' }]}>
-                                <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-                              </View>
-                              <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={[styles.actionListTitle, { color: '#5B21B6' }]}>{action.label}</Text>
-                                <Text style={[styles.actionListDesc, { color: '#7C3AED' }]}>{action.desc}</Text>
-                              </View>
-                              <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                                <Ionicons name={isFav ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                              </TouchableOpacity>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                            </TouchableOpacity>
-                          );
-                        })}
+                      {/* Favorites */}
+                      <Text style={styles.categoryHeading}>❤️ Favorites</Text>
+                      <View style={styles.actionsGrid}>
+                        {favorites.map((label, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            style={[styles.recentActionItem, { borderColor: '#E0E7FF' }]}
+                            onPress={() => {
+                              const item = [...PREDICTION_ACTIONS.outcomePrediction, ...PREDICTION_ACTIONS.strengthAnalysis, ...PREDICTION_ACTIONS.weaknessAnalysis, ...PREDICTION_ACTIONS.riskAnalysis, ...PREDICTION_ACTIONS.evidenceIntelligence, ...PREDICTION_ACTIONS.opponentIntelligence, ...PREDICTION_ACTIONS.legalIntelligence, ...PREDICTION_ACTIONS.settlementIntelligence, ...PREDICTION_ACTIONS.timelinePrediction, ...PREDICTION_ACTIONS.costIntelligence, ...PREDICTION_ACTIONS.courtSimulation].find((a) => a.label === label);
+                              if (item) handleExecuteAction(item);
+                            }}
+                          >
+                            <Ionicons name="star" size={12} color="#8A5CF5" style={{ marginRight: 4 }} />
+                            <Text style={[styles.recentActionText, { color: '#8A5CF5' }]}>{label}</Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
                     </>
                   )}
 
-                  {/* FAVORITES ROW */}
-                  {favorites.length > 0 && !actionsSearchQuery && (
+                  {/* AI Recommended Actions (changes based on active document type) */}
+                  {!actionsSearchQuery && (
                     <>
-                      <Text style={styles.categoryHeading}>⭐️ Favorites</Text>
-                      <View style={styles.actionsList}>
-                        {favorites.map((label) => {
-                          // Find favorite in PREDICTION_ACTIONS
-                          const foundAction = Object.values(PREDICTION_ACTIONS)
-                            .flat()
-                            .find((a) => a.label === label);
-                          if (!foundAction) return null;
-
-                          return (
-                            <TouchableOpacity
-                              key={foundAction.id}
-                              style={styles.actionListItem}
-                              onPress={() => handleExecuteAction(foundAction)}
-                            >
-                              <View style={[styles.actionListIcon, { backgroundColor: '#FEF3C7' }]}>
-                                <Ionicons name="star" size={16} color="#D97706" />
+                      <Text style={styles.categoryHeading}>🤖 AI Recommended</Text>
+                      {aiRecommendedActions.length > 0 ? (
+                        <View style={styles.actionsList}>
+                          {aiRecommendedActions.map((action) => (
+                            <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: true })}>
+                              <View style={[styles.actionListIcon, { backgroundColor: '#EEF2FF' }]}>
+                                <Ionicons name="sparkles" size={16} color="#8A5CF5" />
                               </View>
                               <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.actionListTitle}>{foundAction.label}</Text>
-                                <Text style={styles.actionListDesc}>{foundAction.desc}</Text>
+                                <Text style={styles.actionListTitle}>{action.label}</Text>
+                                <Text style={styles.actionListDesc}>{action.desc}</Text>
                               </View>
-                              <TouchableOpacity onPress={() => toggleFavorite(label)} style={{ padding: 4 }}>
-                                <Ionicons name="star" size={18} color="#F59E0B" />
-                              </TouchableOpacity>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
                             </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </>
-                  )}
-
-                  {/* RECENTLY USED */}
-                  {recentlyUsed.length > 0 && !actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>🕒 Recently Used</Text>
-                      <View style={styles.actionsList}>
-                        {recentlyUsed.map((label) => {
-                          const foundAction = Object.values(PREDICTION_ACTIONS)
-                            .flat()
-                            .find((a) => a.label === label);
-                          if (!foundAction) return null;
-
-                          return (
-                            <TouchableOpacity
-                              key={foundAction.id}
-                              style={styles.actionListItem}
-                              onPress={() => handleExecuteAction(foundAction)}
-                            >
-                              <View style={[styles.actionListIcon, { backgroundColor: '#F1F5F9' }]}>
-                                <Ionicons name="time" size={16} color="#64748B" />
-                              </View>
-                              <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.actionListTitle}>{foundAction.label}</Text>
-                                <Text style={styles.actionListDesc}>{foundAction.desc}</Text>
-                              </View>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={styles.actionsEmpty}>
+                          <Text style={styles.actionsEmptyText}>Please attach case files to activate context-aware recommended checks.</Text>
+                        </View>
+                      )}
                     </>
                   )}
 
                   {/* Outcome Prediction Category */}
                   {filteredActions.outcomePrediction.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>⚖️ Outcome Prediction</Text>
+                      <Text style={styles.categoryHeading}>🔮 Outcome Prediction Models</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.outcomePrediction.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
-                              <Ionicons name="pulse" size={16} color="#3B82F6" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#EEF2FF' }]}>
+                              <Ionicons name="git-compare-outline" size={16} color="#8A5CF5" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1785,15 +1899,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Strength Analysis Category */}
+                  {/* Case Strength Category */}
                   {filteredActions.strengthAnalysis.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>📊 Strength Analysis</Text>
+                      <Text style={styles.categoryHeading}>📈 Case Strength Assessments</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.strengthAnalysis.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
-                              <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#ECFDF5' }]}>
+                              <Ionicons name="trending-up-outline" size={16} color="#10B981" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1809,15 +1923,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Weakness Analysis Category */}
+                  {/* Case Weakness Category */}
                   {filteredActions.weaknessAnalysis.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>🚩 Weakness Analysis</Text>
+                      <Text style={styles.categoryHeading}>📉 Loopholes & Vulnerabilities</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.weaknessAnalysis.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FFF5F5' }]}>
-                              <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#FFF7ED' }]}>
+                              <Ionicons name="trending-down-outline" size={16} color="#F97316" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1833,15 +1947,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Risk Analysis Category */}
+                  {/* Risk Assessment Category */}
                   {filteredActions.riskAnalysis.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>⚠️ Risk Analysis</Text>
+                      <Text style={styles.categoryHeading}>⚠️ Danger Indicators & Risks</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.riskAnalysis.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FFFBEB' }]}>
-                              <Ionicons name="warning" size={16} color="#F59E0B" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#FEF2F2' }]}>
+                              <Ionicons name="alert-triangle-outline" size={16} color="#EF4444" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1857,15 +1971,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Evidence Intelligence Category */}
+                  {/* Evidence Auditing Category */}
                   {filteredActions.evidenceIntelligence.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>📑 Evidence Intelligence</Text>
+                      <Text style={styles.categoryHeading}>📂 Evidence Admissibility & Depth</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.evidenceIntelligence.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#ECFDF5' }]}>
-                              <Ionicons name="document-text" size={16} color="#10B981" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
+                              <Ionicons name="document-text-outline" size={16} color="#10B981" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1881,15 +1995,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Opponent Intelligence Category */}
+                  {/* Opponent Evaluation Category */}
                   {filteredActions.opponentIntelligence.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>🧠 Opponent Intelligence</Text>
+                      <Text style={styles.categoryHeading}>👥 Opponent Lawyer Strategy Profiles</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.opponentIntelligence.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FAF5FF' }]}>
-                              <Ionicons name="git-branch" size={16} color="#8A5CF5" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#F3F4F6' }]}>
+                              <Ionicons name="people-outline" size={16} color="#4B5563" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1905,15 +2019,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Legal Intelligence Category */}
+                  {/* Statutory Analysis Category */}
                   {filteredActions.legalIntelligence.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>📚 Legal Intelligence</Text>
+                      <Text style={styles.categoryHeading}>⚖️ Statutory Acts & Precedents</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.legalIntelligence.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F3F4F6' }]}>
-                              <Ionicons name="book" size={16} color="#4B5563" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#FDF2F8' }]}>
+                              <Ionicons name="ribbon-outline" size={16} color="#EC4899" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1929,15 +2043,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Settlement Intelligence Category */}
+                  {/* Settlement Chances Category */}
                   {filteredActions.settlementIntelligence.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>🤝 Settlement Intelligence</Text>
+                      <Text style={styles.categoryHeading}>🤝 Out-of-Court Mediation & Compromises</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.settlementIntelligence.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDFA' }]}>
-                              <Ionicons name="people" size={16} color="#14B8A6" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
+                              <Ionicons name="hand-left-outline" size={16} color="#3B82F6" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1953,15 +2067,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Timeline Prediction Category */}
+                  {/* Timeline Category */}
                   {filteredActions.timelinePrediction.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>📅 Timeline Prediction</Text>
+                      <Text style={styles.categoryHeading}>📅 Duration & Delay Timeline Models</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.timelinePrediction.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F1F5F9' }]}>
-                              <Ionicons name="time" size={16} color="#475569" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#FFFBEB' }]}>
+                              <Ionicons name="time-outline" size={16} color="#D97706" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -1977,15 +2091,15 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* Cost Intelligence Category */}
+                  {/* Trial Cost Category */}
                   {filteredActions.costIntelligence.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>💰 Cost Intelligence</Text>
+                      <Text style={styles.categoryHeading}>💰 Litigation Fees & Expense Forecasts</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.costIntelligence.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#ECFDF5' }]}>
-                              <Ionicons name="cash-outline" size={16} color="#059669" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
+                              <Ionicons name="cash-outline" size={16} color="#16A34A" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
@@ -2001,28 +2115,29 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
                     </>
                   )}
 
-                  {/* AI Simulation Category */}
+                  {/* Moot Simulation Category */}
                   {filteredActions.courtSimulation.length > 0 && (
                     <>
-                      <Text style={styles.categoryHeading}>🤖 AI Courtroom Simulation</Text>
+                      <Text style={styles.categoryHeading}>🎭 Virtual Mock Simulations</Text>
                       <View style={styles.actionsList}>
                         {filteredActions.courtSimulation.map((action) => (
                           <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FEF2F2' }]}>
-                              <Ionicons name="hardware-chip-outline" size={16} color="#EF4444" />
+                            <View style={[styles.actionListIcon, { backgroundColor: '#F5F3FF' }]}>
+                              <Ionicons name="videocam-outline" size={16} color="#8A5CF5" />
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                               <Text style={styles.actionListTitle}>{action.label}</Text>
                               <Text style={styles.actionListDesc}>{action.desc}</Text>
                             </View>
+                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
+                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
+                            </TouchableOpacity>
                             <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
                           </TouchableOpacity>
                         ))}
                       </View>
                     </>
                   )}
-
-                  <View style={{ height: 40 }} />
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -2041,118 +2156,200 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
           {/* Semi-transparent backdrop */}
           <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
 
-          {/* Sidebar Drawer container */}
-          <View style={styles.drawerContainer}>
+          {/* Drawer container (animated or slide-in effect via custom styles) */}
+          <View style={[styles.drawerContainer, { backgroundColor: theme.surface }]}>
             <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
               <View style={styles.drawerHeader}>
-                <Text style={styles.drawerTitle}>Chat Logs History</Text>
-                <Pressable onPress={() => setIsHistoryOpen(false)}>
-                  <Ionicons name="close" size={24} color="#475569" />
-                </Pressable>
+                <Text style={[styles.drawerTitle, { color: theme.textPrimary }]}>Case Sessions</Text>
+                <TouchableOpacity onPress={() => setIsHistoryOpen(false)} style={styles.drawerActionIcon}>
+                  <Ionicons name="close" size={20} color={theme.textPrimary} />
+                </TouchableOpacity>
               </View>
 
-              <Pressable
-                style={styles.drawerNewChatBtn}
-                onPress={() => {
-                  handleNewChat();
-                  setIsHistoryOpen(false);
-                }}
+              <TouchableOpacity
+                onPress={handleClearWorkspace}
+                style={[styles.drawerNewChatBtn, { backgroundColor: theme.primaryLight || '#EEECFF', paddingHorizontal: 12, marginVertical: 12, gap: 6 }]}
               >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.drawerNewChatBtnText}>New Conversation</Text>
-              </Pressable>
+                <Ionicons name="add" size={16} color="#8A5CF5" />
+                <Text style={[styles.drawerNewChatBtnText, { color: theme.primary }]}>New Analysis Session</Text>
+              </TouchableOpacity>
 
-              <View style={styles.drawerSearchContainer}>
-                <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  placeholder="Search chats..."
-                  placeholderTextColor="#94A3B8"
-                  value={searchHistoryQuery}
-                  onChangeText={setSearchHistoryQuery}
-                  style={styles.drawerSearchInput}
-                />
-              </View>
-
-              <ScrollView style={styles.drawerList}>
-                {filteredHistorySessions.length === 0 ? (
-                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
-                ) : (
-                  filteredHistorySessions.map((item) => (
-                    <View
-                      key={item.sessionId}
-                      style={[
-                        styles.drawerItem,
-                        sessionId === item.sessionId && styles.drawerItemActive,
-                      ]}
-                    >
-                      <Pressable
-                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                        onPress={() => handleSelectSession(item.sessionId)}
-                      >
-                        <Ionicons
-                          name="chatbox-ellipses-outline"
-                          size={16}
-                          color={sessionId === item.sessionId ? '#3B82F6' : '#64748B'}
-                          style={{ marginRight: 10 }}
-                        />
-
-                        {editingSessionId === item.sessionId ? (
-                          <TextInput
-                            style={styles.drawerRenameInput}
-                            value={renameTitleVal}
-                            onChangeText={setRenameTitleVal}
-                            autoFocus={true}
-                            onBlur={() => handleRenameConfirm(item.sessionId)}
-                            onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                          />
-                        ) : (
-                          <View style={styles.drawerItemTextContainer}>
-                            <Text
-                              style={[
-                                styles.drawerItemText,
-                                sessionId === item.sessionId && styles.drawerItemTextActive,
-                              ]}
-                              numberOfLines={1}
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+                {activeCaseId ? (
+                  <>
+                    <Text style={styles.historySectionHeader}>Case Specific Analysis</Text>
+                    {(groupedHistory.caseGroups[activeCaseId] || []).length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No saved analyses for this case.</Text>
+                    ) : (
+                      (groupedHistory.caseGroups[activeCaseId] || []).map((item: any) => {
+                        return (
+                          <View
+                            key={item.sessionId}
+                            style={[
+                              styles.drawerItem,
+                              sessionId === item.sessionId && styles.drawerItemActive,
+                            ]}
+                          >
+                            <Pressable
+                              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                              onPress={() => handleSelectSession(item.sessionId)}
                             >
-                              {item.title}
-                            </Text>
-                            <Text style={styles.drawerItemSubtext}>
-                              {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </Text>
-                          </View>
-                        )}
-                      </Pressable>
+                              <Ionicons
+                                name="document-text-outline"
+                                size={16}
+                                color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
+                                style={{ marginRight: 10 }}
+                              />
 
-                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                        <Pressable
-                          onPress={() => {
-                            setEditingSessionId(item.sessionId);
-                            setRenameTitleVal(item.title);
-                          }}
-                          style={styles.drawerActionIcon}
+                              {editingSessionId === item.sessionId ? (
+                                <TextInput
+                                  style={styles.drawerRenameInput}
+                                  value={renameTitleVal}
+                                  onChangeText={setRenameTitleVal}
+                                  autoFocus={true}
+                                  onBlur={() => handleRenameConfirm(item.sessionId)}
+                                  onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                                />
+                              ) : (
+                                <View style={styles.drawerItemTextContainer}>
+                                  <Text
+                                    style={[
+                                      styles.drawerItemText,
+                                      sessionId === item.sessionId && styles.drawerItemTextActive,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {item.title}
+                                  </Text>
+                                  <Text style={styles.drawerItemSubtext}>
+                                    {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </Text>
+                                </View>
+                              )}
+                            </Pressable>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                              <Pressable
+                                onPress={() => {
+                                  setEditingSessionId(item.sessionId);
+                                  setRenameTitleVal(item.title);
+                                }}
+                                style={styles.drawerActionIcon}
+                              >
+                                <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => handleDeleteSession(item.sessionId)}
+                                style={styles.drawerActionIcon}
+                              >
+                                <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                              </Pressable>
+                            </View>
+                          </View>
+                        );
+                      })
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.historySectionHeader}>All Conversations</Text>
+                    {historySessions.length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No conversations logged yet.</Text>
+                    ) : (
+                      historySessions.map((item: any) => (
+                        <View
+                          key={item.sessionId}
+                          style={[
+                            styles.drawerItem,
+                            sessionId === item.sessionId && styles.drawerItemActive,
+                          ]}
                         >
-                          <Ionicons name="create-outline" size={16} color="#64748B" />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDeleteSession(item.sessionId)}
-                          style={styles.drawerActionIcon}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
+                          <Pressable
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                            onPress={() => handleSelectSession(item.sessionId)}
+                          >
+                            <Ionicons
+                              name="chatbox-ellipses-outline"
+                              size={16}
+                              color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
+                              style={{ marginRight: 10 }}
+                            />
+
+                            {editingSessionId === item.sessionId ? (
+                              <TextInput
+                                style={styles.drawerRenameInput}
+                                value={renameTitleVal}
+                                onChangeText={setRenameTitleVal}
+                                autoFocus={true}
+                                onBlur={() => handleRenameConfirm(item.sessionId)}
+                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                              />
+                            ) : (
+                              <View style={styles.drawerItemTextContainer}>
+                                <Text
+                                  style={[
+                                    styles.drawerItemText,
+                                    sessionId === item.sessionId && styles.drawerItemTextActive,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+                                <Text style={styles.drawerItemSubtext}>
+                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                              </View>
+                            )}
+                          </Pressable>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                            <Pressable
+                              onPress={() => {
+                                  setEditingSessionId(item.sessionId);
+                                  setRenameTitleVal(item.title);
+                              }}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handleDeleteSession(item.sessionId)}
+                              style={styles.drawerActionIcon}
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                            </Pressable>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </>
                 )}
               </ScrollView>
             </SafeAreaView>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      <CaseSelectionModal
+        visible={isCaseModalOpen}
+        onClose={() => setIsCaseModalOpen(false)}
+        activeCaseId={activeCaseId}
+        onSelectCase={(caseId) => {
+          setActiveCaseId(caseId);
+          setMessages([]);
+          setSessionId(null);
+          clearAttachments();
+          setInputVal('');
+          setShouldComposerFocus(true);
+          showToast('success', 'Case Workspace', 'Case workspace selected.');
+        }}
+      />
+    </KeyboardSafeChatLayout>
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(theme: any, isDark: boolean) {
+  return StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -2202,29 +2399,36 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    paddingBottom: 24,
+    paddingBottom: 110,
+  },
+  absoluteComposerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
   },
   welcomeCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
   },
   welcomeIconCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 10,
   },
   welcomeText: {
     fontSize: 14,
-    color: '#475569',
+    color: theme.textSecondary,
     textAlign: 'center',
     lineHeight: 21,
     fontWeight: '500',
@@ -2246,12 +2450,12 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
   },
   bubble: {
     paddingHorizontal: 14,
@@ -2268,9 +2472,9 @@ const styles = StyleSheet.create({
   msgAttachChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -2278,7 +2482,7 @@ const styles = StyleSheet.create({
   },
   msgAttachName: {
     fontSize: 11,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '600',
     maxWidth: 120,
   },
@@ -2295,37 +2499,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.border,
     gap: 4,
   },
   actionBtnLabel: {
     fontSize: 11,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '600',
   },
   followUpRow: {
     marginTop: 8,
   },
   followUpChip: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
   },
   followUpChipText: {
     fontSize: 12,
-    color: '#8A5CF5',
+    color: theme.primary,
     fontWeight: '600',
   },
   strategyCard: {
     borderLeftWidth: 4,
     borderRadius: 8,
     padding: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     marginVertical: 4,
     alignSelf: 'stretch',
   },
@@ -2341,23 +2545,23 @@ const styles = StyleSheet.create({
   progressBarBg: {
     height: 8,
     width: '100%',
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.border,
     borderRadius: 4,
     overflow: 'hidden',
   },
   attachmentsBar: {
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
   },
   attachmentChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F3FF',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
     borderWidth: 1,
-    borderColor: '#DDD6FE',
+    borderColor: isDark ? 'rgba(139, 92, 246, 0.3)' : '#DDD6FE',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -2365,11 +2569,11 @@ const styles = StyleSheet.create({
   attachmentName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#5B21B6',
+    color: isDark ? '#C084FC' : '#5B21B6',
   },
   detectedBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#EDE9FE',
+    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
     borderRadius: 6,
     paddingHorizontal: 4,
     paddingVertical: 1,
@@ -2377,7 +2581,7 @@ const styles = StyleSheet.create({
   },
   detectedBadgeText: {
     fontSize: 9,
-    color: '#5B21B6',
+    color: isDark ? '#C084FC' : '#5B21B6',
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -2385,23 +2589,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#94A3B8',
+    borderColor: theme.border,
     borderStyle: 'dashed',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.surfaceVariant,
     gap: 4,
   },
   addMoreText: {
     fontSize: 11.5,
-    color: '#475569',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   composerContainer: {
     borderTopWidth: 1,
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    backgroundColor: theme.card,
   },
   composerRow: {
     flexDirection: 'row',
@@ -2416,6 +2622,10 @@ const styles = StyleSheet.create({
   },
   composerInput: {
     flex: 1,
+    borderWidth: 1,
+    borderColor: theme.border,
+    color: theme.textPrimary,
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -2426,18 +2636,19 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
+    backgroundColor: theme.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     padding: 16,
     width: '100%',
@@ -2447,16 +2658,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    paddingBottom: 10,
+    marginBottom: 10,
   },
   modalTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#0F172A',
+    color: theme.textPrimary,
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#64748B',
+    color: theme.textSecondary,
     marginBottom: 16,
   },
   mockFilesList: {
@@ -2465,29 +2679,29 @@ const styles = StyleSheet.create({
   mockFileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     padding: 12,
     borderRadius: 12,
   },
   mockFileName: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#334155',
+    color: theme.textPrimary,
   },
   mockFileDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.textSecondary,
     marginTop: 2,
   },
   bottomSheetOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: theme.overlay,
     justifyContent: 'flex-end',
   },
   bottomSheetContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     height: height * 0.78,
@@ -2496,7 +2710,7 @@ const styles = StyleSheet.create({
   dragIndicator: {
     width: 36,
     height: 5,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.border,
     borderRadius: 3,
     alignSelf: 'center',
     marginBottom: 8,
@@ -2511,7 +2725,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 16.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: theme.textPrimary,
   },
   closeBtn: {
     padding: 4,
@@ -2519,7 +2733,7 @@ const styles = StyleSheet.create({
   sheetSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.surfaceVariant,
     borderRadius: 12,
     marginHorizontal: 18,
     paddingHorizontal: 12,
@@ -2529,7 +2743,7 @@ const styles = StyleSheet.create({
   sheetSearchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#1E293B',
+    color: theme.textPrimary,
     padding: 0,
   },
   sheetContentScroll: {
@@ -2539,7 +2753,7 @@ const styles = StyleSheet.create({
   categoryHeading: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#64748B',
+    color: theme.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginTop: 14,
@@ -2552,8 +2766,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    borderColor: theme.border,
+    backgroundColor: theme.card,
     padding: 10,
     borderRadius: 12,
   },
@@ -2567,11 +2781,11 @@ const styles = StyleSheet.create({
   actionListTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1E293B',
+    color: theme.textPrimary,
   },
   actionListDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.textSecondary,
     marginTop: 2.5,
   },
   scrollDownBtn: {
@@ -2582,9 +2796,9 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000000',
@@ -2597,14 +2811,14 @@ const styles = StyleSheet.create({
   drawerOverlay: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: theme.overlay,
   },
   drawerContainer: {
     width: width * 0.8,
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.background,
     borderRightWidth: 1,
-    borderRightColor: '#ECECEC',
+    borderRightColor: theme.border,
     paddingHorizontal: 16,
   },
   drawerHeader: {
@@ -2613,18 +2827,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: theme.border,
   },
   drawerTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#1F2937',
+    color: theme.textPrimary,
   },
   drawerNewChatBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3B82F6',
+    backgroundColor: theme.primary,
     paddingVertical: 10,
     borderRadius: 8,
     marginVertical: 12,
@@ -2639,9 +2853,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: theme.border,
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.surfaceVariant,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginBottom: 12,
@@ -2649,7 +2863,7 @@ const styles = StyleSheet.create({
   drawerSearchInput: {
     flex: 1,
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     padding: 0,
   },
   drawerList: {
@@ -2657,7 +2871,7 @@ const styles = StyleSheet.create({
   },
   drawerEmptyText: {
     fontSize: 12.5,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     textAlign: 'center',
     marginTop: 24,
     fontStyle: 'italic',
@@ -2670,7 +2884,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   drawerItemActive: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF',
   },
   drawerItemTextContainer: {
     flex: 1,
@@ -2679,25 +2893,25 @@ const styles = StyleSheet.create({
   },
   drawerItemText: {
     fontSize: 13,
-    color: '#4B5563',
+    color: theme.textSecondary,
     fontWeight: '500',
   },
   drawerItemTextActive: {
-    color: '#3B82F6',
+    color: theme.primary,
     fontWeight: '700',
   },
   drawerItemSubtext: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: theme.textMuted,
     marginTop: 2,
   },
   drawerRenameInput: {
     fontSize: 13,
-    color: '#1F2937',
+    color: theme.textPrimary,
     fontWeight: '600',
     flex: 1,
     borderBottomWidth: 1,
-    borderBottomColor: '#3B82F6',
+    borderBottomColor: theme.primary,
     padding: 0,
   },
   drawerActionIcon: {
@@ -2708,4 +2922,235 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginLeft: 4,
   },
+  activeCaseBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  activeCaseLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  activeCaseLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  activeCaseName: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  activeCaseSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeCaseSubtext: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  activeCaseRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  activeStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 4,
+  },
+  activeStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10B981',
+    textTransform: 'uppercase',
+  },
+  changeCaseBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  changeCaseBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.primary,
+  },
+  drawerActionsRow: {
+    flexDirection: 'row',
+    marginVertical: 12,
+    gap: 8,
+  },
+  drawerActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  drawerActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  historySectionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: theme.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  historyEmptySubtext: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: theme.textMuted,
+    paddingLeft: 12,
+    marginVertical: 4,
+  },
+  historyCaseGroup: {
+    marginTop: 4,
+  },
+  historyCaseNameHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    color: theme.textPrimary,
+  },
+  historyGroupDivider: {
+    height: 1,
+    marginVertical: 8,
+    opacity: 0.5,
+    backgroundColor: theme.border,
+  },
+  activeCaseCenterContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
+  },
+  activeCaseCenterCard: {
+    width: '100%',
+    backgroundColor: theme.surface,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: theme.border,
+    ...Shadows.md,
+    alignItems: 'center',
+  },
+  activeCaseCenterHeaderLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#8A5CF5',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  activeCaseCenterTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  activeCaseCenterDivider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: theme.border,
+    marginBottom: 16,
+  },
+  activeCaseCenterDetailsGrid: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 20,
+  },
+  activeCaseCenterDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  activeCaseCenterDetailLabel: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontWeight: '600',
+  },
+  activeCaseCenterDetailValue: {
+    fontSize: 13,
+    color: theme.textPrimary,
+    fontWeight: '700',
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  activeCaseCenterChangeBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#8A5CF5',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  activeCaseCenterChangeBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#8A5CF5',
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  recentActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceVariant,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  recentActionText: {
+    fontSize: 11.5,
+    color: theme.textSecondary,
+    fontWeight: '600',
+  },
+  actionsEmpty: {
+    padding: 12,
+    backgroundColor: theme.surfaceVariant,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+  },
+  actionsEmptyText: {
+    fontSize: 12,
+    color: theme.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
 });
+}

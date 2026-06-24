@@ -5,7 +5,7 @@
 
 import { uploadFileMultipart } from '../api/client';
 import { API_ENDPOINTS } from '../constants';
-import { ApiResponse, CaseDocument } from '../types';
+import { ApiResponse, CaseDocument, CaseEvidence } from '../types';
 
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
@@ -17,6 +17,8 @@ const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/png',
   'image/jpg',
+  'image/webp',
+  'application/zip',
   'audio/mpeg',
   'audio/wav',
   'audio/mp3',
@@ -40,7 +42,7 @@ export class UploadService {
   ): Promise<ApiResponse<CaseDocument>> {
     // Step 6: Validate file MIME type constraints
     if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
-      throw new Error(`File type ${mimeType} is not supported. Supported extensions: PDF, DOC, DOCX, TXT, RTF, JPG, PNG, Audio, Video.`);
+      throw new Error(`File type ${mimeType} is not supported. Supported extensions: PDF, DOC, DOCX, TXT, RTF, JPG, PNG, WEBP, ZIP, Audio, Video.`);
     }
 
     const endpoint = API_ENDPOINTS.Cases.Documents(caseId);
@@ -50,6 +52,42 @@ export class UploadService {
       fileName,
       mimeType,
       { type: documentType },
+      onProgress,
+      signal
+    );
+  }
+
+  /**
+   * Uploads case evidence block with optional metadata to the vault.
+   */
+  static async uploadEvidence(
+    caseId: string,
+    fileUri: string,
+    fileName: string,
+    mimeType: string,
+    extraData: { description?: string; notes?: string; tags?: string; type?: string; exhibitNumber?: string } = {},
+    onProgress?: (progress: number) => void,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<CaseEvidence>> {
+    if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+      throw new Error(`File type ${mimeType} is not supported. Supported extensions: PDF, DOC, DOCX, TXT, RTF, JPG, PNG, WEBP, ZIP, Audio, Video.`);
+    }
+
+    const endpoint = API_ENDPOINTS.Cases.Evidence(caseId);
+    const dataToSend: Record<string, string> = {};
+    Object.keys(extraData).forEach((key) => {
+      const val = extraData[key as keyof typeof extraData];
+      if (val !== undefined) {
+        dataToSend[key] = val;
+      }
+    });
+
+    return uploadFileMultipart<ApiResponse<CaseEvidence>>(
+      endpoint,
+      fileUri,
+      fileName,
+      mimeType,
+      dataToSend,
       onProgress,
       signal
     );

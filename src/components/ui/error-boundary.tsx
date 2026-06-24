@@ -5,8 +5,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { StyleSheet, View, Text, ScrollView, Platform } from 'react-native';
-import { Button } from './buttons';
+import { StyleSheet, View, Text, ScrollView, Platform, TouchableOpacity } from 'react-native';
 
 interface Props {
   children: ReactNode;
@@ -69,12 +68,22 @@ export class ErrorBoundary extends Component<Props, State> {
             )}
 
             <View style={styles.actions}>
-              <Button
-                title="Try Again"
-                variant="primary"
+              <TouchableOpacity
                 onPress={this.handleReset}
-                style={styles.btn}
-              />
+                activeOpacity={0.8}
+                style={[
+                  styles.btn,
+                  {
+                    height: 48,
+                    borderRadius: 8,
+                    backgroundColor: '#6D5DFC',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }
+                ]}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 15 }}>Try Again</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
