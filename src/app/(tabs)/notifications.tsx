@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { CaseService } from '@/services/case.service';
-import { CaseWorkspace } from '@/types';
+import { CaseWorkspace, NotificationInboxItem } from '@/types';
 import {
   StyleSheet,
   View,
@@ -9,6 +9,7 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,8 +18,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthGuard } from '@/navigation/guards';
 import { useNotificationStore } from '@/store/notifications';
-import { formatDate } from '@/utils/formatters';
-import { NotificationInboxItem } from '@/types';
 import { useRouter } from 'expo-router';
 import { useToastContext } from '@/providers';
 import { useTranslation, formatRelativeDate } from '@/utils/localization';
@@ -41,7 +40,8 @@ export default function NotificationsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [cases, setCases] = useState<CaseWorkspace[]>([]);
   const [isCasesLoading, setIsCasesLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'All' | 'Hearings' | 'Deadlines' | 'AI'>('All');
+  const [activeCategory, setActiveCategory] = useState<'All' | 'Cases' | 'Alerts' | 'System'>('All');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchCasesData = useCallback(async () => {
     try {
@@ -70,136 +70,186 @@ export default function NotificationsScreen() {
     setIsRefreshing(false);
   };
 
-  const isHearingToday = (dateStr?: string) => {
-    if (!dateStr) return false;
-    const todayStr = new Date().toISOString().split('T')[0];
-    return dateStr.includes(todayStr) || new Date(dateStr).toDateString() === new Date().toDateString();
+  const isHearingTodayOrTomorrow = (dateStr?: string) => {
+    if (!dateStr) return { isToday: false, isTomorrow: false };
+    const hDate = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    const isToday = hDate.toDateString() === today.toDateString();
+    const isTomorrow = hDate.toDateString() === tomorrow.toDateString();
+    return { isToday, isTomorrow };
   };
 
+  // Generate dynamic case-driven notifications from real case data
   const virtualNotifications = useMemo(() => {
     const list: any[] = [];
     const activeCases = cases.filter(c => c.status === 'Active' || !c.status);
 
     activeCases.forEach((c) => {
-      // 1. Hearings (Today & Upcoming)
+      // 1. Hearings (Today & Tomorrow & Upcoming)
       if (c.hearings) {
         c.hearings.forEach((h, idx) => {
           if (h.date) {
+            const { isToday, isTomorrow } = isHearingTodayOrTomorrow(h.date);
             const hDate = new Date(h.date);
-            const isToday = isHearingToday(h.date);
             const isFuture = hDate.getTime() > Date.now();
 
             if (isToday) {
               list.push({
-                id: `virtual-hearing-today-${c._id}-${idx}`,
-                title: `${t('todaysHearingPrefix')}${c.name}`,
-                desc: `${t('timeLabel')}: ${h.time || '10:00 AM'}  •  ${t('courtLabel')}: ${h.courtName || c.courtName || t('districtCourt')}\n${t('agendaLabel')}: ${h.status || t('scheduledHearing')}`,
+                id: `v-hearing-today-${c._id}-${idx}`,
+                title: `⚖ Hearing Today: ${c.name}`,
+                desc: `Court: ${h.courtroom || c.courtName || 'District Court'} • Time: ${h.time || '10:30 AM'}\nPurpose: ${h.purpose || h.title || 'Judicial Proceeding'}`,
                 time: h.date,
                 type: 'alert',
+                category: 'Alerts',
+                priority: 'Critical',
+                caseName: c.name,
+                caseId: c._id,
                 isRead: false,
-                url: `/workspace/${c._id}?tab=hearings`,
-                category: 'hearings',
+                data: { url: `/workspace/${c._id}?tab=hearings`, caseId: c._id }
+              });
+            } else if (isTomorrow) {
+              list.push({
+                id: `v-hearing-tomorrow-${c._id}-${idx}`,
+                title: `📅 Hearing Tomorrow: ${c.name}`,
+                desc: `Court: ${h.courtroom || c.courtName || 'District Court'} • Time: ${h.time || '10:30 AM'}`,
+                time: h.date,
+                type: 'alert',
+                category: 'Alerts',
+                priority: 'High',
+                caseName: c.name,
+                caseId: c._id,
+                isRead: false,
+                data: { url: `/workspace/${c._id}?tab=hearings`, caseId: c._id }
               });
             } else if (isFuture) {
               list.push({
-                id: `virtual-hearing-upcoming-${c._id}-${idx}`,
-                title: `${t('upcomingHearingPrefix')}${c.name}`,
-                desc: `${t('timeLabel')}: ${h.time || '10:00 AM'}  •  ${t('courtLabel')}: ${h.courtName || c.courtName || t('districtCourt')}\n${t('agendaLabel')}: ${h.status || t('scheduledHearing')}`,
+                id: `v-hearing-up-${c._id}-${idx}`,
+                title: `⚖ Hearing Scheduled: ${c.name}`,
+                desc: `Scheduled for ${h.date} at ${h.courtroom || c.courtName || 'Presiding Forum'}.`,
                 time: h.date,
-                type: 'update',
-                isRead: true, // Mark system upcoming events read by default
-                url: `/workspace/${c._id}?tab=hearings`,
-                category: 'hearings',
-              });
-            }
-          }
-        });
-      }
-
-      // 2. Fact Events / Milestones
-      if (c.facts) {
-        c.facts.forEach((f, idx) => {
-          if (f.date) {
-            const fDate = new Date(f.date);
-            if (fDate.getTime() > Date.now()) {
-              list.push({
-                id: `virtual-milestone-${c._id}-${idx}`,
-                title: `${t('milestonePrefix')}${f.event}`,
-                desc: `${t('caseLabel')}: ${c.name}`,
-                time: f.date,
-                type: 'update',
+                type: 'info',
+                category: 'Cases',
+                priority: 'Medium',
+                caseName: c.name,
+                caseId: c._id,
                 isRead: true,
-                url: `/workspace/${c._id}`,
-                category: 'deadlines',
+                data: { url: `/workspace/${c._id}?tab=hearings`, caseId: c._id }
               });
             }
           }
         });
       }
 
-      // 3. Tasks / Deadlines
+      // 2. Tasks & Overdue Deadlines
       if (c.tasks) {
         c.tasks.forEach((task, idx) => {
           if (task.deadline && task.status !== 'Completed') {
             const tDate = new Date(task.deadline);
-            if (tDate.getTime() > Date.now()) {
+            const isOverdue = tDate.getTime() < Date.now();
+            if (isOverdue) {
               list.push({
-                id: `virtual-task-${c._id}-${idx}`,
-                title: `${t('taskDeadlinePrefix')}${task.title}`,
-                desc: `${t('caseLabel')}: ${c.name}  •  ${t('statusLabel')}: ${task.status === 'Pending' ? t('pendingStatus') : task.status}`,
+                id: `v-task-overdue-${c._id}-${idx}`,
+                title: `⚠️ Task Overdue: ${task.title}`,
+                desc: `Target deadline was ${task.deadline}. Action required immediately for ${c.name}.`,
                 time: task.deadline,
-                type: 'alert',
+                type: 'error',
+                category: 'Alerts',
+                priority: 'High',
+                caseName: c.name,
+                caseId: c._id,
                 isRead: false,
-                url: `/workspace/${c._id}?tab=tasks`,
-                category: 'deadlines',
+                data: { url: `/workspace/${c._id}?tab=tasks`, caseId: c._id }
               });
             }
           }
+        });
+      }
+
+      // 3. Evidence Alerts (Missing documents)
+      if (c.intelligence?.missingEvidence && c.intelligence.missingEvidence.length > 0) {
+        c.intelligence.missingEvidence.forEach((missingItem: string, idx: number) => {
+          list.push({
+            id: `v-missing-ev-${c._id}-${idx}`,
+            title: `📋 Missing Evidence Alert`,
+            desc: `Required: ${missingItem} for case ${c.name}. Complete file upload to strengthen legal score.`,
+            time: new Date().toISOString(),
+            type: 'alert',
+            category: 'Alerts',
+            priority: 'High',
+            caseName: c.name,
+            caseId: c._id,
+            isRead: false,
+            data: { url: `/workspace/${c._id}?tab=evidence`, caseId: c._id }
+          });
         });
       }
     });
 
     return list;
-  }, [cases, t]);
+  }, [cases]);
 
-  const combinedNotifications = useMemo(() => {
-    const storeMapped = notifications.map(n => ({
-      ...n,
-      category: 'ai' as const,
-    }));
-    return [...virtualNotifications, ...storeMapped].sort((a, b) => {
+  // Combine backend notifications and dynamic case notifications
+  const allCombined = useMemo(() => {
+    const formattedBackend = notifications.map(n => {
+      let resolvedCat: 'Cases' | 'Alerts' | 'System' = n.category || 'Cases';
+      const titleLower = (n.title || '').toLowerCase();
+      if (titleLower.includes('login') || titleLower.includes('password') || titleLower.includes('welcome') || titleLower.includes('backup')) {
+        resolvedCat = 'System';
+      } else if (titleLower.includes('hearing tomorrow') || titleLower.includes('hearing today') || titleLower.includes('urgent') || titleLower.includes('overdue') || titleLower.includes('missing') || n.type === 'alert' || n.type === 'error') {
+        resolvedCat = 'Alerts';
+      }
+      return {
+        ...n,
+        category: resolvedCat,
+        priority: n.priority || (resolvedCat === 'Alerts' ? 'High' : 'Medium')
+      };
+    });
+
+    return [...virtualNotifications, ...formattedBackend].sort((a, b) => {
       return new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime();
     });
   }, [notifications, virtualNotifications]);
 
+  // Apply Search and Category Filters
   const filteredNotifications = useMemo(() => {
-    if (activeTab === 'Hearings') {
-      return combinedNotifications.filter(n => n.category === 'hearings');
+    let result = allCombined;
+
+    // 1. Category Filter
+    if (activeCategory !== 'All') {
+      result = result.filter(n => n.category === activeCategory);
     }
-    if (activeTab === 'Deadlines') {
-      return combinedNotifications.filter(n => n.category === 'deadlines');
+
+    // 2. Search Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(n => 
+        (n.title && n.title.toLowerCase().includes(q)) ||
+        (n.desc && n.desc.toLowerCase().includes(q)) ||
+        (n.caseName && n.caseName.toLowerCase().includes(q))
+      );
     }
-    if (activeTab === 'AI') {
-      return combinedNotifications.filter(n => n.category === 'ai');
-    }
-    return combinedNotifications;
-  }, [combinedNotifications, activeTab]);
+
+    return result;
+  }, [allCombined, activeCategory, searchQuery]);
 
   const handleMarkAllAsRead = async () => {
     try {
       await markAllAsRead();
-      showToast('success', t('inboxReadToastTitle', 'helper'), t('inboxReadToastMsg'));
+      showToast('success', 'Marked Read', 'All notifications marked as read');
     } catch (e) {
-      showToast('error', t('actionFailedToastTitle', 'helper'), t('inboxReadFailedMsg'));
+      showToast('error', 'Action Failed', 'Failed to mark notifications read');
     }
   };
 
   const handleDeleteNotification = async (id: string) => {
     try {
       await deleteNotification(id);
-      showToast('success', t('alertRemovedToastTitle', 'helper'), t('alertRemovedToastMsg'));
+      showToast('success', 'Notification Removed', 'Notification deleted');
     } catch (e) {
-      showToast('error', t('actionFailedToastTitle', 'helper'), t('alertRemovedFailedMsg'));
+      showToast('error', 'Action Failed', 'Failed to delete notification');
     }
   };
 
@@ -208,50 +258,58 @@ export default function NotificationsScreen() {
       await markAsRead(item.id);
     }
 
-    // Retrieve deep link destination url
     const url = item.data?.url || (item as any).url;
     if (url) {
-      // Standardize scheme to relative router path
       let path = url.replace('ailegalmobile://', '/').replace('ailegalmobile:', '');
       if (!path.startsWith('/')) {
         path = '/' + path;
       }
-      console.log('[Notifications] Routing to deep link path:', path);
       try {
         router.push(path as any);
       } catch (e) {
-        console.warn('[Notifications] Deep link navigation failed:', path, e);
+        console.warn('[Notifications] Navigation failed:', path, e);
       }
     }
   };
 
-  const getNotificationIcon = (type: NotificationInboxItem['type']) => {
+  const getNotificationIcon = (type: string, category?: string) => {
+    if (category === 'System') {
+      return { name: 'shield-checkmark', color: '#8B5CF6', bg: '#F3E8FF' };
+    }
     switch (type) {
       case 'success':
         return { name: 'checkmark-circle', color: '#10B981', bg: '#E6F4EA' };
       case 'error':
-        return { name: 'close-circle', color: '#EF4444', bg: '#FCE8E6' };
+        return { name: 'warning', color: '#EF4444', bg: '#FCE8E6' };
       case 'alert':
-        return { name: 'warning', color: '#F59E0B', bg: '#FEF7E0' };
-      case 'update':
-        return { name: 'sync-circle', color: '#6D5DFC', bg: '#EEECFF' };
-      case 'promo':
-        return { name: 'gift', color: '#8B5CF6', bg: '#F3E8FF' };
+        return { name: 'alert-circle', color: '#F59E0B', bg: '#FEF7E0' };
       default:
-        return { name: 'information-circle', color: '#3B82F6', bg: '#EBF5FF' };
+        return { name: 'briefcase', color: '#3B82F6', bg: '#EBF5FF' };
+    }
+  };
+
+  const getPriorityBadgeStyle = (priority?: string) => {
+    switch (priority) {
+      case 'Critical':
+        return { bg: '#FEE2E2', text: '#DC2626' };
+      case 'High':
+        return { bg: '#FFEDD5', text: '#EA580C' };
+      case 'Medium':
+        return { bg: '#F3E8FF', text: '#7C3AED' };
+      case 'Low':
+        return { bg: '#E0F2FE', text: '#0284C7' };
+      case 'Completed':
+        return { bg: '#D1FAE5', text: '#059669' };
+      default:
+        return { bg: '#F3F4F6', text: '#4B5563' };
     }
   };
 
   const renderItem = ({ item }: { item: any }) => {
-    let iconConfig = getNotificationIcon(item.type);
-    if (item.category === 'hearings') {
-      iconConfig = { name: 'calendar', color: '#3B82F6', bg: '#EBF5FF' };
-    } else if (item.category === 'deadlines') {
-      iconConfig = { name: 'flag', color: '#EF4444', bg: '#FCE8E6' };
-    }
+    const iconConfig = getNotificationIcon(item.type, item.category);
+    const badgeStyle = getPriorityBadgeStyle(item.priority);
+    const isVirtual = item.id.startsWith('v-');
 
-    const isVirtual = item.id.startsWith('virtual-');
-    
     return (
       <Pressable
         style={({ pressed }) => [
@@ -260,9 +318,10 @@ export default function NotificationsScreen() {
           pressed && styles.cardPressed,
         ]}
         onPress={() => handlePressNotification(item)}
-        accessibilityRole="button"
-        accessibilityLabel={`Notification: ${item.title}. ${item.desc}`}
       >
+        {/* Left priority border indicator */}
+        <View style={[styles.priorityLeftBorder, { backgroundColor: badgeStyle.text }]} />
+
         <View style={[styles.iconContainer, { backgroundColor: iconConfig.bg }]}>
           <Ionicons name={iconConfig.name as any} size={20} color={iconConfig.color} />
         </View>
@@ -274,30 +333,44 @@ export default function NotificationsScreen() {
                 styles.cardTitle,
                 !item.isRead && styles.cardTitleUnread,
               ]}
-              numberOfLines={2}
+              numberOfLines={1}
             >
               {item.title}
             </Text>
             <Text style={styles.timeText}>{formatRelativeDate(item.time, language) || item.time}</Text>
           </View>
-          <Text style={styles.descText} numberOfLines={3}>
+
+          {item.caseName ? (
+            <View style={styles.caseBadge}>
+              <Ionicons name="briefcase-outline" size={10} color="#6D5DFC" />
+              <Text style={styles.caseBadgeText} numberOfLines={1}>{item.caseName}</Text>
+            </View>
+          ) : null}
+
+          <Text style={styles.descText} numberOfLines={2}>
             {item.desc}
           </Text>
+
+          <View style={styles.metaFooter}>
+            <View style={[styles.priorityTag, { backgroundColor: badgeStyle.bg }]}>
+              <Text style={[styles.priorityTagText, { color: badgeStyle.text }]}>{item.priority || 'Medium'}</Text>
+            </View>
+            <View style={styles.categoryTag}>
+              <Text style={styles.categoryTagText}>{item.category || 'Cases'}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Unread indicator dot & Delete Action button */}
+        {/* Action column */}
         <View style={styles.actionColumn}>
-          {!item.isRead && (
-            <View style={styles.unreadDot} />
-          )}
+          {!item.isRead && <View style={styles.unreadDot} />}
           {!isVirtual && (
             <Pressable
               onPress={() => handleDeleteNotification(item.id)}
               style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Delete notification"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="trash-outline" size={15} color="#EF4444" />
+              <Ionicons name="trash-outline" size={14} color="#EF4444" />
             </Pressable>
           )}
         </View>
@@ -306,102 +379,126 @@ export default function NotificationsScreen() {
   };
 
   const renderEmptyState = () => {
-    if (isLoading) return null;
+    if (isLoading || isCasesLoading) return null;
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconWrapper}>
-          <Ionicons name="notifications-off-outline" size={44} color="#9CA3AF" />
+          <Ionicons name="notifications-off-outline" size={40} color="#9CA3AF" />
         </View>
-        <Text style={styles.emptyTitle}>{t('emptyInboxTitle')}</Text>
+        <Text style={styles.emptyTitle}>No Notifications</Text>
         <Text style={styles.emptySubtitle}>
-          {t('emptyInboxSubtitle', 'description')}
+          You have no active notifications in {activeCategory} right now. Complete case tasks or update hearing schedules to receive real-time alerts.
         </Text>
       </View>
     );
   };
 
-  const unreadCount = combinedNotifications.filter((n) => !n.isRead).length;
+  const unreadCount = allCombined.filter((n) => !n.isRead).length;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header Info Panel */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>{t('inboxAlerts')}</Text>
-          <Text style={styles.subtitle}>
-            {unreadCount > 0
-              ? t('inboxSubtitleUnread').replace('{count}', String(unreadCount))
-              : t('inboxSubtitleEmpty')}
-          </Text>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={styles.title}>Notifications</Text>
+            <Text style={styles.subtitle}>
+              Real-time updates, urgent alerts, and case activities
+            </Text>
+          </View>
+          {unreadCount > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{unreadCount} New</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Search Input Bar */}
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={16} color="#9CA3AF" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by case name, title, event..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+          {searchQuery ? (
+            <Pressable onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
-      {/* Category Tabs */}
+      {/* Category Tabs (4 Strict Categories: All, Cases, Alerts, System) */}
       <View style={styles.tabsContainer}>
-        {(['All', 'Hearings', 'Deadlines', 'AI'] as const).map((tab) => (
-          <Pressable
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={[
-              styles.tabBtn,
-              activeTab === tab && styles.tabBtnActive,
-            ]}
-          >
-            <Text
+        {(['All', 'Cases', 'Alerts', 'System'] as const).map((cat) => {
+          const catCount = allCombined.filter(n => cat === 'All' || n.category === cat).length;
+          return (
+            <Pressable
+              key={cat}
+              onPress={() => setActiveCategory(cat)}
               style={[
-                styles.tabBtnText,
-                activeTab === tab && styles.tabBtnTextActive,
+                styles.tabBtn,
+                activeCategory === cat && styles.tabBtnActive,
               ]}
             >
-              {tab === 'AI' ? t('tabAiAlerts', 'helper') : tab === 'Deadlines' ? t('tabDeadlines', 'helper') : tab === 'Hearings' ? t('tabHearings', 'helper') : t('tabAll', 'helper')}
-            </Text>
-          </Pressable>
-        ))}
+              <Text
+                style={[
+                  styles.tabBtnText,
+                  activeCategory === cat && styles.tabBtnTextActive,
+                ]}
+              >
+                {cat} ({catCount})
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {/* Bulk Toolbar */}
-      {notifications.length > 0 && activeTab === 'AI' && (
-        <View style={styles.toolbar}>
-          <Pressable
-            onPress={handleMarkAllAsRead}
-            disabled={unreadCount === 0}
-            style={({ pressed }) => [
-              styles.toolbarBtn,
-              unreadCount === 0 && styles.toolbarBtnDisabled,
-              pressed && styles.toolbarBtnPressed,
+      {/* Toolbar actions */}
+      <View style={styles.toolbar}>
+        <Pressable
+          onPress={handleMarkAllAsRead}
+          disabled={unreadCount === 0}
+          style={({ pressed }) => [
+            styles.toolbarBtn,
+            unreadCount === 0 && styles.toolbarBtnDisabled,
+            pressed && styles.toolbarBtnPressed,
+          ]}
+        >
+          <Ionicons
+            name="checkmark-done"
+            size={15}
+            color={unreadCount === 0 ? '#9CA3AF' : '#6D5DFC'}
+          />
+          <Text
+            style={[
+              styles.toolbarBtnText,
+              unreadCount === 0 && { color: '#9CA3AF' },
             ]}
           >
-            <Ionicons
-              name="checkmark-done"
-              size={16}
-              color={unreadCount === 0 ? '#9CA3AF' : '#6D5DFC'}
-            />
-            <Text
-              style={[
-                styles.toolbarBtnText,
-                unreadCount === 0 && { color: '#9CA3AF' },
-              ]}
-            >
-              {t('markAllRead', 'helper')}
-            </Text>
-          </Pressable>
+            Mark All Read
+          </Text>
+        </Pressable>
 
-          <Pressable
-            onPress={clearAll}
-            style={({ pressed }) => [styles.toolbarBtn, pressed && styles.toolbarBtnPressed]}
-          >
-            <Ionicons name="trash-outline" size={16} color="#EF4444" />
-            <Text style={[styles.toolbarBtnText, { color: '#EF4444' }]}>
-              {t('clearAll', 'helper')}
-            </Text>
-          </Pressable>
-        </View>
-      )}
+        <Pressable
+          onPress={clearAll}
+          style={({ pressed }) => [styles.toolbarBtn, pressed && styles.toolbarBtnPressed]}
+        >
+          <Ionicons name="trash-outline" size={15} color="#EF4444" />
+          <Text style={[styles.toolbarBtnText, { color: '#EF4444' }]}>
+            Clear All
+          </Text>
+        </Pressable>
+      </View>
 
       {(isLoading || isCasesLoading) && filteredNotifications.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6D5DFC" />
-          <Text style={styles.loadingText}>{t('fetchingInboxAlerts')}</Text>
+          <Text style={styles.loadingText}>Fetching case notifications...</Text>
         </View>
       ) : (
         <FlatList
@@ -428,89 +525,161 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F9FAFB',
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    borderBottomColor: '#F3F4F6',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   title: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#1F2937',
+    color: '#111827',
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: '#6B7280',
-    marginTop: 4,
+    marginTop: 2,
+  },
+  unreadBadge: {
+    backgroundColor: '#EEECFF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  unreadBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D5DFC',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1F2937',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    gap: 8,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  tabBtnActive: {
+    backgroundColor: '#6D5DFC',
+  },
+  tabBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  tabBtnTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   toolbar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
   toolbarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
   },
   toolbarBtnPressed: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#E5E7EB',
   },
   toolbarBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   toolbarBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#6D5DFC',
   },
   listContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 100 : 80,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#ECECEC',
+    borderColor: '#E5E7EB',
+    position: 'relative',
+    overflow: 'hidden',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
     elevation: 1,
   },
   cardUnread: {
-    backgroundColor: '#F9FBFD',
-    borderColor: '#E1EDF7',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
   },
   cardPressed: {
-    opacity: 0.9,
+    opacity: 0.95,
     backgroundColor: '#F9FAFB',
   },
+  priorityLeftBorder: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+  },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
+    marginLeft: 4,
   },
   content: {
     flex: 1,
@@ -519,53 +688,92 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '600',
-    color: '#4B5563',
+    color: '#374151',
     flex: 1,
-    marginRight: 8,
+    marginRight: 6,
   },
   cardTitleUnread: {
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#111827',
   },
   timeText: {
     fontSize: 11,
     color: '#9CA3AF',
   },
+  caseBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEECFF',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  caseBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#6D5DFC',
+  },
   descText: {
-    fontSize: 13,
+    fontSize: 12.5,
+    color: '#4B5563',
+    lineHeight: 17,
+    marginBottom: 6,
+  },
+  metaFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  priorityTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  priorityTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  categoryTag: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  categoryTagText: {
+    fontSize: 10,
+    fontWeight: '600',
     color: '#6B7280',
-    lineHeight: 18,
   },
   actionColumn: {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginLeft: 12,
+    marginLeft: 8,
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#6D5DFC',
+    backgroundColor: '#3B82F6',
   },
   deleteBtn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: 6,
     backgroundColor: '#FFF5F5',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
   },
   deleteBtnPressed: {
-    opacity: 0.7,
     backgroundColor: '#FEE2E2',
   },
   loadingContainer: {
@@ -575,62 +783,35 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 13.5,
     color: '#6B7280',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
     paddingTop: 60,
   },
   emptyIconWrapper: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 8,
+    color: '#111827',
+    marginBottom: 6,
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 20,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  tabBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-  },
-  tabBtnActive: {
-    backgroundColor: '#EEECFF',
-  },
-  tabBtnText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  tabBtnTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
+    lineHeight: 19,
   },
 });

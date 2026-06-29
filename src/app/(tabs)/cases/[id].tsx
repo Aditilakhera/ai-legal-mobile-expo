@@ -19,8 +19,10 @@ import {
   Animated,
   Alert,
   TouchableWithoutFeedback,
+  Image,
+  Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
@@ -58,63 +60,133 @@ import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
 
 
 const toolItems = [
-  { id: 'caseAssistant', name: 'Case Assistant', icon: 'sparkles-outline', color: '#6D5DFC' },
-  { id: 'evidenceAnalyst', name: 'Evidence Analyst', icon: 'search-outline', color: '#3B82F6' },
-  { id: 'contractAnalyzer', name: 'Contract Analyzer', icon: 'document-text-outline', color: '#8B5CF6' },
-  { id: 'legalResearch', name: 'Legal Research', icon: 'library-outline', color: '#10B981' },
-  { id: 'argumentBuilder', name: 'Argument Builder', icon: 'shield-half-outline', color: '#6D5DFC' },
-  { id: 'casePredictor', name: 'Case Predictor', icon: 'trending-up-outline', color: '#EF4444' },
-  { id: 'strategyEngine', name: 'Strategy Engine', icon: 'bulb-outline', color: '#F59E0B' },
-  { id: 'researchAssistant', name: 'Research Assistant', icon: 'chatbubbles-outline', color: '#EC4899' },
+  {
+    id: 'caseAssistant',
+    name: 'Case Assistant',
+    icon: 'sparkles-outline',
+    color: '#6D5DFC',
+    imageSource: require('../../../assets/images/ai_assistant_3d.png'),
+    subtitle: 'Ask anything about this case workspace or general legal matters.',
+    placeholder: 'Ask anything about this case...',
+    suggestedChips: [
+      { label: 'Summarize this case', icon: 'document-text-outline' },
+      { label: 'Analyze evidence', icon: 'search-outline' },
+      { label: 'Draft legal notice', icon: 'create-outline' },
+      { label: 'Predict case outcome', icon: 'trending-up-outline' }
+    ]
+  },
+  {
+    id: 'evidenceAnalyst',
+    name: 'Evidence Analysis',
+    icon: 'search-outline',
+    color: '#3B82F6',
+    imageSource: require('../../../assets/images/tools/evidence_analysis.png'),
+    subtitle: 'Analyze case files, scan document OCR, detect inconsistency and check evidence authenticity.',
+    placeholder: 'Analyze evidence...',
+    suggestedChips: [
+      { label: 'Scan exhibit files', icon: 'scan-outline' },
+      { label: 'Inconsistency check', icon: 'warning-outline' },
+      { label: 'Verify signature', icon: 'checkmark-circle-outline' },
+      { label: 'Missing evidence gaps', icon: 'help-circle-outline' }
+    ]
+  },
+  {
+    id: 'contractAnalyzer',
+    name: 'Contract Review',
+    icon: 'document-text-outline',
+    color: '#8B5CF6',
+    imageSource: require('../../../assets/images/tools/contract_review.png'),
+    subtitle: 'Review contracts, flag liability terms, detect risky clauses and verify standard compliance.',
+    placeholder: 'Review contract clauses...',
+    suggestedChips: [
+      { label: 'Scan liability clauses', icon: 'document-text-outline' },
+      { label: 'NDA risk check', icon: 'shield-alert-outline' },
+      { label: 'Missing termination clause', icon: 'alert-circle-outline' },
+      { label: 'Explain indemnity terms', icon: 'help-circle-outline' }
+    ]
+  },
+  {
+    id: 'legalResearch',
+    name: 'Legal Precedent',
+    icon: 'library-outline',
+    color: '#10B981',
+    imageSource: require('../../../assets/images/tools/legal_precedent.png'),
+    subtitle: 'Search applicable statutes, judgments, and legal precedents for citation generation.',
+    placeholder: 'Search legal database...',
+    suggestedChips: [
+      { label: 'Supreme Court judgments', icon: 'library-outline' },
+      { label: 'Bare acts search', icon: 'book-outline' },
+      { label: 'IPC / BNS citations', icon: 'search-outline' },
+      { label: 'Landmark precedent search', icon: 'ribbon-outline' }
+    ]
+  },
+  {
+    id: 'argumentBuilder',
+    name: 'Argument Builder',
+    icon: 'shield-half-outline',
+    color: '#6D5DFC',
+    imageSource: require('../../../assets/images/tools/argument_builder.png'),
+    subtitle: 'Construct trial arguments, rebuttals, cross-examination notes, and courtroom positions.',
+    placeholder: 'Build legal arguments...',
+    suggestedChips: [
+      { label: 'Generate trial positions', icon: 'gavel-outline' },
+      { label: 'Rebut opposing arguments', icon: 'shield-outline' },
+      { label: 'Cross-examination questions', icon: 'help-circle-outline' },
+      { label: 'Relevancy objections', icon: 'alert-circle-outline' }
+    ]
+  },
+  {
+    id: 'casePredictor',
+    name: 'Case Predictor',
+    icon: 'trending-up-outline',
+    color: '#EF4444',
+    imageSource: require('../../../assets/images/tools/case_predictor.png'),
+    subtitle: 'Calculate winning probability, litigation success rate, and AI risk projections.',
+    placeholder: 'Predict case outcome...',
+    suggestedChips: [
+      { label: 'Predict success probability', icon: 'trending-up-outline' },
+      { label: 'Financial risk score', icon: 'cash-outline' },
+      { label: 'Precedent win analysis', icon: 'analytics-outline' },
+      { label: 'Weak point projection', icon: 'alert-outline' }
+    ]
+  },
+  {
+    id: 'strategyEngine',
+    name: 'Strategy Engine',
+    icon: 'bulb-outline',
+    color: '#F59E0B',
+    imageSource: require('../../../assets/images/tools/strategy_engine.png'),
+    subtitle: 'Generate litigation roadmaps, action plans, and tactical settlement options.',
+    placeholder: 'Plan litigation strategy...',
+    suggestedChips: [
+      { label: 'Suggest defense roadmap', icon: 'navigate-outline' },
+      { label: 'Settlement options', icon: 'chatbox-ellipses-outline' },
+      { label: 'Timeline analysis', icon: 'time-outline' },
+      { label: 'Action tasks suggestions', icon: 'checkbox-outline' }
+    ]
+  },
+  {
+    id: 'researchAssistant',
+    name: 'Research Assistant',
+    icon: 'chatbubbles-outline',
+    color: '#EC4899',
+    imageSource: require('../../../assets/images/tools/legal_precedent.png'),
+    subtitle: 'Conduct deep research, ask questions on statutes, and summarize case materials.',
+    placeholder: 'Research legal issues...',
+    suggestedChips: [
+      { label: 'Search legal codes', icon: 'search-outline' },
+      { label: 'Summarize case brief', icon: 'document-text-outline' },
+      { label: 'Explain court order', icon: 'help-circle-outline' },
+      { label: 'Case background search', icon: 'book-outline' }
+    ]
+  },
 ];
 
 // Dynamic theme provider hooks will resolve this context dynamically inside the component
 
 const { width, height } = Dimensions.get('window');
 
-const MOCK_COURT_ORDERS = [
-  {
-    name: 'Delhi_HC_Interim_Injunction_Order.pdf',
-    text: `IN THE HIGH COURT OF DELHI AT NEW DELHI
-Case No. Arb. P. 445/2026
-Petitioner: ABC Enterprises
-Respondent: XYZ Logistics Ltd
-
-ORDER:
-1. The matter was heard today. Hon'ble Justice Amit Verma presiding.
-2. The respondent is directed to submit the original agreement and proof of delivery within 14 days.
-3. Summons to be issued to witness Mr. Roy for examination.
-4. Next date of hearing is scheduled for 25 July 2026 in Courtroom No. 302.
-5. Compliance report to be filed before the next hearing.
-Dated: 22 June 2026`,
-  },
-  {
-    name: 'Summons_Appearance_Order_25-May.pdf',
-    text: `IN THE DISTRICT COURT OF DELHI
-Summons in Case No. CS(OS) 234/2026
-Lessor: R. K. Sharma
-Lessee: Amit Verma
-
-ORDER:
-1. The petition for eviction has been admitted. Hon'ble Judge Roy presiding.
-2. Eviction sum of arrears to be verified. Defendant is directed to submit his replica reply within 7 days.
-3. Parties are directed to produce lease agreement evidence and examine the main witness.
-4. Next date of hearing is fixed for 12 August 2026 in Courtroom No. 5.
-Dated: 25 May 2026`,
-  },
-  {
-    name: 'Final_Arguments_Outcome_Directive.pdf',
-    text: `IN THE HIGH COURT OF DELHI
-Arb. Appeal No. 12/2026
-
-ORDER:
-1. Arguments on stay application completed. Orders reserved.
-2. High Court directs both parties to submit brief written notes of arguments not exceeding 5 pages.
-3. Relevant case precedents to be compiled and submitted to Court master before 30 July 2026.
-4. List the matter for final orders on 15 September 2026 in Courtroom No. 12 before Hon'ble Judge Sen.
-Dated: 18 June 2026`,
-  }
-];
+const MOCK_COURT_ORDERS: any[] = [];
 
 export default function WorkspaceDetailScreen() {
   useAuthGuard();
@@ -122,6 +194,7 @@ export default function WorkspaceDetailScreen() {
   const { theme, isDark } = useThemeContext();
   const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const { showToast } = useToastContext();
+  const insets = useSafeAreaInsets();
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { t, language } = useTranslation();
 
@@ -143,6 +216,17 @@ export default function WorkspaceDetailScreen() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const isCancelledRef = useRef<boolean>(false);
   const [activeTool, setActiveTool] = useState<string>('caseAssistant'); // Default active tool
+  const [isKeyboardActive, setIsKeyboardActive] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardActive(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardActive(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
   const {
     attachments,
     setAttachments,
@@ -196,9 +280,12 @@ export default function WorkspaceDetailScreen() {
 
   const fetchHistorySessions = async () => {
     try {
-      const res = await ChatService.listSessions();
+      const res = await ChatService.listSessions(id);
       const sessionList = Array.isArray(res) ? res : (res?.data || []);
-      const filtered = sessionList.filter((s: any) => s.projectId === id);
+      const filtered = sessionList.filter((s: any) => {
+        const sProjId = s.projectId && typeof s.projectId === 'object' ? s.projectId._id : s.projectId;
+        return sProjId === id;
+      });
       setHistorySessions(filtered);
     } catch (err) {
       console.warn('Failed to fetch chat history:', err);
@@ -272,9 +359,12 @@ export default function WorkspaceDetailScreen() {
   const filteredHistorySessions = useMemo(() => {
     let list = historySessions;
     if (searchHistoryQuery.trim()) {
-      list = historySessions.filter((s) =>
-        s.title.toLowerCase().includes(searchHistoryQuery.toLowerCase())
-      );
+      const q = searchHistoryQuery.toLowerCase();
+      list = historySessions.filter((s) => {
+        const titleMatch = s.title?.toLowerCase().includes(q);
+        const messagesMatch = s.messages?.some((m: any) => m.content?.toLowerCase().includes(q));
+        return titleMatch || messagesMatch;
+      });
     }
     return [...list].sort((a, b) => b.lastModified - a.lastModified);
   }, [historySessions, searchHistoryQuery]);
@@ -1637,147 +1727,81 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     }
   }, [workspace]);
 
-  // Initialize strategy and arguments fallback data
+  // Initialize strategy and arguments data from Case Intelligence
   useEffect(() => {
-    if (petitionerArguments.length === 0 && workspace) {
-      const client = workspace.clientName || 'Client';
-      const opponent = workspace.opponentName || workspace.accused || 'Opponent';
-      
-      setPetitionerArguments([
-        {
-          id: 'p1',
-          number: 'ARG 1',
-          title: 'Valid and Binding Written Agreement',
-          category: 'Contract Law',
-          priority: 'High',
-          description: `A signed written loan agreement was executed. Under Section 10 of the Indian Contract Act, this constitutes a valid and binding contract between ${client} and ${opponent}.`,
-          supportingFacts: [
-            'Loan agreement was signed at the Delhi branch office on 10 April 2024.',
-            'Disbursement of amount was acknowledged via bank transaction receipts.'
-          ],
-          supportingLaws: [
-            'Indian Contract Act, 1872 - Section 10 (What agreements are contracts)',
-            'Indian Evidence Act, 1872 - Section 67 (Proof of signature and handwriting)'
-          ],
-          supportingCaseLaws: [
-            'Supreme Court: Smt. Indira Kaur vs. Shri She Lal (1988) - Presumption of execution of registered documents.',
-            'Delhi High Court: Ramesh Kumar vs. State (2012) - Signatures witnessed by notary public hold high evidentiary value.'
-          ],
-          relatedEvidence: ['Loan Agreement Deed (Ex. P-1)', 'Witness Attestation Affidavit'],
-          relatedDocuments: ['Rent_Agreement_Draft_Signed.pdf'],
-          relatedTimelineEvents: ['Loan Agreement Executed'],
-          relatedHearings: ['First scheduled trial']
-        },
-        {
-          id: 'p2',
-          number: 'ARG 2',
-          title: 'Failure of Repayment and Default',
-          category: 'Financial Liability',
-          priority: 'Critical',
-          description: `Defendant (${opponent}) failed to clear the outstanding balance of delayed installments. Certified bank statement records prove zero repayment incoming transactions from Defendant.`,
-          supportingFacts: [
-            'The final date of installment clearing was 15 April 2025.',
-            'A formal reminder letter was dispatched via speed post on 22 April 2025.'
-          ],
-          supportingLaws: [
-            'Indian Contract Act, 1872 - Section 73 (Compensation for loss or damage caused by breach of contract)',
-            'Negotiable Instruments Act, 1881 - Section 138 (Dishonour of cheque for insufficiency of funds)'
-          ],
-          supportingCaseLaws: [
-            'Supreme Court: M/s. Alavi Agencies vs. Muhammad (2007) - Presumption of service of notice sent via registered post.',
-            'Supreme Court: Vinod Kumar vs. State (2018) - Reconciled bank logs represent prima facie proof of default.'
-          ],
-          relatedEvidence: ['Certified Bank Statement (Ex. P-2)', 'Speed Post Receipt (Ex. P-3)'],
-          relatedDocuments: ['Notice_of_Demand.pdf'],
-          relatedTimelineEvents: ['Repayment Missed', 'Legal Notice Served'],
-          relatedHearings: ['Hearing for Admission']
-        }
-      ]);
+    if (workspace) {
+      const ws = workspace as any;
+      const ci = ws.caseIntelligence || {};
+      const pArgs = (ws.arguments?.petitionerArguments && ws.arguments.petitionerArguments.length > 0)
+        ? ws.arguments.petitionerArguments
+        : (ci.arguments || []);
+      const rArgs = (ws.arguments?.respondentArguments && ws.arguments.respondentArguments.length > 0)
+        ? ws.arguments.respondentArguments
+        : (ci.counterArguments || []);
 
-      setRespondentArguments([
-        {
-          id: 'd1',
-          number: 'DEF 1',
-          title: 'Denial of Execution & Signature Forgery',
-          category: 'Authenticity',
-          priority: 'High',
-          description: `Defendant (${opponent}) claims they never signed the loan agreement, alleging signature forgery, and demands a forensic handwriting audit to delay proceedings.`,
-          supportingFacts: [
-            'Defendant claims they were in Mumbai on the signing date.',
-            'Opponent counsel raised this objection in the preliminary written statement.'
-          ],
-          supportingLaws: [
-            'Indian Evidence Act, 1872 - Section 45 (Opinions of experts)',
-            'Indian Evidence Act, 1872 - Section 67 (Proof of signature and handwriting)'
-          ],
-          supportingCaseLaws: [
-            'Supreme Court: State of Maharashtra vs. Sukhdev Singh (1992) - Handwriting expert opinion is advisory but notary attestation proves execution.'
-          ],
-          refutation: `The agreement was notarized in the presence of two independent executing witnesses who verified the signatures. Section 67 of the Indian Evidence Act applies to prove signature authenticity.`,
-          relatedEvidence: ['Witness Attestation Affidavit', 'Notary Register Copy'],
-          relatedDocuments: ['Reply_to_Forgery_Allegation.pdf'],
-          relatedTimelineEvents: ['Opposition Written Statement Filed'],
-          relatedHearings: ['Hearing on Preliminary Objections']
-        },
-        {
-          id: 'd2',
-          number: 'DEF 2',
-          title: 'Limitation Period Expiry Defense',
-          category: 'Procedure',
-          priority: 'Critical',
-          description: `Defendant (${opponent}) alleges that the recovery claim by Plaintiff (${client}) is barred by limitation as transaction dates are contested.`,
-          supportingFacts: [
-            'Defendant alleges the debt pertains to a 2020 invoice.',
-            'Objection was verbally highlighted during the first admission stage.'
-          ],
-          supportingLaws: [
-            'Limitation Act, 1963 - Article 19 (Suit for money payable for money lent)'
-          ],
-          supportingCaseLaws: [
-            'Supreme Court: Union of India vs. West Coast Paper Mills (2004) - Limitation starts from default date, not transaction date.'
-          ],
-          refutation: `The suit was filed well within the 3-year limitation period starting from the actual default date (15 April 2025) as per Article 19 of the Limitation Act, 1963.`,
-          relatedEvidence: ['Certified Bank Statement (Ex. P-2)'],
-          relatedDocuments: ['Limitation_Explanation_Memo.pdf'],
-          relatedTimelineEvents: ['Suit for Recovery Filed'],
-          relatedHearings: ['Hearing for Admission']
-        }
-      ]);
+      if (pArgs.length > 0) {
+        setPetitionerArguments(pArgs.map((a: any, idx: number) => ({
+          id: a.id || `p${idx + 1}`,
+          number: `ARG ${idx + 1}`,
+          title: a.title || 'Legal Claim',
+          category: a.category || 'Contract Law',
+          priority: a.impact || 'High',
+          description: a.description || '',
+          supportingFacts: a.supportingTimelineEvents || [],
+          supportingLaws: a.supportingLaws || [],
+          supportingCaseLaws: [],
+          relatedEvidence: a.supportingEvidence || [],
+          relatedDocuments: [],
+          relatedTimelineEvents: a.supportingTimelineEvents || [],
+          relatedHearings: []
+        })));
+      } else {
+        setPetitionerArguments([]);
+      }
 
-      setOpponentPredictions([
-        {
-          id: 'pred1',
-          title: 'Objection on Document Admissibility',
-          description: `The defense (${opponent}) will attempt to block the admission of the unsigned bank ledger under Section 65B of the Evidence Act.`,
-          probability: 85,
-          type: 'Procedural Challenge',
-          rebuttal: 'Ensure the Section 65B electronic record certificate is signed by the branch manager and filed concurrently.'
-        },
-        {
-          id: 'pred2',
-          title: 'Allegation of Extortionate Interest Rates',
-          description: `Opponent (${opponent}) will argue that the delayed payment interest rate of 24% per annum is penal, extortionate, and unconscionable.`,
-          probability: 72,
-          type: 'Interest Rate Claim',
-          rebuttal: `Cite landmark Supreme Court judgments upholding commercial interest rates under Section 34 of CPC in favor of Plaintiff.`
-        },
-        {
-          id: 'pred3',
-          title: 'Territorial Jurisdiction Noida seat objection',
-          description: `Opponent (${opponent}) will contend Noida location was the signing place, hence Noida courts hold territorial jurisdiction.`,
-          probability: 35,
-          type: 'Jurisdiction Issue',
-          rebuttal: 'Rely on contract Clause 14 establishing exclusive territorial jurisdiction seat at Delhi.'
-        }
-      ]);
+      if (rArgs.length > 0) {
+        setRespondentArguments(rArgs.map((a: any, idx: number) => ({
+          id: a.id || `d${idx + 1}`,
+          number: `DEF ${idx + 1}`,
+          title: a.title || 'Opponent Defense',
+          category: a.category || 'Authenticity',
+          priority: a.impact || 'High',
+          description: a.description || '',
+          supportingFacts: [],
+          supportingLaws: [],
+          supportingCaseLaws: [],
+          refutation: a.refutation || 'Our rebuttal',
+          relatedEvidence: [],
+          relatedDocuments: [],
+          relatedTimelineEvents: [],
+          relatedHearings: []
+        })));
+      } else {
+        setRespondentArguments([]);
+      }
 
-      setTrialStrategySequence([
-        { step: 1, id: 'seq1', title: 'Establish Contract Execution', detail: `Lead with the notarized loan agreement and testimony of execution witnesses to defeat ${opponent}'s forgery defense early.`, status: 'Primary' },
-        { step: 2, id: 'seq2', title: 'Demonstrate Non-Repayment via Bank Records', detail: `Present certified bank ledger showing zero inflows matching the demand timeline.`, status: 'Crucial' },
-        { step: 3, id: 'seq3', title: 'Establish Procedural Compliance', detail: `Submit registered post receipts to prove notice delivery, establishing service presumption on ${opponent}.`, status: 'Supportive' }
-      ]);
+      const predictions = (ci.counterArguments || []).map((c: any, idx: number) => ({
+        id: `pred${idx + 1}`,
+        title: c.title || 'Procedural Challenge',
+        description: c.description || '',
+        probability: 75,
+        type: c.category || 'Defense Claim',
+        rebuttal: c.refutation || 'Strategic rebuttal'
+      }));
+      setOpponentPredictions(predictions);
+
+      const seq = ci.strategy?.trialSequence?.length > 0
+        ? ci.strategy.trialSequence.map((s: any, idx: number) => ({
+            step: s.step || idx + 1,
+            id: `seq${idx + 1}`,
+            title: s.title || 'Trial Step',
+            detail: s.detail || '',
+            status: s.status || 'Primary'
+          }))
+        : [];
+      setTrialStrategySequence(seq);
     }
-  }, [workspace, petitionerArguments]);
+  }, [workspace]);
 
   // Hardware back button behavior for Android gesture navigation
   useEffect(() => {
@@ -1976,6 +2000,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       const currentSessionId = payload.sessionId;
       if (currentSessionId && !sessionId) {
         setSessionId(currentSessionId);
+        fetchHistorySessions();
       }
 
       // Sync post-stream metadata (like suggestions)
@@ -2280,6 +2305,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
 
 
   const renderInputComposer = () => {
+    const activeToolItem = toolItems.find(t => t.id === activeTool) || toolItems[0];
     return (
       <ChatComposer
         value={inputVal}
@@ -2289,9 +2315,10 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         onCancelStream={handleCancelStream}
         onAddAttachment={handleAddAttachment}
         onPressSparkles={openToolMenu}
-        placeholder={TOOL_PLACEHOLDERS[activeTool] || "Ask Case Assistant..."}
+        placeholder={activeToolItem.placeholder || "Ask Case Assistant..."}
         simulatedVoiceText={TOOL_VOICE_TEXTS[activeTool] || "What are the legal precedents for easement rights in tenant disputes?"}
         isFocusMode={false}
+        tabHeight={68}
       />
     );
   };
@@ -2330,11 +2357,11 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
           </TouchableOpacity>
           
           <View style={styles.assistantHeaderTitleContainer}>
-            <Text style={styles.assistantHeaderText}>✨ Case Assistant</Text>
+            <Text style={styles.assistantHeaderText}>{activeToolItem.name}</Text>
             <View style={styles.activeToolIndicator}>
-              <Ionicons name={activeToolItem.icon as any} size={10} color={activeToolItem.color} />
-              <Text style={[styles.activeToolIndicatorText, { color: activeToolItem.color }]}>
-                {activeToolItem.name}
+              <Ionicons name="sparkles-outline" size={10} color="#6D5DFC" />
+              <Text style={[styles.activeToolIndicatorText, { color: '#6D5DFC' }]}>
+                Case Assistant
               </Text>
             </View>
           </View>
@@ -2361,9 +2388,11 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         <View style={styles.assistantChatArea}>
           {messages.length === 0 ? (
             <ChatWelcome 
-              title="Case Assistant" 
-              subtitle={workspace?.name ? `Ask about ${workspace.name}...` : "Ask about this case..."} 
-              icon="⚖️" 
+              title={activeToolItem.name} 
+              subtitle={activeToolItem.subtitle || (workspace?.name ? `Ask about ${workspace.name}...` : "Ask about this case...")} 
+              iconSource={activeToolItem.imageSource}
+              suggestedChips={activeToolItem.suggestedChips}
+              onSelectSuggestedPrompt={(promptText) => handleSend(promptText)}
             />
           ) : (
             <FlatList
@@ -2432,6 +2461,61 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         {/* Bottom Composer */}
         {renderInputComposer()}
 
+        {/* Persistent Bottom Tab Bar Navigation */}
+        {!isKeyboardActive && (
+          <View style={{
+            flexDirection: 'row',
+            backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+            borderTopColor: isDark ? '#334155' : '#ECECEC',
+            borderTopWidth: 1,
+            height: 60 + (insets.bottom > 0 ? insets.bottom : 8),
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+            paddingTop: 8,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: -3 },
+            shadowOpacity: isDark ? 0.2 : 0.04,
+            shadowRadius: 8,
+            elevation: 10,
+            width: '100%',
+          }}>
+            {[
+              { name: 'Home', icon: 'home-outline', activeIcon: 'home', route: '/(tabs)/dashboard' },
+              { name: 'My Cases', icon: 'folder-open-outline', activeIcon: 'folder-open', route: '/(tabs)/cases' },
+              { name: 'AI Assistant', icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses', route: '/(tabs)/chat' },
+              { name: 'AI Tools', icon: 'flash-outline', activeIcon: 'flash', route: '/(tabs)/tools' },
+              { name: 'Profile', icon: 'person-outline', activeIcon: 'person', route: '/(tabs)/profile' },
+            ].map((tab) => {
+              const isActive = tab.name === 'My Cases'; // Active tab is My Cases
+              const color = isActive ? theme.primary : (isDark ? '#94A3B8' : '#4B5563');
+              const iconName = isActive ? tab.activeIcon : tab.icon;
+
+              return (
+                <TouchableOpacity
+                  key={tab.name}
+                  style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => {
+                    handleCloseAi();
+                    setTimeout(() => {
+                      router.push(tab.route as any);
+                    }, 100);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={iconName as any} size={22} color={color} />
+                  <Text style={{
+                    fontSize: 11,
+                    fontWeight: '600',
+                    marginTop: 2,
+                    color,
+                  }}>
+                    {tab.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* AI Tool selector popup menu */}
         {isToolMenuOpen && renderToolSelectorMenu()}
 
@@ -2477,7 +2561,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
               }
             ]}
           >
-            <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'bottom']}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top']}>
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -2584,9 +2668,23 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
                                     >
                                       {item.title}
                                     </Text>
-                                    <Text style={styles.drawerItemSubtext}>
-                                      {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </Text>
+                                    {item.messages && item.messages.length > 0 && (
+                                      <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2 }} numberOfLines={1}>
+                                        {item.messages[item.messages.length - 1]?.content || ''}
+                                      </Text>
+                                    )}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+                                      <Text style={styles.drawerItemSubtext}>
+                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </Text>
+                                      {item.messages && item.messages.length > 0 && (
+                                        <View style={{ backgroundColor: '#F1F5F9', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 }}>
+                                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#475569' }}>
+                                            {item.messages.length} msgs
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
                                   </View>
                                 )}
                               </Pressable>
@@ -3778,21 +3876,10 @@ Signatures: Match validated by Plaintiff Advocate.`;
     const updatedEvidence = [newEvidenceItem, ...currentEvidence];
     const currentFacts = workspace.facts || [];
     
-    const winProb = workspace.intelligence?.winProbability || 65;
-    const strength = workspace.intelligence?.strengthScore || 70;
-
     handleUpdateField({
       evidence: updatedEvidence,
       facts: [...currentFacts, evidenceFact],
-      intelligence: {
-        ...workspace.intelligence,
-        winProbability: Math.min(95, winProb + 5),
-        strengthScore: Math.min(100, strength + 5),
-        strategyRecommendations: [
-          `Evidence Logged: "${name}". Review admissibility code rules.`,
-          ...(workspace.intelligence?.strategyRecommendations || [])
-        ]
-      }
+      intelligence: workspace.intelligence
     });
 
     setLogEvidenceForm({
@@ -4572,21 +4659,10 @@ Through Counsel
           description: `Lawyer uploaded file ${newDoc.name} class ${docType} to case folder.`
         };
 
-        const winProb = workspace.intelligence?.winProbability || 65;
-        const strength = workspace.intelligence?.strengthScore || 70;
-
         handleUpdateField({
           documents: [...currentDocs, newDoc],
           facts: [...currentFacts, uploadFact] as any,
-          intelligence: {
-            ...workspace.intelligence,
-            winProbability: Math.min(95, winProb + 3),
-            strengthScore: Math.min(100, strength + 4),
-            strategyRecommendations: [
-              `New evidence source "${newDoc.name}" detected. Adjusting defense pleading timeline.`,
-              ...(workspace.intelligence?.strategyRecommendations || [])
-            ]
-          }
+          intelligence: workspace.intelligence
         });
 
         showToast('success', 'File Attached', `Attached "${newDoc.name}" to case documents.`);
@@ -4616,8 +4692,18 @@ Through Counsel
 
   // --- REDESIGNED COMMAND CENTER COMPONENTS ---
   const renderQuickInsights = () => {
-    const winProb = workspace?.intelligence?.winProbability || 65;
-    const strength = workspace?.intelligence?.strengthScore || 70;
+    const summaryText = (workspace?.summary || workspace?.caseSummary || '').trim();
+    const hasSummary = summaryText.length >= 50;
+    const hasEvidenceOrDocs = (workspace?.evidence && workspace.evidence.length > 0) || (workspace?.documents && workspace.documents.length > 0);
+    const hasTimeline = workspace?.facts && workspace.facts.length > 0;
+
+    const rawWin = workspace?.intelligence?.winProbability;
+    const rawStrength = workspace?.intelligence?.strengthScore;
+    const isSufficient = hasSummary && hasEvidenceOrDocs && hasTimeline && rawWin !== undefined && rawWin !== null && rawWin > 0;
+    const winProbVal = isSufficient ? `${rawWin}%` : 'Insufficient Data';
+    const strengthVal = isSufficient ? `${rawStrength}%` : 'Pending AI Analysis';
+    const subMsg = isSufficient ? undefined : 'Complete case facts to generate predictions';
+
     const pendingTasks = workspace?.tasks?.filter((t) => t.status !== 'Completed').length || 0;
     const totalTasks = workspace?.tasks?.length || 0;
     const evidenceCount = workspace?.evidence?.length || 0;
@@ -4628,8 +4714,8 @@ Through Counsel
     const riskScore = getRiskScore(riskLevel);
 
     const insights = [
-      { id: 'win', title: t('workspace.winProbability'), value: `${winProb}%`, icon: 'trending-up-outline', color: theme.success },
-      { id: 'strength', title: t('workspace.caseStrength'), value: `${strength}%`, icon: 'shield-checkmark-outline', color: theme.info },
+      { id: 'win', title: t('workspace.winProbability'), value: winProbVal, subtitle: subMsg, icon: 'trending-up-outline', color: theme.success },
+      { id: 'strength', title: t('workspace.caseStrength'), value: strengthVal, subtitle: subMsg, icon: 'shield-checkmark-outline', color: theme.info },
       { id: 'tasks', title: t('workspace.tasks'), value: `${pendingTasks} Pending`, subtitle: `${totalTasks - pendingTasks}/${totalTasks} completed`, icon: 'checkbox-outline', color: theme.primary },
       { id: 'evidence', title: t('workspace.evidenceVault'), value: `${evidenceCount} Exhibits`, icon: 'briefcase-outline', color: '#8B5CF6' },
       { id: 'hearing', title: t('workspace.upcomingHearing'), value: nextHearing ? nextHearing.date : t('cases.nothingScheduled'), subtitle: `${upcomingHearings.length} scheduled`, icon: 'calendar-outline', color: theme.warning },
@@ -4660,13 +4746,22 @@ Through Counsel
   };
 
   const renderAiAssistantCard = () => {
-    const recommendation = workspace?.intelligence?.strategyRecommendations?.[0] || 'Verify client bank logs for cheque default timeline compliance.';
-    const status = workspace?.stage || 'Court proceedings ongoing';
-    const nextAction = 'File response pleading default notice.';
-    const missingEvidence = workspace?.intelligence?.missingEvidence?.[0] || 'Original copy of legal default postal receipt.';
+    const ws = workspace as any;
+    const ci = ws?.caseIntelligence || {};
+    const aiData = ci.aiAssistant || {};
+
+    const summaryText = workspace?.summary || workspace?.caseSummary || '';
+    const isGarbage = !summaryText || summaryText.trim().length < 40;
+
+    const status = aiData.litigationStatus || workspace?.stage || (isGarbage ? 'Unable to determine litigation stage.' : 'Pre-Litigation');
+    const recommendation = aiData.latestAdvice || ci.recommendations?.[0] || workspace?.intelligence?.strategyRecommendations?.[0] || (isGarbage ? 'Please provide clear case facts.' : 'No active AI recommendations.');
+    const nextAction = aiData.recommendedAction || ci.tasks?.[0]?.title || (isGarbage ? 'Update Case Brief Summary' : 'Review case files');
+    const evidenceAlert = aiData.evidenceAlerts || (ci.missingEvidence?.[0] ? `Missing: ${ci.missingEvidence[0]}` : 'No critical evidence issues detected.');
     
-    const nextDeadlineTask = (workspace?.tasks || []).find(t => t.status !== 'Completed' && t.deadline);
-    const nextDeadline = nextDeadlineTask ? `${nextDeadlineTask.title} (${nextDeadlineTask.deadline})` : t('cases.nothingPending');
+    const nextDeadlineTask = (workspace?.tasks || []).find((t: any) => t.status !== 'Completed' && t.deadline);
+    const nextDeadline = aiData.nextDeadline || (nextDeadlineTask ? `${nextDeadlineTask.title} (${nextDeadlineTask.deadline})` : 'No pending procedural deadlines.');
+    const confidenceVal = aiData.confidence !== undefined ? aiData.confidence : (isGarbage ? 0 : Number(workspace?.intelligence?.strengthScore || 70));
+    const missingInfoList = aiData.missingInformation || ci.missingEvidence || [];
 
     const handleGenerateStrategy = () => {
       setActiveWorkspaceTab('arguments');
@@ -4676,13 +4771,22 @@ Through Counsel
     return (
       <View style={styles.aiAssistantCard}>
         <View style={styles.aiAssistantHeader}>
-          <Ionicons name="sparkles" size={16} color={theme.primary} />
-          <Text style={styles.aiAssistantTitle}>{t('home.aiLegalAssistant')}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Ionicons name="sparkles" size={16} color={theme.primary} style={{ marginRight: 6 }} />
+            <Text style={styles.aiAssistantTitle}>{t('home.aiLegalAssistant')}</Text>
+          </View>
+          <View style={{ backgroundColor: confidenceVal > 50 ? '#D1FAE5' : '#FEF3C7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: confidenceVal > 50 ? '#065F46' : '#92400E' }}>
+              Confidence: {confidenceVal}%
+            </Text>
+          </View>
         </View>
 
         <View style={styles.aiAssistantRow}>
           <Text style={styles.aiAssistantLabel}>{t('workspace.status')}</Text>
-          <Text style={styles.aiAssistantValue}>{status}</Text>
+          <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+            <Text style={[styles.aiAssistantValue, { fontWeight: '700', color: theme.primary }]}>{status}</Text>
+          </View>
         </View>
 
         <View style={styles.aiAssistantRow}>
@@ -4692,12 +4796,14 @@ Through Counsel
 
         <View style={styles.aiAssistantRow}>
           <Text style={styles.aiAssistantLabel}>{t('workspace.recommendedAction')}</Text>
-          <Text style={styles.aiAssistantValue}>{nextAction}</Text>
+          <Text style={[styles.aiAssistantValue, { fontWeight: '600' }]}>{nextAction}</Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
           <Text style={styles.aiAssistantLabel}>{t('workspace.evidenceAlert')}</Text>
-          <Text style={[styles.aiAssistantValue, { color: theme.danger, fontWeight: '700' }]}>⚠️ {missingEvidence}</Text>
+          <Text style={[styles.aiAssistantValue, { color: evidenceAlert.includes('No critical') ? theme.success : theme.danger, fontWeight: '700' }]}>
+            {evidenceAlert.includes('No critical') ? '✅ ' : '⚠️ '}{evidenceAlert}
+          </Text>
         </View>
 
         <View style={styles.aiAssistantRow}>
@@ -4705,12 +4811,20 @@ Through Counsel
           <Text style={styles.aiAssistantValue}>{nextDeadline}</Text>
         </View>
 
+        {missingInfoList && missingInfoList.length > 0 && isGarbage && (
+          <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: theme.danger, marginBottom: 4 }}>Missing Information:</Text>
+            {missingInfoList.slice(0, 3).map((item: any, idx: number) => (
+              <Text key={idx} style={{ fontSize: 10, color: '#6B7280' }}>• {typeof item === 'string' ? item : item.title}</Text>
+            ))}
+          </View>
+        )}
+
         <View style={styles.aiAssistantButtons}>
           <TouchableOpacity style={styles.aiButton} onPress={handleContinueAnalysis}>
             <Ionicons name="sync-outline" size={13} color="#FFFFFF" />
             <Text style={styles.aiButtonText}>{t('workspace.analyzeCase')}</Text>
           </TouchableOpacity>
-
 
           <TouchableOpacity style={[styles.aiButton, styles.aiButtonOutline]} onPress={handleGenerateStrategy}>
             <Ionicons name="bulb-outline" size={13} color={theme.primary} />
@@ -12342,8 +12456,16 @@ Through Counsel
 
   // Outcome Prediction
   const renderPredictionTab = () => {
-    const winProb = workspace?.intelligence?.winProbability || (workspace as any).winProbability || 65;
-    const strength = workspace?.intelligence?.strengthScore || (workspace as any).strengthScore || 70;
+    const summaryText = (workspace?.summary || workspace?.caseSummary || '').trim();
+    const hasSummary = summaryText.length >= 50;
+    const hasEvidenceOrDocs = (workspace?.evidence && workspace.evidence.length > 0) || (workspace?.documents && workspace.documents.length > 0);
+    const hasTimeline = workspace?.facts && workspace.facts.length > 0;
+
+    const rawWin = workspace?.intelligence?.winProbability ?? (workspace as any)?.winProbability;
+    const rawStrength = workspace?.intelligence?.strengthScore ?? (workspace as any)?.strengthScore;
+    const isSufficient = hasSummary && hasEvidenceOrDocs && hasTimeline && rawWin !== undefined && rawWin !== null && rawWin > 0;
+    const winProbStr = isSufficient ? `${rawWin}%` : 'Insufficient Data';
+    const strengthStr = isSufficient ? `${rawStrength}%` : 'Pending AI Analysis';
 
     return (
       <View style={styles.tabContent}>
@@ -12354,18 +12476,25 @@ Through Counsel
           <View style={styles.itemCard}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.accordionTitle}>Win Probability</Text>
-              <Text style={styles.winProbValue}>{winProb}%</Text>
+              <Text style={[styles.winProbValue, { fontSize: isSufficient ? 20 : 14, color: isSufficient ? '#10B981' : '#EF4444' }]}>{winProbStr}</Text>
             </View>
-            {/* Simple slider preview text */}
-            <Text style={[styles.lawDesc, { marginTop: 6 }]}>Based on verified postal demand notice compliance and notary witness attestation.</Text>
+            <Text style={[styles.lawDesc, { marginTop: 6 }]}>
+              {!isSufficient 
+                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.' 
+                : 'Based on verified evidence completeness, legal enforceability, and document quality.'}
+            </Text>
           </View>
 
           <View style={styles.itemCard}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.accordionTitle}>Case Strength Score</Text>
-              <Text style={[styles.winProbValue, { color: '#6D5DFC' }]}>{strength}%</Text>
+              <Text style={[styles.winProbValue, { fontSize: isSufficient ? 20 : 14, color: isSufficient ? '#6D5DFC' : '#F59E0B' }]}>{strengthStr}</Text>
             </View>
-            <Text style={[styles.lawDesc, { marginTop: 6 }]}>Overall case document index and research coverage completeness.</Text>
+            <Text style={[styles.lawDesc, { marginTop: 6 }]}>
+              {!isSufficient 
+                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.' 
+                : 'Overall case document index and research coverage completeness.'}
+            </Text>
           </View>
         </View>
       </View>
@@ -16721,7 +16850,7 @@ function getStyles(theme: any, isDark: boolean) {
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#ECECEC',
     backgroundColor: '#FFFFFF',
@@ -16780,10 +16909,10 @@ function getStyles(theme: any, isDark: boolean) {
     backgroundColor: '#FFFFFF',
   },
   assistantListContent: {
-    flexGrow: 1,
-    padding: 16,
-    paddingBottom: 24,
-    gap: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    gap: 12,
   },
   statusChipContainer: {
     alignItems: 'center',

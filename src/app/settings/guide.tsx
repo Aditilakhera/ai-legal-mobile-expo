@@ -579,7 +579,7 @@ Ask me anything related to AI LEGAL.`,
           {
             borderTopColor: theme.border,
             backgroundColor: theme.background,
-            paddingBottom: isKeyboardVisible ? 10 : (insets.bottom > 0 ? insets.bottom + 10 : 10)
+            paddingBottom: isKeyboardVisible ? 6 : 8
           }
         ]}>
           <View style={[styles.inputWrapper, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>

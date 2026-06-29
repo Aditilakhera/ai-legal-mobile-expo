@@ -55,14 +55,9 @@ export const KeyboardSafeChatLayout: React.FC<KeyboardSafeChatLayoutProps> = ({
     };
   }, []);
   
-  // Calculate dynamic bottom padding:
-  // Keyboard open: 0px offset so composer sits flush on top of keyboard.
-  // Keyboard closed: respect focus mode (fullscreen safe area bottom) or standard 8px clearance.
   const bottomPadding = isKeyboardVisible
     ? 0
-    : (isFocusMode
-        ? (insets.bottom > 0 ? insets.bottom + 8 : 8)
-        : 8);
+    : 8;
 
   // Calculate container top padding (skip if PageHeader handles safe area top)
   const containerPaddingTop = hasPageHeader ? 0 : (insets.top > 0 ? insets.top : 12);

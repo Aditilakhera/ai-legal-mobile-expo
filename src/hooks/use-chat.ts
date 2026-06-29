@@ -157,7 +157,8 @@ export function useChat() {
     content: string, 
     activeTool = 'legal_my_case', 
     attachments: any[] = [], 
-    editMessageId?: string
+    editMessageId?: string,
+    projectId?: string
   ) => {
     if (!content.trim() && attachments.length === 0) return;
 
@@ -230,6 +231,8 @@ export function useChat() {
 
       const userLang = useUserStore.getState().profile?.personalizations?.general?.language || useLocalLanguageStore.getState().localLanguage || 'English';
 
+      const resolvedProjectId = projectId || (activeSession as any)?.projectId || (activeSession as any)?.caseId;
+
       // Build unified chat query payload
       const payload: Record<string, any> = {
         content,
@@ -239,6 +242,11 @@ export function useChat() {
         history,
         language: userLang,
       };
+
+      if (resolvedProjectId) {
+        payload.projectId = resolvedProjectId;
+        payload.caseId = resolvedProjectId;
+      }
 
       if (attachments.length > 0) {
         const docAttachments = attachments.filter(

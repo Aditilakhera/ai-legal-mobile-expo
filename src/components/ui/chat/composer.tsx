@@ -156,7 +156,9 @@ const ChatComposerComponent: React.FC<ChatComposerProps> = ({
   }, []);
 
   const getBottomPadding = () => {
-    return 6;
+    if (isKeyboardVisible) return 8;
+    if (tabHeight && tabHeight > 0) return 18;
+    return Math.max(insets.bottom > 0 ? insets.bottom + 6 : 18, 18);
   };
 
   // Local Voice Recording States

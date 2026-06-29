@@ -12,6 +12,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
+  Modal,
+  ActivityIndicator,
+  TouchableWithoutFeedback,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -38,6 +43,13 @@ export default function LoginScreen() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Social Login Dialog States
+  const [socialModalVisible, setSocialModalVisible] = useState(false);
+  const [socialProvider, setSocialProvider] = useState<'google' | 'apple'>('google');
+  const [socialEmail, setSocialEmail] = useState('');
+  const [socialEmailError, setSocialEmailError] = useState('');
+  const [isSocialSubmitting, setIsSocialSubmitting] = useState(false);
 
   // Load remembered email on startup
   useEffect(() => {
@@ -125,6 +137,74 @@ export default function LoginScreen() {
     }
   };
 
+  const triggerSocialAuth = (provider: 'google' | 'apple') => {
+    setSocialProvider(provider);
+    setSocialEmail('');
+    setSocialEmailError('');
+    setSocialModalVisible(true);
+  };
+
+  const handleSocialSubmit = async () => {
+    if (!socialEmail.trim()) {
+      setSocialEmailError('Email is required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(socialEmail)) {
+      setSocialEmailError('Please enter a valid email address.');
+      return;
+    }
+    setSocialEmailError('');
+    setIsSocialSubmitting(true);
+
+    try {
+      const name = socialEmail.split('@')[0].replace(/[^a-zA-Z]/g, ' ');
+      const nameFormatted = name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') || 'Social User';
+      const providerId = `${socialProvider}_${Date.now()}`;
+      const picture = `https://ui-avatars.com/api/?name=${encodeURIComponent(nameFormatted)}&background=random&color=fff&size=256`;
+
+      console.log(`[SOCIAL LOGIN] Requesting JIT-provision login for ${socialEmail} via ${socialProvider}...`);
+      const res = await AuthService.socialLogin({
+        email: socialEmail.trim().toLowerCase(),
+        name: nameFormatted,
+        picture,
+        provider: socialProvider,
+        providerId
+      });
+
+      if (res.success && res.data) {
+        const { token } = res.data;
+        // Save access token securely
+        await StorageService.saveSecret(StorageKeys.AuthToken, token);
+        
+        // Fetch full profile from DB
+        console.log('[SOCIAL LOGIN] Requesting user profile synchronization...');
+        const profileRes = await ProfileService.getProfile();
+        
+        if (profileRes.success && profileRes.data) {
+          // Cache user profile details in AsyncStorage
+          await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+          
+          // Load into stores (will trigger auto-redirection via GuestGuard)
+          setCredentials(token, '');
+          setProfile(profileRes.data);
+          
+          showToast('success', 'Social Login Success', `Welcome back, ${profileRes.data.name}!`);
+          setSocialModalVisible(false);
+        } else {
+          throw new Error('Could not retrieve user profile from server.');
+        }
+      } else {
+        throw new Error(res.message || 'Social login failed.');
+      }
+    } catch (err: any) {
+      console.error('[SOCIAL LOGIN ERROR]', err);
+      const errMsg = err.error || err.message || 'Failed to authenticate social profile.';
+      showToast('error', 'Authentication Failed', errMsg);
+    } finally {
+      setIsSocialSubmitting(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -137,9 +217,12 @@ export default function LoginScreen() {
       >
         <SafeAreaView style={styles.safeArea}>
           <Slide duration={400} from="bottom" style={styles.content}>
-            {/* Header branding */}
             <View style={styles.header}>
-              <Text style={styles.brandIcon}>⚖️</Text>
+              <Image 
+                source={require('../../../assets/images/premium_black_scales_3d.png')} 
+                style={{ width: 68, height: 68, marginBottom: 16 }} 
+                resizeMode="contain" 
+              />
               <Text style={styles.title}>Welcome to AI LEGAL</Text>
               <Text style={styles.subtitle}>Enter credentials to access your secure workspace</Text>
             </View>
@@ -217,13 +300,31 @@ export default function LoginScreen() {
               </View>
 
               <View style={styles.socialButtonsRow}>
-                <Pressable style={styles.socialBtn} accessibilityLabel="Log in with Google" accessibilityRole="button">
-                  <Text style={styles.socialIcon}>🌐</Text>
+                <Pressable 
+                  style={styles.socialBtn} 
+                  onPress={() => triggerSocialAuth('google')}
+                  accessibilityLabel="Log in with Google" 
+                  accessibilityRole="button"
+                >
+                  <Image 
+                    source={require('../../../assets/images/official_google_g_logo.png')} 
+                    style={{ width: 22, height: 22 }} 
+                    resizeMode="contain" 
+                  />
                   <Text style={styles.socialBtnText}>Google</Text>
                 </Pressable>
 
-                <Pressable style={styles.socialBtn} accessibilityLabel="Log in with Apple" accessibilityRole="button">
-                  <Text style={styles.socialIcon}></Text>
+                <Pressable 
+                  style={styles.socialBtn} 
+                  onPress={() => triggerSocialAuth('apple')}
+                  accessibilityLabel="Log in with Apple" 
+                  accessibilityRole="button"
+                >
+                  <Image 
+                    source={require('../../../assets/images/official_black_apple_logo.png')} 
+                    style={{ width: 22, height: 22 }} 
+                    resizeMode="contain" 
+                  />
                   <Text style={styles.socialBtnText}>Apple</Text>
                 </Pressable>
               </View>
@@ -243,6 +344,80 @@ export default function LoginScreen() {
           </Slide>
         </SafeAreaView>
       </ScrollView>
+
+      {/* Premium Social Sign-In Modal */}
+      <Modal
+        visible={socialModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSocialModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSocialModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContainer}>
+                {/* Header branding */}
+                <View style={styles.modalHeader}>
+                  <Image 
+                    source={
+                      socialProvider === 'google' 
+                        ? require('../../../assets/images/official_google_g_logo.png')
+                        : require('../../../assets/images/official_black_apple_logo.png')
+                    }
+                    style={{ width: 44, height: 44, marginBottom: 12 }}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.modalTitle}>
+                    Sign in with {socialProvider === 'google' ? 'Google' : 'Apple'}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    Enter your {socialProvider === 'google' ? 'Google' : 'Apple ID'} email to establish secure handshake
+                  </Text>
+                </View>
+
+                {/* Input block */}
+                <View style={styles.modalForm}>
+                  <TextInput
+                    label="Email Address"
+                    placeholder="name@example.com"
+                    value={socialEmail}
+                    onChangeText={setSocialEmail}
+                    error={socialEmailError}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    accessibilityLabel="Social Email Input"
+                  />
+
+                  {/* Submit / Cancel buttons */}
+                  <View style={styles.modalButtonsRow}>
+                    <TouchableOpacity 
+                      style={[styles.modalBtn, styles.modalCancelBtn]} 
+                      onPress={() => setSocialModalVisible(false)}
+                      disabled={isSocialSubmitting}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.modalBtn, styles.modalSubmitBtn, { backgroundColor: '#6D5DFC' }]} 
+                      onPress={handleSocialSubmit}
+                      disabled={isSocialSubmitting}
+                      activeOpacity={0.7}
+                    >
+                      {isSocialSubmitting ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.modalSubmitBtnText}>Continue</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -363,7 +538,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     backgroundColor: '#FFFFFF',
   },
   socialIcon: {
@@ -390,5 +565,74 @@ const styles = StyleSheet.create({
   footerLink: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  modalForm: {
+    gap: 16,
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCancelBtn: {
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: 'transparent',
+  },
+  modalSubmitBtn: {
+    backgroundColor: '#6D5DFC',
+  },
+  modalCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  modalSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

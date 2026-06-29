@@ -164,6 +164,10 @@ export interface NotificationInboxItem {
   title: string;
   desc: string;
   type: 'promo' | 'update' | 'alert' | 'success' | 'info' | 'error';
+  category?: 'Cases' | 'Alerts' | 'System';
+  priority?: 'Critical' | 'High' | 'Medium' | 'Low' | 'Completed';
+  caseName?: string;
+  caseId?: string;
   time: string;
   isRead: boolean;
   voice?: string;

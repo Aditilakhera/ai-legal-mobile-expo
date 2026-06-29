@@ -19,6 +19,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // @ts-ignore
@@ -834,9 +835,11 @@ export default function ChatScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.emptyLogoContainer}>
-              <View style={[styles.emptySparkleBg, { backgroundColor: theme.primaryLight }]}>
-                {renderWelcomeIcon()}
-              </View>
+              <Image 
+                source={require('../../../assets/images/ai_assistant_3d.png')} 
+                style={{ width: 90, height: 90, marginBottom: 12 }} 
+                resizeMode="contain" 
+              />
               <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>{t('home.aiLegalAssistant')}</Text>
               <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>{t('assistant.welcomeSubtitle')}</Text>
             </View>

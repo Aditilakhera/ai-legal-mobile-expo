@@ -8,11 +8,9 @@ import { API_ENDPOINTS } from '../constants';
 import { ApiResponse, ChatSession } from '../types';
 
 export class ChatService {
-  /**
-   * Retrieves previous chat sessions list.
-   */
-  static async listSessions(): Promise<ApiResponse<ChatSession[]>> {
-    const response = await apiClient.get(API_ENDPOINTS.Chat.Sessions);
+  static async listSessions(projectId?: string): Promise<ApiResponse<ChatSession[]>> {
+    const url = projectId ? `${API_ENDPOINTS.Chat.Sessions}?projectId=${projectId}` : API_ENDPOINTS.Chat.Sessions;
+    const response = await apiClient.get(url);
     return response.data;
   }
 

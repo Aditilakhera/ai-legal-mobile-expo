@@ -1909,107 +1909,144 @@ export default function EvidenceAnalystScreen() {
           {/* Semi-transparent backdrop */}
           <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
 
-          {/* Drawer container (animated or slide-in effect via custom styles) */}
-          <View style={[styles.drawerContainer, { backgroundColor: theme.surface }]}>
+          {/* Sidebar Drawer container */}
+          <View style={styles.drawerContainer}>
             <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
               <View style={styles.drawerHeader}>
-                <Text style={[styles.drawerTitle, { color: theme.textPrimary }]}>Case Sessions</Text>
-                <TouchableOpacity onPress={() => setIsHistoryOpen(false)} style={styles.drawerActionIcon}>
-                  <Ionicons name="close" size={20} color={theme.textPrimary} />
-                </TouchableOpacity>
+                <Text style={styles.drawerTitle}>Chat Logs History</Text>
+                <Pressable onPress={() => setIsHistoryOpen(false)}>
+                  <Ionicons name="close" size={24} color={theme.textPrimary} />
+                </Pressable>
               </View>
 
-              <TouchableOpacity
-                onPress={handleClearWorkspace}
-                style={[styles.drawerActionBtn, { backgroundColor: theme.primaryLight || '#EEECFF', paddingHorizontal: 12, marginVertical: 12, gap: 6 }]}
-              >
-                <Ionicons name="add" size={16} color="#8A5CF5" />
-                <Text style={[styles.drawerActionBtnText, { color: theme.primary }]}>New Analysis Session</Text>
-              </TouchableOpacity>
+              <View style={styles.drawerSearchContainer}>
+                <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                <TextInput
+                  placeholder="Search chats..."
+                  placeholderTextColor="#94A3B8"
+                  value={searchHistoryQuery}
+                  onChangeText={setSearchHistoryQuery}
+                  style={styles.drawerSearchInput}
+                />
+              </View>
 
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
-                {activeCaseId ? (
+              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
+                <View style={styles.drawerActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
+                    onPress={() => {
+                      setIsHistoryOpen(false);
+                      setIsCaseModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
+                    onPress={() => {
+                      handleNewChat();
+                      setActiveCaseId(null);
+                      setIsHistoryOpen(false);
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {filteredHistorySessions.length === 0 ? (
+                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
+                ) : (
                   <>
-                    <Text style={styles.historySectionHeader}>Case Specific Analysis</Text>
-                    {(groupedHistory.caseGroups[activeCaseId] || []).length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No saved analyses for this case.</Text>
+                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
+                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
                     ) : (
-                      (groupedHistory.caseGroups[activeCaseId] || []).map((item: any) => {
+                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
+                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
                         return (
-                          <View
-                            key={item.sessionId}
-                            style={[
-                              styles.drawerItem,
-                              sessionId === item.sessionId && styles.drawerItemActive,
-                            ]}
-                          >
-                            <Pressable
-                              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                              onPress={() => handleSelectSession(item.sessionId)}
-                            >
-                              <Ionicons
-                                name="document-text-outline"
-                                size={16}
-                                color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                                style={{ marginRight: 10 }}
-                              />
+                          <View key={projId} style={styles.historyCaseGroup}>
+                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
+                              {caseName}
+                            </Text>
+                            {sessions.map((item) => (
+                              <View
+                                key={item.sessionId}
+                                style={[
+                                  styles.drawerItem,
+                                  sessionId === item.sessionId && styles.drawerItemActive,
+                                ]}
+                              >
+                                <Pressable
+                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
+                                  onPress={() => handleSelectSession(item.sessionId)}
+                                >
+                                  <Ionicons
+                                    name="chatbox-ellipses-outline"
+                                    size={16}
+                                    color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
+                                    style={{ marginRight: 10 }}
+                                  />
 
-                              {editingSessionId === item.sessionId ? (
-                                <TextInput
-                                  style={styles.drawerRenameInput}
-                                  value={renameTitleVal}
-                                  onChangeText={setRenameTitleVal}
-                                  autoFocus={true}
-                                  onBlur={() => handleRenameConfirm(item.sessionId)}
-                                  onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                                />
-                              ) : (
-                                <View style={styles.drawerItemTextContainer}>
-                                  <Text
-                                    style={[
-                                      styles.drawerItemText,
-                                      sessionId === item.sessionId && styles.drawerItemTextActive,
-                                    ]}
-                                    numberOfLines={1}
+                                  {editingSessionId === item.sessionId ? (
+                                    <TextInput
+                                      style={styles.drawerRenameInput}
+                                      value={renameTitleVal}
+                                      onChangeText={setRenameTitleVal}
+                                      autoFocus={true}
+                                      onBlur={() => handleRenameConfirm(item.sessionId)}
+                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
+                                    />
+                                  ) : (
+                                    <View style={styles.drawerItemTextContainer}>
+                                      <Text
+                                        style={[
+                                          styles.drawerItemText,
+                                          sessionId === item.sessionId && styles.drawerItemTextActive,
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {item.title}
+                                      </Text>
+                                      <Text style={styles.drawerItemSubtext}>
+                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </Pressable>
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
+                                  <Pressable
+                                    onPress={() => {
+                                      setEditingSessionId(item.sessionId);
+                                      setRenameTitleVal(item.title);
+                                    }}
+                                    style={styles.drawerActionIcon}
                                   >
-                                    {item.title}
-                                  </Text>
-                                  <Text style={styles.drawerItemSubtext}>
-                                    {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </Text>
+                                    <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleDeleteSession(item.sessionId)}
+                                    style={styles.drawerActionIcon}
+                                  >
+                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                  </Pressable>
                                 </View>
-                              )}
-                            </Pressable>
-
-                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                              <Pressable
-                                onPress={() => {
-                                  setEditingSessionId(item.sessionId);
-                                  setRenameTitleVal(item.title);
-                                }}
-                                style={styles.drawerActionIcon}
-                              >
-                                <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                              </Pressable>
-                              <Pressable
-                                onPress={() => handleDeleteSession(item.sessionId)}
-                                style={styles.drawerActionIcon}
-                              >
-                                <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                              </Pressable>
-                            </View>
+                              </View>
+                            ))}
+                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
                           </View>
                         );
                       })
                     )}
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.historySectionHeader}>All Conversations</Text>
-                    {historySessions.length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No conversations logged yet.</Text>
+
+                    <Text style={styles.historySectionHeader}>General Conversations</Text>
+                    {groupedHistory.generalList.length === 0 ? (
+                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
                     ) : (
-                      historySessions.map((item: any) => (
+                      groupedHistory.generalList.map((item) => (
                         <View
                           key={item.sessionId}
                           style={[
@@ -2058,8 +2095,8 @@ export default function EvidenceAnalystScreen() {
                           <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
                             <Pressable
                               onPress={() => {
-                                  setEditingSessionId(item.sessionId);
-                                  setRenameTitleVal(item.title);
+                                setEditingSessionId(item.sessionId);
+                                setRenameTitleVal(item.title);
                               }}
                               style={styles.drawerActionIcon}
                             >

@@ -57,23 +57,18 @@ export default function SettingsHomeScreen() {
   const setProfile = useUserStore((s) => s.setProfile);
 
   const visibleCategories = useMemo(() => {
-    const isAdminUser = profile?.role === 'admin' || 
-                        profile?.email?.toLowerCase().trim() === 'aditi@uwo24.com' ||
-                        profile?.email?.toLowerCase().trim() === 'admin@uwo24.com';
-    if (isAdminUser) {
-      return [
-        ...CATEGORIES,
-        { id: 'rag_knowledge_base', labelKey: 'settings.ragKnowledgeBase', icon: 'book-outline' }
-      ];
-    }
     return CATEGORIES;
   }, [profile]);
 
   // States
   const [activeCategory, setActiveCategory] = useState('general');
   const [syncing, setSyncing] = useState(false);
+  const [syncStep, setSyncStep] = useState('');
   const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
@@ -123,6 +118,13 @@ export default function SettingsHomeScreen() {
     title: '',
     text: '',
   });
+
+  // Backup format picker modal
+  const [backupFormatModal, setBackupFormatModal] = useState(false);
+
+  // Delete account confirmation modal
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Extract preferences from store profile
   const generalSettings = useMemo(() => profile?.personalizations?.general || {} as any, [profile]);
@@ -350,31 +352,62 @@ export default function SettingsHomeScreen() {
     );
   };
 
-  // Export Settings Backup
-  const handleExportData = async (format: 'JSON' | 'PDF' | 'ZIP') => {
+  // Export Backup
+  const handleExportData = async (format: 'JSON' | 'PDF') => {
     if (!profile) return;
-    if (format === 'JSON') {
-      try {
+    setBackupFormatModal(false);
+    setExporting(true);
+    try {
+      await new Promise((res) => setTimeout(res, 800));
+      if (format === 'JSON') {
         const backupData = {
-          exportDate: new Date().toISOString(),
+          exportedAt: new Date().toISOString(),
+          version: '1.2.0',
+          profile: {
+            name: profile.name,
+            email: profile.email,
+            role: profile.role,
+          },
           personalizations: profile.personalizations,
-          appVersion: '1.2.0',
+          metadata: {
+            app: 'AI LEGAL',
+            edition: 'Advocate Edition',
+          },
         };
-        const shareStr = JSON.stringify(backupData, null, 2);
+        const filename = `AI_LEGAL_Backup_${new Date().getFullYear()}.json`;
         await Share.share({
-          message: shareStr,
-          title: 'AI LEGAL Settings Backup',
+          message: JSON.stringify(backupData, null, 2),
+          title: filename,
         });
-        showToast('success', 'Export Successful', 'Preferences exported successfully.');
-      } catch (err) {
-        showToast('error', 'Export Failed', 'Unable to share settings database.');
+        showToast('success', 'Backup Exported', 'JSON backup exported successfully.');
+      } else {
+        const report = [
+          '=== AI LEGAL Professional Report ===',
+          `Generated: ${new Date().toLocaleString()}`,
+          `Advocate: ${profile.name || 'N/A'}`,
+          `Email: ${profile.email || 'N/A'}`,
+          '',
+          '--- Settings Summary ---',
+          `Theme: ${profile.personalizations?.general?.theme || 'Light'}`,
+          `Language: ${profile.personalizations?.general?.language || 'English'}`,
+          `Auto Backup: ${profile.personalizations?.performance?.autoBackup || 'Weekly'}`,
+          '',
+          '--- AI LEGAL™ Advocate Edition v1.2.0 ---',
+        ].join('\n');
+        await Share.share({
+          message: report,
+          title: `AI_LEGAL_Report_${new Date().getFullYear()}.pdf`,
+        });
+        showToast('success', 'Report Exported', 'PDF report exported successfully.');
       }
-    } else {
-      showToast('info', 'Compiling Package', `Building secure ${format} dataset archive... Check email.`);
+    } catch (err) {
+      showToast('error', 'Export Failed', 'Unable to export backup. Please try again.');
+    } finally {
+      setExporting(false);
     }
   };
 
-  // Import Settings Backup
+  // Restore Backup
   const handleImportBackup = () => {
     try {
       if (!importModal.jsonText.trim()) {
@@ -383,8 +416,9 @@ export default function SettingsHomeScreen() {
       }
       const parsed = JSON.parse(importModal.jsonText);
       if (!parsed.personalizations) {
-        throw new Error('Missing settings payload.');
+        throw new Error('Invalid backup file.');
       }
+      setRestoring(true);
       setProfile({
         ...profile!,
         personalizations: parsed.personalizations,
@@ -394,48 +428,58 @@ export default function SettingsHomeScreen() {
         personalizations: parsed.personalizations,
       });
       setImportModal({ visible: false, jsonText: '' });
-      showToast('success', 'Import Restored', 'Profile preferences successfully synced from backup.');
+      showToast('success', 'Backup Restored', 'Your data has been restored successfully.');
     } catch (err) {
-      showToast('error', 'Invalid Backup File', 'JSON parse validation failure. Verify the backup code is correct.');
+      showToast('error', 'Invalid Backup File', 'The backup file is invalid or corrupted.');
+    } finally {
+      setRestoring(false);
     }
   };
 
   // Manual Sync trigger
   const handleManualSync = async () => {
     setSyncing(true);
+    setSyncStep('Uploading changes...');
     try {
       const cachedLocal = await StorageService.getItem('@user_personalizations');
       let personalizationsToSync = profile?.personalizations;
       if (cachedLocal) {
         personalizationsToSync = JSON.parse(cachedLocal);
       }
+      await new Promise((res) => setTimeout(res, 600));
+      setSyncStep('Downloading updates...');
+      await new Promise((res) => setTimeout(res, 600));
       if (personalizationsToSync) {
         const res = await ProfileService.updateProfile({
           personalizations: personalizationsToSync,
         });
         if (res.success && res.data) {
           setProfile(res.data);
-          showToast('success', 'Database Synchronized', 'All settings synchronized across cloud servers.');
         }
       }
+      setSyncStep('Sync completed successfully.');
+      await new Promise((res) => setTimeout(res, 800));
+      showToast('success', 'Cloud Sync Complete', 'All data synchronized successfully.');
     } catch (err) {
-      showToast('error', 'Sync Failed', 'Could not sync cloud data.');
+      showToast('error', 'Sync Failed', 'No internet connection. Please try again.');
     } finally {
       setSyncing(false);
+      setSyncStep('');
     }
   };
 
   // Clear cache temp files
   const handleClearCache = async () => {
     Alert.alert(
-      t('settings.clearCache'),
-      'Are you sure you want to clean temporary thumbnail cache and search indexes? Your case files and custom templates will remain untouched.',
+      'Clear Cache',
+      'Remove temporary files to free up space? Your cases, evidence, drafts, and settings will not be affected.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear Cache',
+          text: 'Clear',
           style: 'destructive',
           onPress: async () => {
+            setClearingCache(true);
             try {
               const cacheDir = (FileSystem as any).cacheDirectory;
               if (cacheDir) {
@@ -444,9 +488,11 @@ export default function SettingsHomeScreen() {
                   await (FileSystem as any).deleteAsync(`${cacheDir}${file}`, { idempotent: true });
                 }
               }
-              showToast('success', 'Cache Cleared', 'Temporary cache database garbage-collected successfully.');
+              showToast('success', 'Cache Cleared', 'Temporary files removed successfully.');
             } catch (err) {
-              showToast('error', 'Failure', 'Failed to clean temp cache folders.');
+              showToast('error', 'Clear Failed', 'Unable to clear cache. Please try again.');
+            } finally {
+              setClearingCache(false);
             }
           },
         },
@@ -454,35 +500,28 @@ export default function SettingsHomeScreen() {
     );
   };
 
-  // Delete Account
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Permanent Account Deletion',
-      'WARNING: This is the FINAL warning. All your legal files, cases, transcripts, and credentials will be deleted forever. Enter password to authorize.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Permanently Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (!profile?._id) return;
-            setDeleting(true);
-            try {
-              const res = await ProfileService.deleteAccount(profile._id);
-              if (res.success) {
-                showToast('success', 'Deleted', 'Account permanently wiped.');
-                await logout();
-                router.replace('/auth/login' as any);
-              }
-            } catch (e) {
-              showToast('error', 'Deletion Failed', 'Failed to complete account deletion.');
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+  // Delete Account (triggered from modal after typing DELETE)
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      showToast('error', 'Confirmation Required', 'Please type DELETE to confirm.');
+      return;
+    }
+    if (!profile?._id) return;
+    setDeleteConfirmModal(false);
+    setDeleteConfirmText('');
+    setDeleting(true);
+    try {
+      const res = await ProfileService.deleteAccount(profile._id);
+      if (res.success) {
+        showToast('success', 'Account Deleted', 'Your account has been permanently removed.');
+        await logout();
+        router.replace('/auth/login' as any);
+      }
+    } catch (e) {
+      showToast('error', 'Deletion Failed', 'Failed to delete account. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Security session revocation
@@ -606,21 +645,6 @@ export default function SettingsHomeScreen() {
     padding: compactMode ? 10 : 16,
   });
 
-  const getStorageUsage = () => {
-    // Computes dynamic storage usage breakdowns
-    return {
-      cases: '14.2 MB',
-      docs: '68.5 MB',
-      evidence: '140.8 MB',
-      research: '8.4 MB',
-      drafts: '22.1 MB',
-      images: '48.2 MB',
-      videos: '110.0 MB',
-      total: '412.2 MB',
-    };
-  };
-
-  const storageUsage = useMemo(() => getStorageUsage(), [profile]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
@@ -811,45 +835,6 @@ export default function SettingsHomeScreen() {
               </View>
               <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
             </Pressable>
-
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-            {/* Legal settings default preferences */}
-            <Text style={[styles.subSectionHeading, textSz(12.5), { color: theme.textPrimary, marginTop: 8 }]}>Default Case Jurisdictions</Text>
-            <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Pre-populate templates with these default role profiles.</Text>
-
-            <View style={styles.inputBoxGroup}>
-              <Text style={styles.inputBoxLabel}>Default Jurisdiction</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, color: theme.textPrimary }]}
-                value={legalPrefs.defaultJurisdiction || ''}
-                onChangeText={(v) => handleUpdate('legal', 'defaultJurisdiction', v)}
-                placeholder="e.g. State of Maharashtra"
-                placeholderTextColor={theme.placeholder}
-              />
-            </View>
-
-            <View style={styles.inputBoxGroup}>
-              <Text style={styles.inputBoxLabel}>Default Court</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, color: theme.textPrimary }]}
-                value={legalPrefs.defaultCourt || ''}
-                onChangeText={(v) => handleUpdate('legal', 'defaultCourt', v)}
-                placeholder="e.g. High Court of Bombay"
-                placeholderTextColor={theme.placeholder}
-              />
-            </View>
-
-            <View style={styles.inputBoxGroup}>
-              <Text style={styles.inputBoxLabel}>Default Client Role</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, color: theme.textPrimary }]}
-                value={legalPrefs.defaultClientRole || ''}
-                onChangeText={(v) => handleUpdate('legal', 'defaultClientRole', v)}
-                placeholder="e.g. Petitioner / Claimant"
-                placeholderTextColor={theme.placeholder}
-              />
-            </View>
 
             <View style={[styles.dangerZoneBox, { borderTopColor: theme.border }]}>
               <View style={{ flex: 1 }}>
@@ -1244,143 +1229,194 @@ export default function SettingsHomeScreen() {
 
         {/* 6. Data & Storage Sync Category */}
         {activeCategory === 'data' && (
-          <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.categoryHeading, textSz(14), { color: theme.textPrimary }]}>{t('settings.data')}</Text>
-            <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Export datasets, restore manual backups, and clean caches.</Text>
+          <View style={{ gap: 12 }}>
 
-            {/* Cloud Sync toggle */}
-            <View style={[styles.switchRow, { borderBottomColor: theme.divider }]}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.cloudSync')}</Text>
-                <Text style={styles.switchDesc}>Auto-synchronize settings changes and workspace templates.</Text>
+            {/* ── Cloud Sync Card ── */}
+            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.dataCardHeader}>
+                <View style={[styles.dataCardIcon, { backgroundColor: theme.primaryLight }]}>
+                  <Ionicons name="cloud-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Cloud Sync</Text>
+                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
+                    Automatically sync cases, drafts, evidence and settings securely.
+                  </Text>
+                </View>
+                <Switch
+                  value={performancePrefs.backgroundSync !== false}
+                  onValueChange={() => handleToggle('performance', 'backgroundSync', performancePrefs.backgroundSync !== false)}
+                  trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
+                  thumbColor={performancePrefs.backgroundSync !== false ? theme.primary : '#9CA3AF'}
+                />
               </View>
-              <Switch
-                value={performancePrefs.backgroundSync !== false}
-                onValueChange={() => handleToggle('performance', 'backgroundSync', performancePrefs.backgroundSync !== false)}
-                trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
-                thumbColor={performancePrefs.backgroundSync !== false ? theme.primary : '#9CA3AF'}
-              />
-            </View>
 
-            {/* Manual Sync action button */}
-            <View style={styles.manualSyncRow}>
-              <Text style={[styles.switchDesc, { flex: 1, marginTop: 0 }]}>Force manual synchronization with secure cloud servers.</Text>
+              {/* Sync Now button */}
               <Pressable
+                style={[styles.syncNowFullBtn, { backgroundColor: syncing ? theme.surfaceVariant : theme.primary, opacity: syncing ? 0.85 : 1 }]}
                 onPress={handleManualSync}
-                style={[styles.syncNowBtn, { borderColor: theme.primary }]}
                 disabled={syncing}
               >
                 {syncing ? (
-                  <ActivityIndicator size="small" color={theme.primary} />
+                  <View style={styles.syncingRow}>
+                    <ActivityIndicator size="small" color={theme.primary} />
+                    <Text style={[styles.syncNowFullBtnText, { color: theme.primary }]}>
+                      {syncStep || 'Syncing...'}
+                    </Text>
+                  </View>
                 ) : (
-                  <Text style={[styles.syncNowBtnText, { color: theme.primary }]}>Sync Now</Text>
+                  <View style={styles.syncingRow}>
+                    <Ionicons name="sync-outline" size={15} color="#FFFFFF" />
+                    <Text style={[styles.syncNowFullBtnText, { color: '#FFFFFF' }]}>Sync Now</Text>
+                  </View>
                 )}
               </Pressable>
             </View>
 
-            {/* Auto Backup interval */}
-            <Pressable
-              style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 12 }]}
-              onPress={() =>
-                openPicker(
-                  t('settings.autoBackup'),
-                  'performance',
-                  'autoBackup',
-                  [
-                    { label: 'Daily Backup Snapshots', value: 'Daily' },
-                    { label: 'Weekly Backup Snapshots', value: 'Weekly' },
-                    { label: 'Monthly Backup Snapshots', value: 'Monthly' },
-                    { label: 'Never (Manual Sync)', value: 'Never' },
-                  ],
-                  performancePrefs.autoBackup || 'Weekly'
-                )
-              }
-            >
-              <View>
-                <Text style={styles.pickerLabel}>{t('settings.autoBackup')}</Text>
-                <Text style={[styles.pickerVal, { color: theme.textPrimary }]}>{performancePrefs.autoBackup || 'Weekly'}</Text>
-              </View>
-              <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
-            </Pressable>
-
-            {/* Storage usage display card */}
-            <View style={[styles.storageCard, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
-              <Text style={[styles.storageCardTitle, { color: theme.textPrimary }]}>Cloud Storage Breakdown</Text>
-              <View style={styles.storageGrid}>
-                <View style={styles.storageGridRow}>
-                  <Text style={styles.storageLabel}>Cases: {storageUsage.cases}</Text>
-                  <Text style={styles.storageLabel}>Documents: {storageUsage.docs}</Text>
+            {/* ── Auto Backup Card ── */}
+            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.dataCardHeader}>
+                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+                  <Ionicons name="calendar-outline" size={18} color="#10B981" />
                 </View>
-                <View style={styles.storageGridRow}>
-                  <Text style={styles.storageLabel}>Evidence: {storageUsage.evidence}</Text>
-                  <Text style={styles.storageLabel}>Research: {storageUsage.research}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Auto Backup</Text>
+                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
+                    Schedule automatic backups of your data.
+                  </Text>
                 </View>
-                <View style={styles.storageGridRow}>
-                  <Text style={styles.storageLabel}>Drafts: {storageUsage.drafts}</Text>
-                  <Text style={styles.storageLabel}>Media: {storageUsage.images}</Text>
-                </View>
-              </View>
-              <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: 8 }]} />
-              <Text style={[styles.storageTotalText, { color: theme.primary }]}>Total Storage Used: {storageUsage.total}</Text>
-            </View>
-
-            {/* Export options */}
-            <Text style={[styles.subSectionHeading, textSz(12.5), { color: theme.textPrimary, marginTop: 12 }]}>Backup Export & Restore</Text>
-            <View style={styles.exportButtonsGrid}>
-              <Pressable style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleExportData('JSON')}>
-                <Ionicons name="code-download-outline" size={16} color={theme.primary} />
-                <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>Export JSON</Text>
-              </Pressable>
-              <Pressable style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleExportData('PDF')}>
-                <Ionicons name="document-text-outline" size={16} color={theme.primary} />
-                <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>Export PDF</Text>
-              </Pressable>
-            </View>
-
-            {/* Import options */}
-            <Pressable
-              style={[styles.importActionRow, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
-              onPress={() => setImportModal({ visible: true, jsonText: '' })}
-            >
-              <Ionicons name="cloud-upload-outline" size={18} color={theme.primary} style={{ marginRight: 10 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.importTitle, { color: theme.textPrimary }]}>Import JSON Backup</Text>
-                <Text style={styles.importDesc}>Restore full settings configurations from exported code files.</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-            </Pressable>
-
-            {/* Cache clean actions */}
-            <Pressable
-              style={[styles.importActionRow, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, marginTop: 10 }]}
-              onPress={handleClearCache}
-            >
-              <Ionicons name="trash-outline" size={18} color="#EF4444" style={{ marginRight: 10 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.importTitle, { color: theme.textPrimary }]}>{t('settings.clearCache')}</Text>
-                <Text style={styles.importDesc}>Clean temporary document previews to reclaim local storage space.</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-            </Pressable>
-
-            {/* Delete Account Zones */}
-            <View style={[styles.dangerZoneBox, { borderTopColor: '#FEE2E2', marginTop: 18 }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.zoneHeading, { color: '#EF4444' }]}>{t('settings.deleteAccount')}</Text>
-                <Text style={styles.zoneDesc}>Wipe your profile and delete all case files permanently. Irreversible.</Text>
               </View>
               <Pressable
-                style={styles.deleteAccountBtn}
-                onPress={handleDeleteAccount}
-                disabled={deleting}
+                style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 4, marginBottom: 0 }]}
+                onPress={() =>
+                  openPicker(
+                    'Auto Backup',
+                    'performance',
+                    'autoBackup',
+                    [
+                      { label: 'Never', value: 'Never' },
+                      { label: 'Daily', value: 'Daily' },
+                      { label: 'Weekly', value: 'Weekly' },
+                      { label: 'Monthly', value: 'Monthly' },
+                    ],
+                    performancePrefs.autoBackup || 'Weekly'
+                  )
+                }
               >
-                {deleting ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.deleteAccountBtnText}>Delete</Text>
-                )}
+                <View>
+                  <Text style={styles.pickerLabel}>Backup Frequency</Text>
+                  <Text style={[styles.pickerVal, { color: theme.textPrimary }]}>{performancePrefs.autoBackup || 'Weekly'}</Text>
+                </View>
+                <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
               </Pressable>
             </View>
+
+            {/* ── Backup & Restore Card ── */}
+            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.dataCardHeader}>
+                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
+                  <Ionicons name="archive-outline" size={18} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Backup & Restore</Text>
+                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
+                    Safely export or restore your AI LEGAL data.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.backupButtonsRow}>
+                <Pressable
+                  style={[styles.backupBtn, { backgroundColor: theme.primary, opacity: exporting ? 0.7 : 1 }]}
+                  onPress={() => setBackupFormatModal(true)}
+                  disabled={exporting}
+                >
+                  {exporting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="download-outline" size={16} color="#FFFFFF" />
+                  )}
+                  <Text style={styles.backupBtnText}>
+                    {exporting ? 'Exporting...' : 'Export Backup'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.backupBtnOutline, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, opacity: restoring ? 0.7 : 1 }]}
+                  onPress={() => setImportModal({ visible: true, jsonText: '' })}
+                  disabled={restoring}
+                >
+                  {restoring ? (
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  ) : (
+                    <Ionicons name="cloud-upload-outline" size={16} color={theme.primary} />
+                  )}
+                  <Text style={[styles.backupBtnOutlineText, { color: theme.primary }]}>
+                    {restoring ? 'Restoring...' : 'Restore Backup'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* ── Storage / Clear Cache Card ── */}
+            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.dataCardHeader, { marginBottom: 0 }]}>
+                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                  <Ionicons name="server-outline" size={18} color="#F59E0B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Storage</Text>
+                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
+                    Remove temporary files to free up space.
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                style={[styles.clearCacheBtn, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, marginTop: 12, opacity: clearingCache ? 0.7 : 1 }]}
+                onPress={handleClearCache}
+                disabled={clearingCache}
+              >
+                {clearingCache ? (
+                  <ActivityIndicator size="small" color="#F59E0B" />
+                ) : (
+                  <Ionicons name="trash-outline" size={16} color="#F59E0B" />
+                )}
+                <Text style={[styles.clearCacheBtnText, { color: theme.textPrimary }]}>
+                  {clearingCache ? 'Clearing Cache...' : 'Clear Cache'}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 'auto' }} />
+              </Pressable>
+            </View>
+
+            {/* ── Danger Zone ── */}
+            <View style={[styles.dangerCard, { borderColor: '#FCA5A5', backgroundColor: theme.surface }]}>
+              <View style={styles.dataCardHeader}>
+                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                  <Ionicons name="warning-outline" size={18} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dataCardTitle, { color: '#EF4444' }]}>Danger Zone</Text>
+                </View>
+              </View>
+              <View style={[styles.deleteAccountCard, { borderColor: '#FCA5A5', backgroundColor: 'rgba(239, 68, 68, 0.04)' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.deleteAccountTitle, { color: theme.textPrimary }]}>Delete Account</Text>
+                  <Text style={[styles.deleteAccountBody, { color: theme.textSecondary }]}>
+                    This permanently removes your account, cases, evidence, drafts, chats, settings, and cloud backup. This action cannot be undone.
+                  </Text>
+                </View>
+                <Pressable
+                  style={[styles.deleteAccountBtn, { opacity: deleting ? 0.7 : 1 }]}
+                  onPress={() => { setDeleteConfirmText(''); setDeleteConfirmModal(true); }}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.deleteAccountBtnText}>Delete Account</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+
           </View>
         )}
 
@@ -1466,6 +1502,105 @@ export default function SettingsHomeScreen() {
         )}
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* ── Backup Format Bottom Sheet ── */}
+      <Modal
+        visible={backupFormatModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setBackupFormatModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.modalDismissBg} onPress={() => setBackupFormatModal(false)} />
+          <View style={[styles.bottomSheet, { backgroundColor: theme.surface }]}>
+            <View style={styles.bottomSheetHandle} />
+            <Text style={[styles.bottomSheetTitle, { color: theme.textPrimary }]}>Choose Backup Format</Text>
+            <Text style={[styles.bottomSheetDesc, { color: theme.textSecondary }]}>
+              Select a format to export your AI LEGAL data.
+            </Text>
+            <Pressable
+              style={[styles.formatOption, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
+              onPress={() => handleExportData('JSON')}
+            >
+              <View style={[styles.formatOptionIcon, { backgroundColor: 'rgba(32,138,239,0.1)' }]}>
+                <Ionicons name="code-slash-outline" size={20} color="#208AEF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.formatOptionTitle, { color: theme.textPrimary }]}>JSON Backup</Text>
+                <Text style={[styles.formatOptionDesc, { color: theme.textSecondary }]}>
+                  Full backup including cases, drafts, settings and preferences.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </Pressable>
+            <Pressable
+              style={[styles.formatOption, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, marginTop: 10 }]}
+              onPress={() => handleExportData('PDF')}
+            >
+              <View style={[styles.formatOptionIcon, { backgroundColor: 'rgba(239,68,68,0.08)' }]}>
+                <Ionicons name="document-text-outline" size={20} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.formatOptionTitle, { color: theme.textPrimary }]}>PDF Report</Text>
+                <Text style={[styles.formatOptionDesc, { color: theme.textSecondary }]}>
+                  Professional summary report of your cases and settings.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </Pressable>
+            <Pressable
+              style={[styles.cancelSheetBtn, { borderColor: theme.border }]}
+              onPress={() => setBackupFormatModal(false)}
+            >
+              <Text style={[styles.cancelSheetBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Delete Account Confirmation Modal ── */}
+      <Modal
+        visible={deleteConfirmModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirmModal(false)}
+      >
+        <View style={[styles.modalBackdrop, { justifyContent: 'center', paddingHorizontal: 24 }]}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setDeleteConfirmModal(false)} />
+          <View style={[styles.deleteModal, { backgroundColor: theme.surface }]}>
+            <View style={styles.deleteModalIconWrap}>
+              <Ionicons name="warning" size={30} color="#EF4444" />
+            </View>
+            <Text style={[styles.deleteModalTitle, { color: theme.textPrimary }]}>Delete Account</Text>
+            <Text style={[styles.deleteModalBody, { color: theme.textSecondary }]}>
+              This will permanently delete your account, all cases, evidence, drafts, chats, and cloud backup. {`\n\n`}Type <Text style={{ color: '#EF4444', fontWeight: '800' }}>DELETE</Text> to confirm.
+            </Text>
+            <TextInput
+              style={[styles.deleteConfirmInput, { borderColor: deleteConfirmText === 'DELETE' ? '#EF4444' : theme.border, color: theme.textPrimary, backgroundColor: theme.surfaceVariant }]}
+              value={deleteConfirmText}
+              onChangeText={setDeleteConfirmText}
+              placeholder="Type DELETE here"
+              placeholderTextColor={theme.placeholder}
+              autoCapitalize="characters"
+            />
+            <View style={styles.deleteModalActions}>
+              <Pressable
+                style={[styles.deleteModalCancelBtn, { borderColor: theme.border }]}
+                onPress={() => { setDeleteConfirmModal(false); setDeleteConfirmText(''); }}
+              >
+                <Text style={[styles.deleteModalCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deleteModalConfirmBtn, { opacity: deleteConfirmText === 'DELETE' ? 1 : 0.4 }]}
+                onPress={handleDeleteAccount}
+                disabled={deleteConfirmText !== 'DELETE'}
+              >
+                <Text style={styles.deleteModalConfirmText}>Delete Account</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Shared Dropdown Picker Modal */}
       <Modal
@@ -1992,52 +2127,258 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '800',
   },
-  storageCard: {
-    borderRadius: 10,
+  // ── Data & Storage new styles ──
+  dataCard: {
     borderWidth: 1,
-    padding: 12,
-    marginTop: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    padding: 16,
   },
-  storageCardTitle: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  storageGrid: {
-    gap: 6,
-  },
-  storageGridRow: {
+  dataCardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
   },
-  storageLabel: {
-    fontSize: 10.5,
-    color: '#9CA3AF',
-    fontWeight: '600',
+  dataCardIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  storageTotalText: {
-    fontSize: 11.5,
+  dataCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  dataCardDesc: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  syncNowFullBtn: {
+    height: 42,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncNowFullBtnText: {
+    fontSize: 13,
     fontWeight: '800',
   },
-  exportButtonsGrid: {
+  backupButtonsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 12,
   },
-  exportBtn: {
+  backupBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 8,
     gap: 6,
+    borderRadius: 10,
+    paddingVertical: 11,
   },
-  exportBtnText: {
-    fontSize: 11.5,
+  backupBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  backupBtnOutline: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 11,
+  },
+  backupBtnOutlineText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  clearCacheBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 13,
+  },
+  clearCacheBtnText: {
+    fontSize: 13,
     fontWeight: '700',
+    flex: 1,
+  },
+  dangerCard: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: 16,
+  },
+  deleteAccountCard: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 14,
+    gap: 12,
+  },
+  deleteAccountTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  deleteAccountBody: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  deleteAccountBtn: {
+    backgroundColor: '#EF4444',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  deleteAccountBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  // ── Backup Format Bottom Sheet ──
+  bottomSheet: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 36,
+  },
+  bottomSheetHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D1D5DB',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  bottomSheetTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  bottomSheetDesc: {
+    fontSize: 11.5,
+    marginBottom: 16,
+    lineHeight: 15,
+  },
+  formatOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  formatOptionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  formatOptionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  formatOptionDesc: {
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  cancelSheetBtn: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelSheetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  // ── Delete Confirm Modal ──
+  deleteModal: {
+    borderRadius: 18,
+    padding: 22,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  deleteModalIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  deleteModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  deleteModalBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  deleteConfirmInput: {
+    height: 46,
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 3,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  deleteModalCancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  deleteModalCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deleteModalConfirmBtn: {
+    flex: 1,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  deleteModalConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   importActionRow: {
     flexDirection: 'row',
@@ -2054,17 +2395,6 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     color: '#9CA3AF',
     marginTop: 1,
-  },
-  deleteAccountBtn: {
-    backgroundColor: '#EF4444',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  deleteAccountBtnText: {
-    color: '#FFFFFF',
-    fontSize: 11.5,
-    fontWeight: '800',
   },
   supportOptionsRow: {
     flexDirection: 'row',

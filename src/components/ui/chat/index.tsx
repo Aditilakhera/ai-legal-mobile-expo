@@ -22,7 +22,8 @@ import {
   Pressable,
   Linking,
   Alert,
-  TextInput
+  TextInput,
+  Image
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -1815,14 +1816,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
   },
   emptyContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingTop: Dimensions.get('window').height * 0.08,
     paddingBottom: 40,
     alignItems: 'center',
   },
   emptyLogoContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 0,
   },
   emptySparkleBg: {
     width: 64,
@@ -1846,13 +1848,40 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1F2937',
     textAlign: 'center',
+    marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 14.5,
     fontWeight: '600',
     color: '#6B7280',
-    marginTop: 6,
     textAlign: 'center',
+    marginBottom: 20,
+  },
+  suggestedContainer: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  suggestedGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  suggestedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    elevation: 1,
+  },
+  suggestedChipText: {
+    fontSize: 13.5,
+    fontWeight: '600',
   },
   editTextInput: {
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
@@ -1965,18 +1994,24 @@ export interface ChatWelcomeProps {
   title: string;
   subtitle: string;
   icon?: string;
+  iconSource?: any;
+  suggestedChips?: Array<{ label: string; icon: string }>;
   children?: React.ReactNode;
   onSelectCase?: () => void;
   onNewConversation?: () => void;
+  onSelectSuggestedPrompt?: (prompt: string) => void;
 }
 
 export const ChatWelcome: React.FC<ChatWelcomeProps> = ({ 
   title, 
   subtitle, 
   icon = '✨', 
+  iconSource,
+  suggestedChips,
   children,
   onSelectCase,
-  onNewConversation
+  onNewConversation,
+  onSelectSuggestedPrompt
 }) => {
   const { theme } = useThemeContext();
   const { language } = useTranslation();
@@ -2001,6 +2036,13 @@ export const ChatWelcome: React.FC<ChatWelcomeProps> = ({
 
   const labels = getLabels();
 
+  const chipsToRender = suggestedChips || [
+    { label: 'Summarize this case', icon: 'document-text-outline' },
+    { label: 'Analyze evidence', icon: 'search-outline' },
+    { label: 'Draft legal notice', icon: 'create-outline' },
+    { label: 'Predict case outcome', icon: 'trending-up-outline' }
+  ];
+
   return (
     <ScrollView
       style={{ flex: 1 }}
@@ -2008,11 +2050,37 @@ export const ChatWelcome: React.FC<ChatWelcomeProps> = ({
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.emptyLogoContainer}>
-        <View style={[styles.emptySparkleBg, { backgroundColor: theme.surfaceVariant || '#EEECFF' }]}>
-          <Text style={styles.emptySparkleText}>{icon}</Text>
-        </View>
+        <Image 
+          source={iconSource || require('../../../assets/images/ai_assistant_3d.png')} 
+          style={{ width: 95, height: 95, marginBottom: 8 }} 
+          resizeMode="contain" 
+        />
         <Text style={[styles.emptyTitle, { color: theme.textPrimary || '#1F2937' }]}>{title}</Text>
         <Text style={[styles.emptySubtitle, { color: theme.textSecondary || '#6B7280' }]}>{subtitle}</Text>
+      </View>
+
+      <View style={styles.suggestedContainer}>
+        <View style={styles.suggestedGrid}>
+          {chipsToRender.map((chip, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={[
+                styles.suggestedChip, 
+                { 
+                  backgroundColor: theme.surfaceVariant || '#F8FAFC', 
+                  borderColor: theme.border || '#E2E8F0' 
+                }
+              ]}
+              onPress={() => onSelectSuggestedPrompt?.(chip.label)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={chip.icon as any} size={16} color={theme.primary || '#6D5DFC'} style={{ marginRight: 6 }} />
+              <Text style={[styles.suggestedChipText, { color: theme.textPrimary || '#1F2937' }]}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {(onSelectCase || onNewConversation) && (

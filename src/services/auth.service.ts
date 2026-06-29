@@ -92,6 +92,27 @@ export class AuthService {
   }
 
   /**
+   * Submit social oauth credentials to backend.
+   */
+  static async socialLogin(payload: {
+    email: string;
+    name: string;
+    picture: string;
+    provider: string;
+    providerId: string;
+  }): Promise<ApiResponse<{ token: string; user: any }>> {
+    const response = await apiClient.post(API_ENDPOINTS.Auth.SocialLogin, payload);
+    return {
+      success: true,
+      data: {
+        token: response.data.token,
+        user: response.data,
+      },
+      message: response.data.message || 'Social login successful',
+    };
+  }
+
+  /**
    * Perform token refresh workflow.
    */
   static async refreshSession(refreshToken: string): Promise<{ token: string; refreshToken: string }> {

@@ -453,5 +453,24 @@ export const english = {
     noEvidenceMatch: 'No files match your active search query or filters.',
     noEvidenceMatchShort: 'No files match your search query or active filters.',
     emptySubtitleShort: 'Your evidence locker is empty. Start by uploading or scanning a document.',
+  },
+  inboxAlerts: 'Notifications',
+  inboxSubtitleEmpty: 'Real-time updates, urgent alerts, and case activities',
+  notifications: {
+    title: 'Notifications',
+    subtitle: 'Real-time updates, urgent alerts, and case activities',
+    categoryAll: 'All',
+    categoryCases: 'Cases',
+    categoryAlerts: 'Alerts',
+    categorySystem: 'System',
+    markAllRead: 'Mark All as Read',
+    clearAll: 'Clear All',
+    searchPlaceholder: 'Search notifications by case, title, party...',
+    emptyTitle: 'No Notifications',
+    emptyDesc: 'You have no notifications in this category right now.',
+    openCase: 'Open Case',
+    viewDetails: 'View Details',
+    markRead: 'Mark Read',
+    delete: 'Delete'
   }
 };
