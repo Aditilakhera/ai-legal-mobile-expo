@@ -289,13 +289,28 @@ export default function DashboardScreen() {
   // Form States
   const [newCaseForm, setNewCaseForm] = useState({
     name: '',
+    registrationNumber: '',
     clientName: '',
+    objectorOpponent: '',
     opponentName: '',
     caseType: '',
+    customCaseType: '',
+    legalDomain: '',
     courtName: '',
     summary: '',
+    additionalNotes: '',
     priority: 'Medium' as 'Low' | 'Medium' | 'High' | 'Urgent',
+    caseReceivedOn: '',
+    countryCode: '+91',
+    clientContact: '',
+    advocateName: '',
+    hearingDate: '',
+    stage: 'Pre-litigation' as 'Pre-litigation' | 'Notice' | 'Court' | 'Judgment' | 'Settled',
   });
+  const [showCaseTypePicker, setShowCaseTypePicker] = useState(false);
+  const [showLegalDomainPicker, setShowLegalDomainPicker] = useState(false);
+  const [showStagePicker, setShowStagePicker] = useState(false);
+  const [showCreateDatePicker, setShowCreateDatePicker] = useState<'received' | 'hearing' | null>(null);
 
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -525,23 +540,73 @@ export default function DashboardScreen() {
   // --- Handlers ---
   const handleCreateCase = async () => {
     if (!newCaseForm.name) {
-      showToast('error', 'Error', 'Case / Suit Name is required.');
+      showToast('error', t('common.error'), t('cases.caseTitleRequired'));
       return;
+    }
+
+    if (!newCaseForm.clientName) {
+      showToast('error', t('common.error'), t('cases.clientNameRequired'));
+      return;
+    }
+
+    if (!newCaseForm.clientContact) {
+      showToast('error', t('common.error'), t('cases.clientContactRequired'));
+      return;
+    }
+
+    if (!newCaseForm.caseType) {
+      showToast('error', t('common.error'), t('cases.caseCategoryRequired'));
+      return;
+    }
+
+    if (newCaseForm.caseType === 'Custom' && !newCaseForm.customCaseType) {
+      showToast('error', t('common.error'), t('cases.enterCustomTypeErr'));
+      return;
+    }
+
+    const finalCaseType = newCaseForm.caseType === 'Custom' ? newCaseForm.customCaseType : newCaseForm.caseType;
+
+    // Build initial hearing from hearingDate if provided
+    const initialHearings: any[] = [];
+    if (newCaseForm.hearingDate) {
+      initialHearings.push({
+        date: newCaseForm.hearingDate,
+        status: 'Scheduled',
+        title: 'First Hearing',
+        notes: '',
+      });
+    }
+
+    // Build initial lawyer entry from advocate name
+    const initialLawyers: any[] = [];
+    if (newCaseForm.advocateName) {
+      initialLawyers.push({
+        name: newCaseForm.advocateName,
+        role: 'Advocate',
+        contact: newCaseForm.countryCode + newCaseForm.clientContact,
+      });
     }
 
     try {
       setIsLoading(true);
       const res = await CaseService.createCase({
         name: newCaseForm.name,
+        registrationNumber: newCaseForm.registrationNumber,
         clientName: newCaseForm.clientName,
+        objectorOpponent: newCaseForm.objectorOpponent,
         opponentName: newCaseForm.opponentName,
-        caseType: newCaseForm.caseType,
+        caseType: finalCaseType || newCaseForm.caseType,
+        legalDomain: newCaseForm.legalDomain,
         courtName: newCaseForm.courtName,
+        caseReceivedOn: newCaseForm.caseReceivedOn,
+        countryCode: newCaseForm.countryCode,
+        clientContact: newCaseForm.clientContact,
         summary: newCaseForm.summary,
+        additionalNotes: newCaseForm.additionalNotes,
         priority: newCaseForm.priority,
         status: 'Active',
-        stage: 'Pre-litigation',
-        lawyers: [],
+        stage: newCaseForm.stage,
+        lawyers: initialLawyers,
         facts: [],
         legalIssues: [],
         documents: [],
@@ -559,25 +624,39 @@ export default function DashboardScreen() {
         tasks: [],
         communicationLogs: [],
         research: [],
-        hearings: [],
-      });
+        hearings: initialHearings,
+      } as any);
 
       if (res.success) {
-        showToast('success', 'Success', 'Case folder created successfully.');
+        showToast('success', t('common.success'), t('cases.createSuccess'));
         setIsCreateModalOpen(false);
+        setShowCaseTypePicker(false);
+        setShowStagePicker(false);
+        setShowCreateDatePicker(null);
         setNewCaseForm({
           name: '',
+          registrationNumber: '',
           clientName: '',
+          objectorOpponent: '',
           opponentName: '',
           caseType: '',
+          customCaseType: '',
+          legalDomain: '',
           courtName: '',
           summary: '',
+          additionalNotes: '',
           priority: 'Medium',
+          caseReceivedOn: '',
+          countryCode: '+91',
+          clientContact: '',
+          advocateName: '',
+          hearingDate: '',
+          stage: 'Pre-litigation',
         });
         fetchDashboardData(true);
       }
     } catch (err: any) {
-      showToast('error', 'Error', err.message || 'Failed to create case folder.');
+      showToast('error', t('common.error'), err.message || t('cases.createError'));
     } finally {
       setIsLoading(false);
     }
@@ -987,61 +1066,293 @@ export default function DashboardScreen() {
           visible={isCreateModalOpen}
           animationType="slide"
           transparent
-          onRequestClose={() => setIsCreateModalOpen(false)}
+          onRequestClose={() => { setIsCreateModalOpen(false); setShowCaseTypePicker(false); setShowStagePicker(false); setShowCreateDatePicker(null); }}
         >
           <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
             <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>{t('cases.createFolder')}</Text>
-                <Pressable onPress={() => setIsCreateModalOpen(false)}>
+                <Pressable onPress={() => { setIsCreateModalOpen(false); setShowCaseTypePicker(false); setShowStagePicker(false); setShowCreateDatePicker(null); }}>
                   <Text style={{ fontSize: 20, color: theme.textSecondary }}>✕</Text>
                 </Pressable>
               </View>
 
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+                {/* ── Section: Case Identity ── */}
+                <View style={styles.formSectionHeader}>
+                  <View style={[styles.formSectionDot, { backgroundColor: theme.primary }]} />
+                  <Text style={[styles.formSectionTitle, { color: theme.textPrimary }]}>{t('cases.sectionCaseIdentity')}</Text>
+                </View>
+
                 <TextInput
-                  label={t('cases.suitName')}
-                  placeholder="e.g. Rajesh Sharma vs Amit Verma"
+                  label={t('cases.caseTitle')}
+                  placeholder={t('cases.suitNamePlaceholder')}
                   value={newCaseForm.name}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, name: text })}
                   containerStyle={{ marginBottom: 12 }}
                 />
 
                 <TextInput
+                  label={t('cases.registrationNumber')}
+                  placeholder={t('cases.registrationNumberPlaceholder')}
+                  value={newCaseForm.registrationNumber}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, registrationNumber: text })}
+                  containerStyle={{ marginBottom: 12 }}
+                />
+
+                {/* Case Received On - Date Selector */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.caseReceivedOn')}</Text>
+                <Pressable
+                  onPress={() => setShowCreateDatePicker(showCreateDatePicker === 'received' ? null : 'received')}
+                  style={[styles.datePickerBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} />
+                  <Text style={[styles.datePickerText, { color: newCaseForm.caseReceivedOn ? theme.textPrimary : theme.textMuted }]}>
+                    {newCaseForm.caseReceivedOn || t('cases.selectDate')}
+                  </Text>
+                  {newCaseForm.caseReceivedOn ? (
+                    <Pressable onPress={() => setNewCaseForm({ ...newCaseForm, caseReceivedOn: '' })}>
+                      <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+                    </Pressable>
+                  ) : null}
+                </Pressable>
+                {showCreateDatePicker === 'received' && (
+                  <View style={[styles.inlineDatePicker, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    {Array.from({ length: 12 }, (_, m) => (
+                      <Pressable
+                        key={m}
+                        onPress={() => {
+                          const d = new Date();
+                          d.setMonth(m);
+                          const isoDate = `${d.getFullYear()}-${String(m + 1).padStart(2, '0')}-01`;
+                          setNewCaseForm({ ...newCaseForm, caseReceivedOn: isoDate });
+                          setShowCreateDatePicker(null);
+                        }}
+                        style={[styles.monthBtn, { borderColor: theme.border }]}
+                      >
+                        <Text style={{ fontSize: 11, color: theme.textSecondary, fontWeight: '600' }}>
+                          {new Date(2000, m).toLocaleString('default', { month: 'short' })}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
+                {/* ── Section: Client & Opponent ── */}
+                <View style={[styles.formSectionHeader, { marginTop: 8 }]}>
+                  <View style={[styles.formSectionDot, { backgroundColor: '#10B981' }]} />
+                  <Text style={[styles.formSectionTitle, { color: theme.textPrimary }]}>{t('cases.sectionClientInfo')}</Text>
+                </View>
+
+                <TextInput
                   label={t('cases.clientName')}
-                  placeholder="Plaintiff Name"
+                  placeholder={t('cases.clientNamePlaceholder')}
                   value={newCaseForm.clientName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientName: text })}
                   containerStyle={{ marginBottom: 12 }}
                 />
 
                 <TextInput
+                  label={t('cases.objectorOpponent')}
+                  placeholder={t('cases.selectObjector')}
+                  value={newCaseForm.objectorOpponent}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, objectorOpponent: text })}
+                  containerStyle={{ marginBottom: 12 }}
+                />
+
+                {/* Country Code + Client Contact */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.clientContact')}</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                  <Pressable
+                    style={[styles.countryCodeBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                    onPress={() => {
+                      const codes = ['+91', '+1', '+44', '+971', '+65', '+61', '+81', '+49', '+33', '+86'];
+                      const currIdx = codes.indexOf(newCaseForm.countryCode);
+                      setNewCaseForm({ ...newCaseForm, countryCode: codes[(currIdx + 1) % codes.length] });
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, color: theme.textPrimary, fontWeight: '700' }}>{newCaseForm.countryCode}</Text>
+                    <Ionicons name="chevron-down" size={12} color={theme.textMuted} />
+                  </Pressable>
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      label=""
+                      placeholder={t('cases.phoneNumberPlaceholder')}
+                      value={newCaseForm.clientContact}
+                      onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientContact: text })}
+                      keyboardType="phone-pad"
+                      containerStyle={{ marginBottom: 0 }}
+                    />
+                  </View>
+                </View>
+
+                <TextInput
                   label={t('cases.opponentParty')}
-                  placeholder="Defendant Name"
+                  placeholder={t('cases.opponentPlaceholder')}
                   value={newCaseForm.opponentName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, opponentName: text })}
                   containerStyle={{ marginBottom: 12 }}
                 />
 
+                {/* ── Section: Legal Details ── */}
+                <View style={[styles.formSectionHeader, { marginTop: 8 }]}>
+                  <View style={[styles.formSectionDot, { backgroundColor: '#8B5CF6' }]} />
+                  <Text style={[styles.formSectionTitle, { color: theme.textPrimary }]}>{t('cases.sectionLegalDetails')}</Text>
+                </View>
+
+                {/* Case Category Dropdown */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.caseCategory')}</Text>
+                <Pressable
+                  onPress={() => { setShowCaseTypePicker(!showCaseTypePicker); setShowStagePicker(false); setShowLegalDomainPicker(false); }}
+                  style={[styles.dropdownBtn, { borderColor: showCaseTypePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
+                >
+                  <Text style={[styles.dropdownBtnText, { color: newCaseForm.caseType ? theme.textPrimary : theme.textMuted }]}>
+                    {newCaseForm.caseType || t('cases.selectCategory')}
+                  </Text>
+                  <Ionicons name={showCaseTypePicker ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                </Pressable>
+                {showCaseTypePicker && (
+                  <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    {(['Civil Case', 'Criminal Case', 'Divorce Case', 'Property Dispute', 'Corporate Legal', 'Consumer Court', 'Labor Dispute', 'Custom'] as const).map((type) => (
+                      <Pressable
+                        key={type}
+                        onPress={() => { setNewCaseForm({ ...newCaseForm, caseType: type }); setShowCaseTypePicker(false); }}
+                        style={[styles.dropdownItem, { borderBottomColor: theme.divider, backgroundColor: newCaseForm.caseType === type ? (isDark ? 'rgba(59,130,246,0.15)' : '#EBF5FF') : 'transparent' }]}
+                      >
+                        <Text style={[styles.dropdownItemText, { color: newCaseForm.caseType === type ? theme.primary : theme.textPrimary }]}>
+                          {type === 'Civil Case' ? t('cases.civilCase') : type === 'Criminal Case' ? t('cases.criminalCase') : type === 'Divorce Case' ? t('cases.divorceCase') : type === 'Property Dispute' ? t('cases.propertyDispute') : type === 'Corporate Legal' ? t('cases.corporateLegal') : type === 'Consumer Court' ? t('cases.consumerCourt') : type === 'Labor Dispute' ? t('cases.laborDispute') : t('cases.enterCustomType')}
+                        </Text>
+                        {newCaseForm.caseType === type && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                {newCaseForm.caseType === 'Custom' && (
+                  <TextInput
+                    label={t('cases.enterCustomType')}
+                    placeholder={t('cases.customCaseTypePlaceholder')}
+                    value={newCaseForm.customCaseType}
+                    onChangeText={(text) => setNewCaseForm({ ...newCaseForm, customCaseType: text })}
+                    containerStyle={{ marginTop: 8, marginBottom: 12 }}
+                  />
+                )}
+
+                {/* Legal Domain Dropdown */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary, marginTop: 6 }]}>{t('cases.legalDomain')}</Text>
+                <Pressable
+                  onPress={() => { setShowLegalDomainPicker(!showLegalDomainPicker); setShowCaseTypePicker(false); setShowStagePicker(false); }}
+                  style={[styles.dropdownBtn, { borderColor: showLegalDomainPicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
+                >
+                  <Text style={[styles.dropdownBtnText, { color: newCaseForm.legalDomain ? theme.textPrimary : theme.textMuted }]}>
+                    {newCaseForm.legalDomain || t('cases.selectLegalDomain')}
+                  </Text>
+                  <Ionicons name={showLegalDomainPicker ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                </Pressable>
+                {showLegalDomainPicker && (
+                  <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.card }]}> 
+                    {(['Civil Law', 'Corporate Law', 'Family Law', 'Criminal Law', 'Property Law', 'Labor Law', 'Tax Law', 'Intellectual Property', 'General'] as const).map((domain) => (
+                      <Pressable
+                        key={domain}
+                        onPress={() => { setNewCaseForm({ ...newCaseForm, legalDomain: domain }); setShowLegalDomainPicker(false); }}
+                        style={[styles.dropdownItem, { borderBottomColor: theme.divider, backgroundColor: newCaseForm.legalDomain === domain ? (isDark ? 'rgba(59,130,246,0.15)' : '#EBF5FF') : 'transparent' }]}
+                      >
+                        <Text style={[styles.dropdownItemText, { color: newCaseForm.legalDomain === domain ? theme.primary : theme.textPrimary }]}>{domain}</Text>
+                        {newCaseForm.legalDomain === domain && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
+                {/* Stage Dropdown */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary, marginTop: newCaseForm.caseType ? 12 : 4 }]}>{t('cases.caseStage')}</Text>
+                <Pressable
+                  onPress={() => { setShowStagePicker(!showStagePicker); setShowCaseTypePicker(false); }}
+                  style={[styles.dropdownBtn, { borderColor: showStagePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
+                >
+                  <Text style={[styles.dropdownBtnText, { color: theme.textPrimary }]}>
+                    {newCaseForm.stage}
+                  </Text>
+                  <Ionicons name={showStagePicker ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                </Pressable>
+                {showStagePicker && (
+                  <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    {(['Pre-litigation', 'Notice', 'Court', 'Judgment', 'Settled'] as const).map((stage) => (
+                      <Pressable
+                        key={stage}
+                        onPress={() => { setNewCaseForm({ ...newCaseForm, stage }); setShowStagePicker(false); }}
+                        style={[styles.dropdownItem, { borderBottomColor: theme.divider, backgroundColor: newCaseForm.stage === stage ? (isDark ? 'rgba(59,130,246,0.15)' : '#EBF5FF') : 'transparent' }]}
+                      >
+                        <Text style={[styles.dropdownItemText, { color: newCaseForm.stage === stage ? theme.primary : theme.textPrimary }]}>{stage}</Text>
+                        {newCaseForm.stage === stage && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
                 <TextInput
-                  label={t('cases.legalDomain')}
-                  placeholder="e.g. Commercial Contract Law"
-                  value={newCaseForm.caseType}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, caseType: text })}
-                  containerStyle={{ marginBottom: 12 }}
+                  label={t('cases.courtJurisdiction')}
+                  placeholder={t('cases.courtPlaceholder')}
+                  value={newCaseForm.courtName}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, courtName: text })}
+                  containerStyle={{ marginTop: 12, marginBottom: 12 }}
                 />
 
                 <TextInput
-                  label={t('cases.presidingCourt')}
-                  placeholder="e.g. Delhi High Court"
-                  value={newCaseForm.courtName}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, courtName: text })}
+                  label={t('cases.advocateCounsel')}
+                  placeholder={t('cases.advocatePlaceholder')}
+                  value={newCaseForm.advocateName}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, advocateName: text })}
                   containerStyle={{ marginBottom: 12 }}
                 />
+
+                {/* Hearing Date Selector */}
+                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.firstHearingDate')}</Text>
+                <Pressable
+                  onPress={() => setShowCreateDatePicker(showCreateDatePicker === 'hearing' ? null : 'hearing')}
+                  style={[styles.datePickerBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} />
+                  <Text style={[styles.datePickerText, { color: newCaseForm.hearingDate ? theme.textPrimary : theme.textMuted }]}>
+                    {newCaseForm.hearingDate || t('cases.selectDate')}
+                  </Text>
+                  {newCaseForm.hearingDate ? (
+                    <Pressable onPress={() => setNewCaseForm({ ...newCaseForm, hearingDate: '' })}>
+                      <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+                    </Pressable>
+                  ) : null}
+                </Pressable>
+                {showCreateDatePicker === 'hearing' && (
+                  <View style={[styles.inlineDatePicker, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    {Array.from({ length: 12 }, (_, m) => (
+                      <Pressable
+                        key={m}
+                        onPress={() => {
+                          const d = new Date();
+                          d.setMonth(m);
+                          const isoDate = `${d.getFullYear()}-${String(m + 1).padStart(2, '0')}-15`;
+                          setNewCaseForm({ ...newCaseForm, hearingDate: isoDate });
+                          setShowCreateDatePicker(null);
+                        }}
+                        style={[styles.monthBtn, { borderColor: theme.border }]}
+                      >
+                        <Text style={{ fontSize: 11, color: theme.textSecondary, fontWeight: '600' }}>
+                          {new Date(2000, m).toLocaleString('default', { month: 'short' })}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
+                {/* ── Section: Summary ── */}
+                <View style={[styles.formSectionHeader, { marginTop: 12 }]}>
+                  <View style={[styles.formSectionDot, { backgroundColor: '#F59E0B' }]} />
+                  <Text style={[styles.formSectionTitle, { color: theme.textPrimary }]}>{t('cases.sectionSummary')}</Text>
+                </View>
 
                 <TextInput
                   label={t('cases.statementSummary')}
-                  placeholder="Provide brief background facts..."
+                  placeholder={t('cases.summaryPlaceholder')}
                   value={newCaseForm.summary}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, summary: text })}
                   multiline
@@ -1049,7 +1360,7 @@ export default function DashboardScreen() {
                   containerStyle={{ marginBottom: 16 }}
                 />
 
-                {/* Priority Selector buttons */}
+                {/* Priority Selector */}
                 <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.priority')}</Text>
                 <View style={styles.priorityRow}>
                   {(['Low', 'Medium', 'High', 'Urgent'] as const).map((p) => (
@@ -1076,6 +1387,16 @@ export default function DashboardScreen() {
                     </Pressable>
                   ))}
                 </View>
+
+                <TextInput
+                  label={t('cases.additionalNotes')}
+                  placeholder={t('cases.notesPlaceholder')}
+                  value={newCaseForm.additionalNotes}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, additionalNotes: text })}
+                  multiline
+                  numberOfLines={4}
+                  containerStyle={{ marginBottom: 16 }}
+                />
 
                 <Button
                   title={t('cases.saveFolder')}
@@ -1792,6 +2113,101 @@ function getStyles(theme: any) {
     borderRadius: Radius.md,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  formSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    marginBottom: Spacing[12],
+    marginTop: Spacing[4],
+  },
+  formSectionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radius.full,
+  },
+  formSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  datePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    marginBottom: Spacing[12],
+  },
+  datePickerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  inlineDatePicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[6],
+    padding: Spacing[8],
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    marginBottom: Spacing[12],
+  },
+  monthBtn: {
+    paddingHorizontal: Spacing[10],
+    paddingVertical: Spacing[6],
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  dropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    marginBottom: 4,
+  },
+  dropdownBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    flex: 1,
+  },
+  dropdownList: {
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    marginBottom: Spacing[12],
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  countryCodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[10],
+    paddingVertical: Spacing[10],
+    minWidth: 64,
+    justifyContent: 'center',
   },
 });
 }
