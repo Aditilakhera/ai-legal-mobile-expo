@@ -6,10 +6,12 @@ import { ThemedText } from '@/components/themed-text';
 import { useAuthGuard } from '@/navigation/guards';
 import { Button } from '@/components/ui';
 import { useRouter } from 'expo-router';
+import { useTranslation } from '@/localization';
 
 export default function BillingScreen() {
   useAuthGuard();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -22,17 +24,17 @@ export default function BillingScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedText type="title">Billing & Credits</ThemedText>
-        <ThemedText style={styles.subtitle}>Manage credit bounds and workspace subscriptions.</ThemedText>
+        <ThemedText type="title">{t('profile.billingTitle')}</ThemedText>
+        <ThemedText style={styles.subtitle}>{t('profile.billingSubtitle')}</ThemedText>
 
         <View style={styles.content}>
           <ThemedText style={styles.info}>
-            Your enterprise subscription tier: Premium Pro (Founder Status active).
+            {t('profile.billingInfo')}
           </ThemedText>
         </View>
 
         <Button
-          title="Back"
+          title={t('common.back')}
           variant="outlined"
           onPress={handleBack}
           style={styles.backBtn}

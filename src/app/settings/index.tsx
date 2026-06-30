@@ -390,6 +390,7 @@ export default function SettingsHomeScreen() {
           '--- Settings Summary ---',
           `Theme: ${profile.personalizations?.general?.theme || 'Light'}`,
           `Language: ${profile.personalizations?.general?.language || 'English'}`,
+          // @ts-ignore
           `Auto Backup: ${profile.personalizations?.performance?.autoBackup || 'Weekly'}`,
           '',
           '--- AI LEGAL™ Advocate Edition v1.2.0 ---',
@@ -658,7 +659,7 @@ export default function SettingsHomeScreen() {
         </Pressable>
         <View style={styles.headerTitleContainer}>
           <Text style={[styles.headerTitle, textSz(16.5), { color: theme.textPrimary }]}>{t('settings.title')}</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.textMuted }]}>Advocate Settings Console</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.textMuted }]}>{t('settings.subtitle')}</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -699,7 +700,7 @@ export default function SettingsHomeScreen() {
         {activeCategory === 'general' && (
           <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.categoryHeading, textSz(14), { color: theme.textPrimary }]}>{t('settings.general')}</Text>
-            <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Configure basic navigation and locales.</Text>
+            <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>{t('settings.configureDesc')}</Text>
 
             {/* Default Workspace */}
             <Pressable
@@ -839,7 +840,7 @@ export default function SettingsHomeScreen() {
             <View style={[styles.dangerZoneBox, { borderTopColor: theme.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.zoneHeading, { color: theme.textPrimary }]}>{t('settings.resetPreferences')}</Text>
-                <Text style={styles.zoneDesc}>Restore clean preferences without deleting case documents.</Text>
+                <Text style={styles.zoneDesc}>{t('settings.resetDesc')}</Text>
               </View>
               <Pressable
                 style={[styles.defaultsBtn, { borderColor: theme.border }]}
