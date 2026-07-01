@@ -161,8 +161,6 @@ export const english = {
     objectorOpponent: 'Objector / Opponent',
     courtJurisdiction: 'Court / Jurisdiction',
     additionalNotes: 'Additional Notes',
-    selectClient: 'Select Client...',
-    selectObjector: 'Select Objector...',
     selectCategory: 'Select category...',
     selectAdvocate: 'Select Advocate...',
     selectLegalDomain: 'Select Legal Domain...',

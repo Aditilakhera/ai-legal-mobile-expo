@@ -31,6 +31,7 @@ import { Spacing, Radius, Shadows, Colors } from '@/theme';
 import {
   Button,
   TextInput,
+  DatePicker,
   Card,
   Badge,
   Avatar,
@@ -291,8 +292,10 @@ export default function DashboardScreen() {
     name: '',
     registrationNumber: '',
     clientName: '',
+    clientRole: '',
     objectorOpponent: '',
     opponentName: '',
+    opponentRole: '',
     caseType: '',
     customCaseType: '',
     legalDomain: '',
@@ -309,6 +312,8 @@ export default function DashboardScreen() {
   });
   const [showCaseTypePicker, setShowCaseTypePicker] = useState(false);
   const [showLegalDomainPicker, setShowLegalDomainPicker] = useState(false);
+  const [showClientRolePicker, setShowClientRolePicker] = useState(false);
+  const [showOpponentRolePicker, setShowOpponentRolePicker] = useState(false);
   const [showStagePicker, setShowStagePicker] = useState(false);
   const [showCreateDatePicker, setShowCreateDatePicker] = useState<'received' | 'hearing' | null>(null);
 
@@ -593,6 +598,8 @@ export default function DashboardScreen() {
         name: newCaseForm.name,
         registrationNumber: newCaseForm.registrationNumber,
         clientName: newCaseForm.clientName,
+        clientRole: newCaseForm.clientRole,
+        opponentRole: newCaseForm.opponentRole,
         objectorOpponent: newCaseForm.objectorOpponent,
         opponentName: newCaseForm.opponentName,
         caseType: finalCaseType || newCaseForm.caseType,
@@ -1070,13 +1077,29 @@ export default function DashboardScreen() {
         >
           <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
             <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>{t('cases.createFolder')}</Text>
+              <View style={[styles.modalHeader, { backgroundColor: theme.primary, borderColor: 'transparent' }]}> 
+                <View style={styles.modalHeaderTitleRow}>
+                  <View style={styles.modalHeaderIcon}>
+                    <Ionicons name="briefcase-outline" size={20} color="#FFFFFF" />
+                  </View>
+                  <Text style={styles.modalHeaderTitleWhite}>{t('cases.newCaseTitle')}</Text>
+                </View>
                 <Pressable onPress={() => { setIsCreateModalOpen(false); setShowCaseTypePicker(false); setShowStagePicker(false); setShowCreateDatePicker(null); }}>
-                  <Text style={{ fontSize: 20, color: theme.textSecondary }}>✕</Text>
+                  <Text style={{ fontSize: 20, color: '#FFFFFF' }}>✕</Text>
                 </Pressable>
               </View>
-
+              { (showClientRolePicker || showOpponentRolePicker || showCaseTypePicker || showLegalDomainPicker || showStagePicker) && (
+                <Pressable
+                  style={styles.dropdownOverlay}
+                  onPress={() => {
+                    setShowClientRolePicker(false);
+                    setShowOpponentRolePicker(false);
+                    setShowCaseTypePicker(false);
+                    setShowLegalDomainPicker(false);
+                    setShowStagePicker(false);
+                  }}
+                />
+              ) }
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
                 {/* ── Section: Case Identity ── */}
@@ -1102,42 +1125,13 @@ export default function DashboardScreen() {
                 />
 
                 {/* Case Received On - Date Selector */}
-                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.caseReceivedOn')}</Text>
-                <Pressable
-                  onPress={() => setShowCreateDatePicker(showCreateDatePicker === 'received' ? null : 'received')}
-                  style={[styles.datePickerBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
-                >
-                  <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} />
-                  <Text style={[styles.datePickerText, { color: newCaseForm.caseReceivedOn ? theme.textPrimary : theme.textMuted }]}>
-                    {newCaseForm.caseReceivedOn || t('cases.selectDate')}
-                  </Text>
-                  {newCaseForm.caseReceivedOn ? (
-                    <Pressable onPress={() => setNewCaseForm({ ...newCaseForm, caseReceivedOn: '' })}>
-                      <Ionicons name="close-circle" size={16} color={theme.textMuted} />
-                    </Pressable>
-                  ) : null}
-                </Pressable>
-                {showCreateDatePicker === 'received' && (
-                  <View style={[styles.inlineDatePicker, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                    {Array.from({ length: 12 }, (_, m) => (
-                      <Pressable
-                        key={m}
-                        onPress={() => {
-                          const d = new Date();
-                          d.setMonth(m);
-                          const isoDate = `${d.getFullYear()}-${String(m + 1).padStart(2, '0')}-01`;
-                          setNewCaseForm({ ...newCaseForm, caseReceivedOn: isoDate });
-                          setShowCreateDatePicker(null);
-                        }}
-                        style={[styles.monthBtn, { borderColor: theme.border }]}
-                      >
-                        <Text style={{ fontSize: 11, color: theme.textSecondary, fontWeight: '600' }}>
-                          {new Date(2000, m).toLocaleString('default', { month: 'short' })}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
+                <DatePicker
+                  label={t('cases.caseReceivedOn')}
+                  placeholder={t('cases.selectDate')}
+                  value={newCaseForm.caseReceivedOn}
+                  onChangeDate={(date) => setNewCaseForm({ ...newCaseForm, caseReceivedOn: date })}
+                  containerStyle={{ marginBottom: 12 }}
+                />
 
                 {/* ── Section: Client & Opponent ── */}
                 <View style={[styles.formSectionHeader, { marginTop: 8 }]}>
@@ -1145,21 +1139,85 @@ export default function DashboardScreen() {
                   <Text style={[styles.formSectionTitle, { color: theme.textPrimary }]}>{t('cases.sectionClientInfo')}</Text>
                 </View>
 
-                <TextInput
-                  label={t('cases.clientName')}
-                  placeholder={t('cases.clientNamePlaceholder')}
-                  value={newCaseForm.clientName}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientName: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
+                <View style={styles.clientRoleRow}>
+                  <View style={styles.clientRoleField}>
+                    <TextInput
+                      label={t('cases.clientName')}
+                      placeholder={t('cases.clientNamePlaceholder')}
+                      value={newCaseForm.clientName}
+                      onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientName: text })}
+                      containerStyle={{ marginBottom: 0 }}
+                      inputStyle={{ fontSize: 15, fontWeight: '600' }}
+                    />
+                  </View>
+                  <View style={styles.clientRoleField}>
+                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>Client Role</Text>
+                    <Pressable
+                      onPress={() => { setShowClientRolePicker(!showClientRolePicker); setShowCaseTypePicker(false); setShowLegalDomainPicker(false); setShowStagePicker(false); }}
+                      style={[styles.dropdownBtn, styles.dropdownInput, { borderColor: showClientRolePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
+                    >
+                      <Text style={[styles.dropdownBtnText, { color: newCaseForm.clientRole ? theme.textPrimary : theme.placeholder }]}
+                      >
+                        {newCaseForm.clientRole || 'Select role'}
+                      </Text>
+                      <Ionicons name={showClientRolePicker ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+                    </Pressable>
+                    {showClientRolePicker && (
+                      <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.card }]}> 
+                        {(['Petitioner', 'Appellant', 'Application', 'Plaintiff'] as const).map((role) => (
+                          <Pressable
+                            key={role}
+                            onPress={() => { setNewCaseForm({ ...newCaseForm, clientRole: role }); setShowClientRolePicker(false); }}
+                            style={[styles.dropdownItem, { borderBottomColor: theme.divider, backgroundColor: newCaseForm.clientRole === role ? (isDark ? 'rgba(108,99,255,0.15)' : '#EBF5FF') : 'transparent' }]}
+                          >
+                            <Text style={[styles.dropdownItemText, { color: newCaseForm.clientRole === role ? theme.primary : theme.textPrimary }]}>{role}</Text>
+                            {newCaseForm.clientRole === role && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
 
-                <TextInput
-                  label={t('cases.objectorOpponent')}
-                  placeholder={t('cases.selectObjector')}
-                  value={newCaseForm.objectorOpponent}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, objectorOpponent: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
+                <View style={styles.clientRoleRow}>
+                  <View style={styles.clientRoleField}>
+                    <TextInput
+                      label={t('cases.opponentNameLabel')}
+                      placeholder={t('cases.opponentPlaceholder')}
+                      value={newCaseForm.opponentName}
+                      onChangeText={(text) => setNewCaseForm({ ...newCaseForm, opponentName: text })}
+                      containerStyle={{ marginBottom: 0 }}
+                      inputStyle={{ fontSize: 15, fontWeight: '600' }}
+                    />
+                  </View>
+                  <View style={styles.clientRoleField}>
+                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>Opponent Role</Text>
+                    <Pressable
+                      onPress={() => { setShowOpponentRolePicker(!showOpponentRolePicker); setShowClientRolePicker(false); setShowCaseTypePicker(false); setShowLegalDomainPicker(false); setShowStagePicker(false); }}
+                      style={[styles.dropdownBtn, styles.dropdownInput, { borderColor: showOpponentRolePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
+                    >
+                      <Text style={[styles.dropdownBtnText, { color: newCaseForm.opponentRole ? theme.textPrimary : theme.placeholder }]}
+                      >
+                        {newCaseForm.opponentRole || 'Select role'}
+                      </Text>
+                      <Ionicons name={showOpponentRolePicker ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+                    </Pressable>
+                    {showOpponentRolePicker && (
+                      <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.card }]}> 
+                        {(['Respondent', 'Defendant', 'Respondent Party', 'Accused'] as const).map((role) => (
+                          <Pressable
+                            key={role}
+                            onPress={() => { setNewCaseForm({ ...newCaseForm, opponentRole: role }); setShowOpponentRolePicker(false); }}
+                            style={[styles.dropdownItem, { borderBottomColor: theme.divider, backgroundColor: newCaseForm.opponentRole === role ? (isDark ? 'rgba(108,99,255,0.15)' : '#EBF5FF') : 'transparent' }]}
+                          >
+                            <Text style={[styles.dropdownItemText, { color: newCaseForm.opponentRole === role ? theme.primary : theme.textPrimary }]}>{role}</Text>
+                            {newCaseForm.opponentRole === role && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
 
                 {/* Country Code + Client Contact */}
                 <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.clientContact')}</Text>
@@ -1299,11 +1357,21 @@ export default function DashboardScreen() {
                 />
 
                 <TextInput
-                  label={t('cases.advocateCounsel')}
-                  placeholder={t('cases.advocatePlaceholder')}
+                  label="Assigned Lawyer"
+                  placeholder="e.g. Adv. Ramesh Sharma"
                   value={newCaseForm.advocateName}
                   onChangeText={(text) => setNewCaseForm({ ...newCaseForm, advocateName: text })}
                   containerStyle={{ marginBottom: 12 }}
+                />
+
+                <TextInput
+                  label="Description"
+                  placeholder="Provide a concise description of the case, parties and status."
+                  value={newCaseForm.additionalNotes}
+                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, additionalNotes: text })}
+                  multiline
+                  numberOfLines={4}
+                  containerStyle={{ marginBottom: 16 }}
                 />
 
                 {/* Hearing Date Selector */}
@@ -1398,12 +1466,29 @@ export default function DashboardScreen() {
                   containerStyle={{ marginBottom: 16 }}
                 />
 
-                <Button
-                  title={t('cases.saveFolder')}
-                  variant="primary"
-                  onPress={handleCreateCase}
-                  style={{ marginTop: 24, marginBottom: 40 }}
-                />
+                <View style={styles.aiAssistantCard}>
+                  <View style={styles.aiHintHeader}>
+                    <Ionicons name="sparkles-outline" size={18} color={theme.primary} />
+                    <Text style={[styles.aiHintTitle, { color: theme.textPrimary }]}>AI Assistant</Text>
+                  </View>
+                  <Text style={[styles.aiHintText, { color: theme.textSecondary }]}>Save the case to let AI suggest evidence checklists, hearing briefs, and prioritized actions for this matter.</Text>
+                </View>
+
+                <View style={styles.modalActions}>
+                  <Button
+                    title={t('common.cancel')}
+                    variant="outlined"
+                    onPress={() => { setIsCreateModalOpen(false); setShowCaseTypePicker(false); setShowStagePicker(false); setShowCreateDatePicker(null); }}
+                    style={styles.modalActionButton}
+                    textStyle={{ fontWeight: '700' }}
+                  />
+                  <Button
+                    title="Create Legal Case"
+                    variant="primary"
+                    onPress={handleCreateCase}
+                    style={[styles.modalActionButton, styles.primaryActionButton]}
+                  />
+                </View>
               </ScrollView>
             </View>
           </View>
@@ -2082,19 +2167,54 @@ function getStyles(theme: any) {
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: Spacing[12],
     marginBottom: Spacing[16],
-    paddingBottom: Spacing[10],
+    padding: Spacing[20],
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#CCCCCC',
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 16 },
+    shadowRadius: 24,
+    elevation: 10,
   },
   modalHeaderTitle: {
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 1,
   },
+  modalHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[10],
+    flex: 1,
+  },
+  modalHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.xl,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalHeaderTitleWhite: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  modalBreadcrumb: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 12,
+    marginTop: Spacing[4],
+    lineHeight: 18,
+    flex: 1,
+  },
   modalScroll: {
     flex: 1,
+    padding: Spacing[20],
   },
   selectorLabel: {
     fontSize: 13,
@@ -2114,6 +2234,47 @@ function getStyles(theme: any) {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  aiAssistantCard: {
+    backgroundColor: '#F7F5FF',
+    borderRadius: Radius.xl,
+    padding: Spacing[16],
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.14)',
+  },
+  aiHintHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    marginBottom: Spacing[8],
+  },
+  aiHintTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  aiHintText: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing[12],
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 40,
+  },
+  modalActionButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: Radius.lg,
+  },
+  primaryActionButton: {
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 8,
+  },
   formSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2131,6 +2292,40 @@ function getStyles(theme: any) {
     fontWeight: '800',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  clientRoleRow: {
+    flexDirection: 'row',
+    gap: Spacing[12],
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  clientRoleField: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  dropdownInput: {
+    minHeight: 48,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: 0,
+    justifyContent: 'center',
+  },
+  dropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    minHeight: 48,
+    marginBottom: 0,
+  },
+  dropdownBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+    color: '#6B7280',
   },
   datePickerBtn: {
     flexDirection: 'row',
@@ -2173,17 +2368,28 @@ function getStyles(theme: any) {
     paddingHorizontal: Spacing[12],
     paddingVertical: Spacing[10],
     marginBottom: 4,
+    minHeight: 48,
+  },
+  roleDropdownBtn: {
+    marginTop: 4,
+    paddingVertical: 0,
   },
   dropdownBtnText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
     flex: 1,
   },
   dropdownList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    zIndex: 20,
     borderWidth: 1,
     borderRadius: Radius.md,
     overflow: 'hidden',
-    marginBottom: Spacing[12],
+    marginTop: Spacing[2],
+    backgroundColor: '#fff',
   },
   dropdownItem: {
     flexDirection: 'row',
