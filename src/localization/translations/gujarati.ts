@@ -130,6 +130,7 @@ export const gujarati = {
     opponentPlaceholder: 'દા.ત. ABC કોર્પોરેશન',
     clientContact: 'ક્લાઈન્ટ સંપર્ક નંબર',
     phoneNumberPlaceholder: 'ફોન નંબર દાખલ કરો',
+    selectRole: 'ભૂમિકા પસંદ કરો...',
     summaryPlaceholder: 'ટૂંકી પૃષ્ઠભૂમિ હકીકતો અને કેસ સારાંશ આપો...',
     sectionCaseIdentity: 'કેસ ઓળખ',
     sectionClientInfo: 'ક્લાઈન્ટ & વિરોધી',

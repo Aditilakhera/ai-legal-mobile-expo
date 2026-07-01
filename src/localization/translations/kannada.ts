@@ -130,6 +130,7 @@ export const kannada = {
     opponentPlaceholder: 'ಉದಾ. ABC ಕಾರ್ಪೊರೇಶನ್',
     clientContact: 'ಕ್ಲೈಂಟ್ ಸಂಪರ್ಕ ಸಂಖ್ಯೆ',
     phoneNumberPlaceholder: 'ಫೋನ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ',
+    selectRole: 'ಪಾತ್ರ ಆಯ್ಕೆಮಾಡಿ...',
     summaryPlaceholder: 'ಸಂಕ್ಷಿಪ್ತ ಹಿನ್ನೆಲೆ ಅಂಶಗಳು ಮತ್ತು ಪ್ರಕರಣ ಸಾರಾಂಶ ನೀಡಿ...',
     sectionCaseIdentity: 'ಪ್ರಕರಣ ಗುರುತು',
     sectionClientInfo: 'ಕ್ಲೈಂಟ್ & ಪ್ರತಿವಾದಿ',

@@ -1151,14 +1151,14 @@ export default function DashboardScreen() {
                     />
                   </View>
                   <View style={styles.clientRoleField}>
-                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>Client Role</Text>
+                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>{t('cases.clientRoleLabel')}</Text>
                     <Pressable
                       onPress={() => { setShowClientRolePicker(!showClientRolePicker); setShowCaseTypePicker(false); setShowLegalDomainPicker(false); setShowStagePicker(false); }}
                       style={[styles.dropdownBtn, styles.dropdownInput, { borderColor: showClientRolePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
                     >
                       <Text style={[styles.dropdownBtnText, { color: newCaseForm.clientRole ? theme.textPrimary : theme.placeholder }]}
                       >
-                        {newCaseForm.clientRole || 'Select role'}
+                        {newCaseForm.clientRole || t('cases.selectRole')}
                       </Text>
                       <Ionicons name={showClientRolePicker ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
                     </Pressable>
@@ -1182,7 +1182,7 @@ export default function DashboardScreen() {
                 <View style={styles.clientRoleRow}>
                   <View style={styles.clientRoleField}>
                     <TextInput
-                      label={t('cases.opponentNameLabel')}
+                      label={t('cases.opponentName')}
                       placeholder={t('cases.opponentPlaceholder')}
                       value={newCaseForm.opponentName}
                       onChangeText={(text) => setNewCaseForm({ ...newCaseForm, opponentName: text })}
@@ -1191,14 +1191,14 @@ export default function DashboardScreen() {
                     />
                   </View>
                   <View style={styles.clientRoleField}>
-                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>Opponent Role</Text>
+                    <Text style={[styles.label, { color: theme.textSecondary, fontSize: 14, fontWeight: '600', marginBottom: 4 }]}>{t('cases.opponentRoleLabel')}</Text>
                     <Pressable
                       onPress={() => { setShowOpponentRolePicker(!showOpponentRolePicker); setShowClientRolePicker(false); setShowCaseTypePicker(false); setShowLegalDomainPicker(false); setShowStagePicker(false); }}
                       style={[styles.dropdownBtn, styles.dropdownInput, { borderColor: showOpponentRolePicker ? theme.primary : theme.border, backgroundColor: theme.surface }]}
                     >
                       <Text style={[styles.dropdownBtnText, { color: newCaseForm.opponentRole ? theme.textPrimary : theme.placeholder }]}
                       >
-                        {newCaseForm.opponentRole || 'Select role'}
+                        {newCaseForm.opponentRole || t('cases.selectRole')}
                       </Text>
                       <Ionicons name={showOpponentRolePicker ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
                     </Pressable>

@@ -110,6 +110,7 @@ export const bengali = {
     caseTypeRequired: 'মামলার ধরন প্রয়োজন।',
     enterCustomTypeErr: 'কাস্টম মামলার ধরন লিখুন।',
     deleteFolderConfirmDesc: 'এই পদক্ষেপ পূর্বাবস্থায় ফেরানো যাবে না। এই মামলার ফোল্ডারের অধীনে সমস্ত নথি, AI বিশ্লেষণ রেকর্ড, সাক্ষ্য নিবন্ধন এবং টাস্ক ব্যাকলগ স্থায়ীভাবে হারিয়ে যাবে।',
+    selectRole: 'ভূমিকা নির্বাচন করুন...',
     deletePermanently: 'স্থায়ীভাবে মুছুন',
   },
   workspace: {

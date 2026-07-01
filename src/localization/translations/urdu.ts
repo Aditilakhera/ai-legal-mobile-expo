@@ -110,6 +110,7 @@ export const urdu = {
     caseTypeRequired: 'مقدمہ کی قسم ضروری ہے۔',
     enterCustomTypeErr: 'کسٹم مقدمہ کی قسم درج کریں۔',
     deleteFolderConfirmDesc: 'یہ عمل واپس نہیں لیا جا سکتا۔ اس مقدمہ فولڈر کے تحت تمام دستاویزات، AI تجارتی تجزیہ کے ریکارڈ، ثبوت کے رجسٹر اور ٹاسک کے بیک لاگز مستقل طور پر ضائع ہو جائیں گے۔',
+    selectRole: 'کردار منتخب کریں...',
     deletePermanently: 'مستقل طور پر حذف کریں',
   },
   workspace: {

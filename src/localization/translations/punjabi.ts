@@ -110,6 +110,7 @@ export const punjabi = {
     caseTypeRequired: 'ਕੇਸ ਦੀ ਕਿਸਮ ਲੋੜੀਂਦੀ ਹੈ।',
     enterCustomTypeErr: 'ਕਸਟਮ ਕੇਸ ਕਿਸਮ ਦਰਜ ਕਰੋ।',
     deleteFolderConfirmDesc: 'ਇਹ ਕਾਰਵਾਈ ਅਣਕੀਤੀ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ। ਇਸ ਕੇਸ ਫੋਲਡਰ ਅਧੀਨ ਸਾਰੇ ਦਸਤਾਵੇਜ਼, AI ਵਿਸ਼ਲੇਸ਼ਣ ਰਿਕਾਰਡ, ਸਬੂਤ ਰਜਿਸਟਰ ਅਤੇ ਕਾਰਜ ਬੈਕਲਾਗ ਸਥਾਈ ਤੌਰ ਤੇ ਗੁੰਮ ਹੋ ਜਾਣਗੇ।',
+    selectRole: 'ਭੂਮਿਕਾ ਚੁਣੋ...',
     deletePermanently: 'ਸਥਾਈ ਤੌਰ ਤੇ ਮਿਟਾਓ',
   },
   workspace: {
