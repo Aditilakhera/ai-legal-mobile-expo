@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -32,6 +32,7 @@ import { Spacing, Radius, Shadows, Colors } from '@/theme';
 import {
   Button,
   TextInput,
+  DatePicker,
   Card,
   Badge,
   Avatar,
@@ -294,7 +295,6 @@ export default function DashboardScreen() {
   const [caseToDeleteId, setCaseToDeleteId] = useState<string | null>(null);
 
 
-
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Background clock ticker
@@ -521,9 +521,8 @@ export default function DashboardScreen() {
   }, [recentCasesList]);
 
   // --- Handlers ---
-
-
   const handleUpdateCase = async () => {
+
     if (!editingCase || !editingCase.name) {
       showToast('error', 'Error', 'Case Name is required.');
       return;
@@ -977,6 +976,8 @@ export default function DashboardScreen() {
             fetchDashboardData(true);
           }}
         />
+
+        {/* Modal: Edit Case Folder */}
 
         {/* Modal: Edit Case Folder */}
         <Modal
@@ -1669,19 +1670,54 @@ function getStyles(theme: any) {
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: Spacing[12],
     marginBottom: Spacing[16],
-    paddingBottom: Spacing[10],
+    padding: Spacing[20],
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#CCCCCC',
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 16 },
+    shadowRadius: 24,
+    elevation: 10,
   },
   modalHeaderTitle: {
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 1,
   },
+  modalHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[10],
+    flex: 1,
+  },
+  modalHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.xl,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalHeaderTitleWhite: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  modalBreadcrumb: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 12,
+    marginTop: Spacing[4],
+    lineHeight: 18,
+    flex: 1,
+  },
   modalScroll: {
     flex: 1,
+    padding: Spacing[20],
   },
   selectorLabel: {
     fontSize: 13,
@@ -1700,6 +1736,187 @@ function getStyles(theme: any) {
     borderRadius: Radius.md,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  aiAssistantCard: {
+    backgroundColor: '#F7F5FF',
+    borderRadius: Radius.xl,
+    padding: Spacing[16],
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.14)',
+  },
+  aiHintHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    marginBottom: Spacing[8],
+  },
+  aiHintTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  aiHintText: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing[12],
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 40,
+  },
+  modalActionButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: Radius.lg,
+  },
+  primaryActionButton: {
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  formSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    marginBottom: Spacing[12],
+    marginTop: Spacing[4],
+  },
+  formSectionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radius.full,
+  },
+  formSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  clientRoleRow: {
+    flexDirection: 'row',
+    gap: Spacing[12],
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  clientRoleField: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  dropdownInput: {
+    minHeight: 48,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: 0,
+    justifyContent: 'center',
+  },
+  dropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    minHeight: 48,
+    marginBottom: 0,
+  },
+  dropdownBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+    color: '#6B7280',
+  },
+  datePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[8],
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    marginBottom: Spacing[12],
+  },
+  datePickerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  inlineDatePicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[6],
+    padding: Spacing[8],
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    marginBottom: Spacing[12],
+  },
+  monthBtn: {
+    paddingHorizontal: Spacing[10],
+    paddingVertical: Spacing[6],
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  dropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    marginBottom: 4,
+    minHeight: 48,
+  },
+  roleDropdownBtn: {
+    marginTop: 4,
+    paddingVertical: 0,
+  },
+  dropdownBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    marginTop: Spacing[2],
+    backgroundColor: '#fff',
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing[12],
+    paddingVertical: Spacing[10],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  countryCodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[10],
+    paddingVertical: Spacing[10],
+    minWidth: 64,
+    justifyContent: 'center',
   },
 });
 }

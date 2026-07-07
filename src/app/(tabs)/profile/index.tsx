@@ -55,6 +55,22 @@ export default function ProfileScreen() {
   const { logout } = useAuthContext();
   const { t } = useTranslation();
 
+  const getPracticeAreaText = (area: string) => {
+    switch (area) {
+      case 'Civil Law': return t('cases.civilCase');
+      case 'Criminal Law': return t('cases.criminalCase');
+      case 'Corporate Law': return t('cases.corporateLegal');
+      case 'Family Law': return t('cases.divorceCase');
+      case 'Property Law': return t('cases.propertyDispute');
+      case 'Labour Law': return t('cases.laborDispute');
+      case 'Tax Law': return t('profile.taxLaw', 'Tax Law');
+      case 'Constitutional Law': return t('profile.constitutionalLaw', 'Constitutional Law');
+      case 'Arbitration': return t('profile.arbitration', 'Arbitration');
+      case 'IPR': return t('profile.ipr', 'IPR');
+      default: return area;
+    }
+  };
+
   const profile = useUserStore((s) => s.profile);
   const setProfile = useUserStore((s) => s.setProfile);
 
@@ -180,41 +196,41 @@ export default function ProfileScreen() {
   const checklist = useMemo(() => {
     return [
       {
-        label: 'Personal Info',
+        label: t('profile.personalInfo'),
         completed: !!(form.fullName && form.dob && form.gender && form.address && form.city && form.state && form.country),
       },
       {
-        label: 'Contact Details',
+        label: t('profile.contactDetails'),
         completed: !!(form.phoneNumber && profile?.email),
       },
       {
-        label: 'Bar Credentials',
+        label: t('profile.barCredentials'),
         completed: !!(form.barNumber && form.stateBarCouncil && form.enrollmentYear && form.enrollmentDate && form.practiceExperience && form.primaryCourt),
       },
       {
-        label: 'Office details',
+        label: t('profile.officeDetails'),
         completed: !!(form.officeName && form.officeAddress),
       },
       {
-        label: 'Practice Areas',
+        label: t('profile.practiceAreasLabel'),
         completed: form.practiceAreas.length > 0,
       },
       {
-        label: 'Advocate Bio',
+        label: t('profile.advocateBio'),
         completed: !!(form.bio && form.specialization && form.achievements),
       },
     ];
-  }, [form, profile?.email]);
+  }, [form, profile?.email, t]);
 
   // Save changes handler
   const handleSave = async () => {
     if (!form.fullName.trim()) {
-      showToast('error', 'Validation Failure', 'Full Name is required.');
+      showToast('error', t('profile.validationFailure'), t('profile.fullNameRequired'));
       return;
     }
 
     if (form.phoneNumber && !/^\+?[0-9\s-]{8,15}$/.test(form.phoneNumber)) {
-      showToast('error', 'Validation Failure', 'Please enter a valid phone number.');
+      showToast('error', t('profile.validationFailure'), t('profile.invalidPhone'));
       return;
     }
 
@@ -246,12 +262,12 @@ export default function ProfileScreen() {
 
       if (res.success && res.data) {
         setProfile(res.data);
-        showToast('success', 'Profile Updated', 'Advocate dossier successfully saved.');
+        showToast('success', t('profile.updated'), t('profile.dossierSaved'));
         setIsEditing(false);
       }
     } catch (e: any) {
       console.error('[PROFILE SAVE ERROR]', e);
-      showToast('error', 'Save Failed', e.message || 'Unable to store profile configurations.');
+      showToast('error', t('profile.saveFailed'), e.message || t('profile.logoutError'));
     } finally {
       setSaving(false);
     }
@@ -267,11 +283,11 @@ export default function ProfileScreen() {
           ...profile,
           avatar: avatarUrl,
         });
-        showToast('success', 'Photo Updated', 'Avatar synced successfully.');
+        showToast('success', t('profile.photoUpdated'), t('profile.avatarSynced'));
         setShowAvatarModal(false);
       }
     } catch (e) {
-      showToast('error', 'Update Failed', 'Failed to synchronize profile avatar.');
+      showToast('error', t('profile.updateFailed'), t('profile.avatarSyncFailed'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -299,11 +315,11 @@ export default function ProfileScreen() {
           ...profile,
           avatar: '',
         });
-        showToast('success', 'Photo Removed', 'Profile photo cleared.');
+        showToast('success', t('profile.photoRemoved'), t('profile.photoCleared'));
         setShowAvatarModal(false);
       }
     } catch (e) {
-      showToast('error', 'Failed', 'Failed to delete profile picture.');
+      showToast('error', t('common.failed'), t('profile.deletePhotoFailed'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -354,19 +370,19 @@ export default function ProfileScreen() {
       router.push('/settings/help' as any);
     } else if (item === 'Logout') {
       Alert.alert(
-        'Logout',
-        'Are you sure you want to logout from AI LEGAL?',
+        t('profile.logoutConfirmTitle'),
+        t('profile.logoutConfirm'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Logout',
+            text: t('profile.logoutConfirmTitle'),
             style: 'destructive',
             onPress: async () => {
               try {
                 await logout();
                 router.replace('/auth/login' as any);
               } catch (e) {
-                showToast('error', 'Logout Failed', 'An error occurred during logout.');
+                showToast('error', t('profile.logoutFailed'), t('profile.logoutError'));
               }
             },
           },
@@ -389,7 +405,7 @@ export default function ProfileScreen() {
             { color: theme.textPrimary },
             !value && [styles.infoRowValueEmpty, { color: theme.textMuted }]
           ]}>
-            {value || 'Not Provided'}
+            {value || t('common.notProvided')}
           </Text>
         </View>
       </View>
@@ -439,7 +455,7 @@ export default function ProfileScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitleText, { color: theme.textPrimary }]} numberOfLines={1}>{t('profile.title')}</Text>
-          <Text style={[styles.headerSubtitleText, { color: theme.textMuted }]} numberOfLines={1}>Litigation & Practice Credentials</Text>
+          <Text style={[styles.headerSubtitleText, { color: theme.textMuted }]} numberOfLines={1}>{t('profile.subtitle')}</Text>
         </View>
 
         <View style={styles.headerRight}>
@@ -448,7 +464,7 @@ export default function ProfileScreen() {
               <Pressable
                 onPress={() => {
                   setIsEditing(false);
-                  showToast('info', 'Edit Discarded', 'Profile modifications reverted.');
+                  showToast('info', t('profile.editDiscarded'), t('profile.editReverted'));
                 }}
                 style={styles.cancelLink}
               >
@@ -513,7 +529,7 @@ export default function ProfileScreen() {
 
                 <View style={styles.identityCol}>
                   <Text style={[styles.fullNameText, { color: theme.textPrimary }]}>
-                    {form.fullName || profile?.name || 'Counsel Profile'}
+                    {form.fullName || profile?.name || t('profile.title')}
                   </Text>
                   <Text style={[styles.emailText, { color: theme.textSecondary }]}>{profile?.email || 'N/A'}</Text>
 
@@ -534,19 +550,19 @@ export default function ProfileScreen() {
                         styles.statusBadgeText,
                         { color: form.barNumber ? theme.primary : theme.warning }
                       ]}>
-                        {form.barNumber ? "Verified Advocate" : "Pending Verification"}
+                        {form.barNumber ? t('profile.verifiedAdvocate') : t('profile.pendingVerification')}
                       </Text>
                     </View>
 
                     {profile?.founderStatus ? (
                       <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
                         <Ionicons name="ribbon-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
-                        <Text style={[styles.membershipText, { color: theme.primary }]}>Founder Member</Text>
+                        <Text style={[styles.membershipText, { color: theme.primary }]}>{t('profile.founderMember')}</Text>
                       </View>
                     ) : (
                       <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
                         <Ionicons name="star-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
-                        <Text style={[styles.membershipText, { color: theme.primary }]}>Premium Member</Text>
+                        <Text style={[styles.membershipText, { color: theme.primary }]}>{t('profile.premiumMember')}</Text>
                       </View>
                     )}
                   </View>
@@ -573,39 +589,39 @@ export default function ProfileScreen() {
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
-                  {renderInput('Full Name', form.fullName, (v) => setForm({ ...form, fullName: v }), 'Advocate Full Name')}
-                  {renderInput('Email Address', profile?.email || '', () => {}, 'Linked Account Email', 'email-address')}
-                  {renderInput('Phone Number', form.phoneNumber, (v) => setForm({ ...form, phoneNumber: v }), '+91 XXXXX XXXXX', 'phone-pad')}
+                  {renderInput(t('profile.fullName'), form.fullName, (v) => setForm({ ...form, fullName: v }), t('profile.fullNamePlaceholder'))}
+                  {renderInput(t('profile.emailAddress'), profile?.email || '', () => {}, t('profile.emailPlaceholder'), 'email-address')}
+                  {renderInput(t('profile.phoneNumber'), form.phoneNumber, (v) => setForm({ ...form, phoneNumber: v }), t('profile.phonePlaceholder'), 'phone-pad')}
                   <View style={styles.rowFields}>
                     <View style={{ flex: 1 }}>
-                      {renderInput('Date of Birth', form.dob, (v) => setForm({ ...form, dob: v }), 'YYYY-MM-DD')}
+                      {renderInput(t('profile.dob'), form.dob, (v) => setForm({ ...form, dob: v }), t('profile.dobPlaceholder'))}
                     </View>
                     <View style={{ flex: 1 }}>
-                      {renderInput('Gender', form.gender, (v) => setForm({ ...form, gender: v }), 'e.g. Female')}
+                      {renderInput(t('profile.gender'), form.gender, (v) => setForm({ ...form, gender: v }), t('profile.genderPlaceholder'))}
                     </View>
                   </View>
-                  {renderInput('City', form.city, (v) => setForm({ ...form, city: v }), 'e.g. New Delhi')}
+                  {renderInput(t('profile.city'), form.city, (v) => setForm({ ...form, city: v }), t('profile.cityPlaceholder'))}
                   <View style={styles.rowFields}>
                     <View style={{ flex: 1 }}>
-                      {renderInput('State', form.state, (v) => setForm({ ...form, state: v }), 'e.g. Delhi')}
+                      {renderInput(t('profile.state'), form.state, (v) => setForm({ ...form, state: v }), t('profile.statePlaceholder'))}
                     </View>
                     <View style={{ flex: 1 }}>
-                      {renderInput('Country', form.country, (v) => setForm({ ...form, country: v }), 'e.g. India')}
+                      {renderInput(t('profile.country'), form.country, (v) => setForm({ ...form, country: v }), t('profile.countryPlaceholder'))}
                     </View>
                   </View>
-                  {renderInput('Residential Address', form.address, (v) => setForm({ ...form, address: v }), 'Chamber Street and House Number')}
+                  {renderInput(t('profile.residentialAddress'), form.address, (v) => setForm({ ...form, address: v }), t('profile.addressPlaceholder'))}
                 </View>
               ) : (
                 <View style={styles.infoGrid}>
-                  {renderRow('person-outline', 'Full Name', form.fullName)}
-                  {renderRow('mail-outline', 'Email Address', profile?.email)}
-                  {renderRow('call-outline', 'Phone Number', form.phoneNumber)}
-                  {renderRow('calendar-outline', 'Date of Birth', form.dob)}
-                  {renderRow('male-female-outline', 'Gender', form.gender)}
-                  {renderRow('business-outline', 'City', form.city)}
-                  {renderRow('map-outline', 'State', form.state)}
-                  {renderRow('globe-outline', 'Country', form.country)}
-                  {renderRow('home-outline', 'Residential Address', form.address)}
+                  {renderRow('person-outline', t('profile.fullName'), form.fullName)}
+                  {renderRow('mail-outline', t('profile.emailAddress'), profile?.email)}
+                  {renderRow('call-outline', t('profile.phoneNumber'), form.phoneNumber)}
+                  {renderRow('calendar-outline', t('profile.dob'), form.dob)}
+                  {renderRow('male-female-outline', t('profile.gender'), form.gender)}
+                  {renderRow('business-outline', t('profile.city'), form.city)}
+                  {renderRow('map-outline', t('profile.state'), form.state)}
+                  {renderRow('globe-outline', t('profile.country'), form.country)}
+                  {renderRow('home-outline', t('profile.residentialAddress'), form.address)}
                 </View>
               )}
             </Animated.View>
@@ -616,27 +632,27 @@ export default function ProfileScreen() {
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
-                  {renderInput('State Bar Council', form.stateBarCouncil, (v) => setForm({ ...form, stateBarCouncil: v }), 'e.g. Bar Council of Delhi')}
-                  {renderInput('Enrollment Number', form.barNumber, (v) => setForm({ ...form, barNumber: v }), 'e.g. D/1042/2018')}
+                  {renderInput(t('profile.stateBarCouncil'), form.stateBarCouncil, (v) => setForm({ ...form, stateBarCouncil: v }), t('profile.barCouncilPlaceholder'))}
+                  {renderInput(t('profile.enrollmentNumber'), form.barNumber, (v) => setForm({ ...form, barNumber: v }), t('profile.enrollmentPlaceholder'))}
                   <View style={styles.rowFields}>
                     <View style={{ flex: 1 }}>
-                      {renderInput('Enrollment Year', form.enrollmentYear, (v) => setForm({ ...form, enrollmentYear: v }), 'e.g. 2018', 'numeric')}
+                      {renderInput(t('profile.enrollmentNumber'), form.enrollmentYear, (v) => setForm({ ...form, enrollmentYear: v }), t('profile.enrollmentYearPlaceholder'), 'numeric')}
                     </View>
                     <View style={{ flex: 1 }}>
-                      {renderInput('Practice Experience (Years)', form.practiceExperience, (v) => setForm({ ...form, practiceExperience: v }), 'e.g. 8', 'numeric')}
+                      {renderInput(t('profile.practiceExperienceYears'), form.practiceExperience, (v) => setForm({ ...form, practiceExperience: v }), t('profile.experiencePlaceholder'), 'numeric')}
                     </View>
                   </View>
-                  {renderInput('Primary Court of Practice', form.primaryCourt, (v) => setForm({ ...form, primaryCourt: v }), 'e.g. Delhi High Court')}
-                  {renderInput('Languages Known', form.languagesKnown, (v) => setForm({ ...form, languagesKnown: v }), 'e.g. English, Hindi')}
+                  {renderInput(t('profile.primaryCourt'), form.primaryCourt, (v) => setForm({ ...form, primaryCourt: v }), t('profile.courtPlaceholder'))}
+                  {renderInput(t('profile.languagesKnown'), form.languagesKnown, (v) => setForm({ ...form, languagesKnown: v }), t('profile.languagesPlaceholder'))}
                 </View>
               ) : (
                 <View style={styles.infoGrid}>
-                  {renderRow('ribbon-outline', 'State Bar Council', form.stateBarCouncil)}
-                  {renderRow('card-outline', 'Enrollment Number', form.barNumber)}
-                  {renderRow('calendar-outline', 'Enrollment Year', form.enrollmentYear)}
-                  {renderRow('briefcase-outline', 'Practice Experience', form.practiceExperience ? `${form.practiceExperience} Years` : undefined)}
-                  {renderRow('library-outline', 'Primary Court', form.primaryCourt)}
-                  {renderRow('language-outline', 'Languages Known', form.languagesKnown)}
+                  {renderRow('ribbon-outline', t('profile.stateBarCouncil'), form.stateBarCouncil)}
+                  {renderRow('card-outline', t('profile.enrollmentNumber'), form.barNumber)}
+                  {renderRow('calendar-outline', t('profile.enrollmentNumber'), form.enrollmentYear)}
+                  {renderRow('briefcase-outline', t('profile.practiceExperience'), form.practiceExperience ? t('profile.yearsCount', { count: form.practiceExperience }) : undefined)}
+                  {renderRow('library-outline', t('profile.primaryCourt'), form.primaryCourt)}
+                  {renderRow('language-outline', t('profile.languagesKnown'), form.languagesKnown)}
                 </View>
               )}
             </Animated.View>
@@ -647,12 +663,12 @@ export default function ProfileScreen() {
 
               {isEditing ? (
                 <View style={styles.fieldsGroup}>
-                  {renderInput('Office / Chamber Name', form.officeName, (v) => setForm({ ...form, officeName: v }), 'e.g. Lex Apex Chambers')}
-                  {renderInput('Chambers Address', form.officeAddress, (v) => setForm({ ...form, officeAddress: v }), 'Chamber address details')}
+                  {renderInput(t('profile.officeChamberName'), form.officeName, (v) => setForm({ ...form, officeName: v }), t('profile.officePlaceholder'))}
+                  {renderInput(t('profile.chambersAddress'), form.officeAddress, (v) => setForm({ ...form, officeAddress: v }), t('profile.chambersAddressPlaceholder'))}
                   
                   {/* Practice Areas */}
                   <View style={styles.chipLabelGroup}>
-                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Practice Areas</Text>
+                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>{t('profile.practiceAreasLabel')}</Text>
                     <View style={styles.chipsContainer}>
                       {PRACTICE_AREAS.map((area) => {
                         const isSelected = form.practiceAreas.includes(area);
@@ -671,7 +687,7 @@ export default function ProfileScreen() {
                               { color: theme.textSecondary },
                               isSelected && [styles.chipButtonTextActive, { color: theme.primary }]
                             ]}>
-                              {area}
+                              {getPracticeAreaText(area)}
                             </Text>
                           </Pressable>
                         );
@@ -679,51 +695,51 @@ export default function ProfileScreen() {
                     </View>
                   </View>
 
-                  {renderInput('Core Specialization', form.specialization, (v) => setForm({ ...form, specialization: v }), 'e.g. Insolvency and Bankruptcy')}
-                  {renderInput('Professional Bio Summary', form.bio, (v) => setForm({ ...form, bio: v }), 'Detailed practice history...', 'default', true, 4)}
-                  {renderInput('Achievements', form.achievements, (v) => setForm({ ...form, achievements: v }), 'Certifications, landmark achievements...', 'default', true, 3)}
+                  {renderInput(t('profile.coreSpecialization'), form.specialization, (v) => setForm({ ...form, specialization: v }), t('profile.specializationPlaceholder'))}
+                  {renderInput(t('profile.bioSummary'), form.bio, (v) => setForm({ ...form, bio: v }), t('profile.bioPlaceholder'), 'default', true, 4)}
+                  {renderInput(t('profile.achievementsLabel'), form.achievements, (v) => setForm({ ...form, achievements: v }), t('profile.achievementsPlaceholder'), 'default', true, 3)}
                 </View>
               ) : (
                 <View style={styles.infoGrid}>
-                  {renderRow('business-outline', 'Office Name', form.officeName)}
-                  {renderRow('location-outline', 'Office Address', form.officeAddress)}
+                  {renderRow('business-outline', t('profile.officeName'), form.officeName)}
+                  {renderRow('location-outline', t('profile.officeAddress'), form.officeAddress)}
 
                   <View style={[styles.practiceAreasSection, { borderTopColor: theme.divider }]}>
-                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Practice Areas</Text>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>{t('profile.practiceAreasLabel')}</Text>
                     <View style={styles.chipsContainer}>
                       {form.practiceAreas.length > 0 ? (
                         form.practiceAreas.map((area) => (
                           <View key={area} style={[styles.staticChip, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
-                            <Text style={[styles.staticChipText, { color: theme.primary }]}>{area}</Text>
+                            <Text style={[styles.staticChipText, { color: theme.primary }]}>{getPracticeAreaText(area)}</Text>
                           </View>
                         ))
                       ) : (
-                        <Text style={[styles.notProvidedText, { color: theme.textMuted }]}>No practice areas specified</Text>
+                        <Text style={[styles.notProvidedText, { color: theme.textMuted }]}>{t('profile.noPracticeAreas')}</Text>
                       )}
                     </View>
                   </View>
 
-                  {renderRow('sparkles-outline', 'Core Specialization', form.specialization)}
+                  {renderRow('sparkles-outline', t('profile.coreSpecialization'), form.specialization)}
 
                   <View style={styles.longTextSection}>
-                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Professional Bio Summary</Text>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>{t('profile.bioSummary')}</Text>
                     <Text style={[
                       styles.longTextValue,
                       { color: theme.textPrimary },
                       !form.bio && [styles.longTextEmpty, { color: theme.textMuted }]
                     ]}>
-                      {form.bio || 'Not Provided'}
+                      {form.bio || t('common.notProvided')}
                     </Text>
                   </View>
 
                   <View style={styles.longTextSection}>
-                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>Achievements</Text>
+                    <Text style={[styles.infoRowLabel, { color: theme.textMuted }]}>{t('profile.achievementsLabel')}</Text>
                     <Text style={[
                       styles.longTextValue,
                       { color: theme.textPrimary },
                       !form.achievements && [styles.longTextEmpty, { color: theme.textMuted }]
                     ]}>
-                      {form.achievements || 'Not Provided'}
+                      {form.achievements || t('common.notProvided')}
                     </Text>
                   </View>
                 </View>
@@ -734,7 +750,7 @@ export default function ProfileScreen() {
             <Animated.View style={[styles.card, getCardStyle(4), { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.progress')}</Text>
               <Text style={[styles.checklistSubtitle, { color: theme.textSecondary }]}>
-                Complete these sections to build a professional Advocate Dossier.
+                {t('profile.checklistSubtitle')}
               </Text>
               <View style={styles.checklistGrid}>
                 {checklist.map((item, idx) => (
@@ -791,7 +807,7 @@ export default function ProfileScreen() {
                     >
                       <View style={styles.accountItemLeft}>
                         <Ionicons name="book-outline" size={18} color={theme.textSecondary} style={styles.accountIcon} />
-                        <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>AI Product Guide Knowledge</Text>
+                        <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>{t('settings.ragKnowledgeBase', 'AI Product Guide Knowledge')}</Text>
                       </View>
                       <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
                     </Pressable>
@@ -826,7 +842,7 @@ export default function ProfileScreen() {
           <Pressable style={styles.modalDismissBg} onPress={() => setShowAvatarModal(false)} />
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
             <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Change Profile Photo</Text>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>{t('profile.changePhoto')}</Text>
               <Pressable onPress={() => setShowAvatarModal(false)}>
                 <Ionicons name="close" size={22} color={theme.textSecondary} />
               </Pressable>
@@ -835,11 +851,11 @@ export default function ProfileScreen() {
             {uploadingAvatar ? (
               <View style={styles.uploadingBox}>
                 <ActivityIndicator size="large" color={theme.primary} />
-                <Text style={[styles.uploadingText, { color: theme.primary }]}>Uploading photo to cloud storage...</Text>
+                <Text style={[styles.uploadingText, { color: theme.primary }]}>{t('profile.uploadingPhoto')}</Text>
               </View>
             ) : (
               <View style={{ paddingBottom: 20 }}>
-                <Text style={[styles.drawerSectionTitle, { color: theme.textSecondary }]}>Choose Premium Presets</Text>
+                <Text style={[styles.drawerSectionTitle, { color: theme.textSecondary }]}>{t('profile.choosePresets')}</Text>
                 <View style={styles.avatarGrid}>
                   {PRESET_AVATARS.map((av, idx) => (
                     <Pressable
@@ -858,7 +874,7 @@ export default function ProfileScreen() {
                 <View style={styles.avatarActions}>
                   <Pressable style={[styles.uploadBtn, { backgroundColor: theme.primary }]} onPress={handleMockUpload}>
                     <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.uploadBtnText}>Upload Custom Picture</Text>
+                    <Text style={styles.uploadBtnText}>{t('profile.uploadCustom')}</Text>
                   </Pressable>
 
                   {profile?.avatar ? (
@@ -873,7 +889,7 @@ export default function ProfileScreen() {
                       onPress={handleRemoveAvatar}
                     >
                       <Ionicons name="trash-outline" size={16} color={theme.danger} />
-                      <Text style={[styles.removeBtnText, { color: theme.danger }]}>Delete Photo</Text>
+                      <Text style={[styles.removeBtnText, { color: theme.danger }]}>{t('profile.deletePhoto')}</Text>
                     </Pressable>
                   ) : null}
                 </View>

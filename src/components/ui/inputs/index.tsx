@@ -16,6 +16,13 @@ import {
   ActivityIndicator,
   StyleProp,
 } from 'react-native';
+// @ts-ignore
+// eslint-disable-next-line import/no-unresolved
+import { Ionicons } from '@expo/vector-icons';
+// @ts-ignore
+import { DatePickerModal } from 'react-native-paper-dates';
+// @ts-ignore
+import { PaperProvider } from 'react-native-paper';
 import { useThemeContext } from '@/providers';
 import { Spacing, Radius, Opacity } from '@/theme';
 
@@ -360,6 +367,187 @@ export const UploadInput: React.FC<UploadInputProps> = ({
     </TouchableOpacity>
   );
 };
+
+/**
+ * Cross-platform Material Design Date Picker.
+ * Uses react-native-paper-dates DatePickerModal for a consistent UI across Android, iOS, and Web.
+ */
+export interface DatePickerProps {
+  label?: string;
+  placeholder?: string;
+  value?: string; // stored as YYYY-MM-DD
+  onChangeDate: (date: string) => void;
+  containerStyle?: ViewStyle;
+  error?: string;
+  disabled?: boolean;
+}
+
+export const DatePicker: React.FC<DatePickerProps> = ({
+  label,
+  placeholder = 'Select date...',
+  value,
+  onChangeDate,
+  containerStyle,
+  error,
+  disabled,
+}) => {
+  const { theme, isDark } = useThemeContext();
+  const [open, setOpen] = useState(false);
+
+  const today = new Date();
+  const minDate = new Date(1900, 0, 1);
+
+  // Parse YYYY-MM-DD value → Date object for the picker
+  const parsedDate = React.useMemo(() => {
+    if (!value) return undefined;
+    const parts = value.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m, d);
+      }
+    }
+    return undefined;
+  }, [value]);
+
+  const getDisplayDate = (): string => {
+    if (!value) return '';
+    const parts = value.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
+    }
+    return value;
+  };
+
+  const handleConfirm = (params: { date: Date | undefined }) => {
+    setOpen(false);
+    if (params.date) {
+      const d = params.date;
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      onChangeDate(iso);
+    }
+  };
+
+  const handleClear = (e: any) => {
+    e.stopPropagation();
+    onChangeDate('');
+  };
+
+  // Build a Material Design theme matching the app's color scheme
+  const paperTheme = React.useMemo(() => ({
+    dark: isDark,
+    colors: {
+      primary: theme.primary,
+      onPrimary: '#FFFFFF',
+      primaryContainer: theme.primary,
+      onPrimaryContainer: '#FFFFFF',
+      secondary: theme.textSecondary,
+      onSecondary: '#FFFFFF',
+      background: theme.card,
+      onBackground: theme.textPrimary,
+      surface: theme.card,
+      onSurface: theme.textPrimary,
+      surfaceVariant: theme.surfaceVariant,
+      onSurfaceVariant: theme.textSecondary,
+      outline: theme.border,
+      shadow: '#000000',
+      inverseSurface: theme.textPrimary,
+      inverseOnSurface: theme.card,
+    },
+  }), [theme, isDark]);
+
+  return (
+    <PaperProvider theme={paperTheme as any}>
+      <View style={containerStyle}>
+        {!!label && <Text style={[dpStyles.label, { color: theme.textSecondary }]}>{label}</Text>}
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => { if (!disabled) setOpen(true); }}
+          disabled={disabled}
+          style={[
+            dpStyles.inputWrapper,
+            {
+              borderColor: error ? theme.danger : theme.border,
+              backgroundColor: disabled ? theme.surfaceVariant : theme.surface,
+            },
+          ]}
+        >
+          <View style={dpStyles.leftIconWrapper}>
+            <Ionicons name="calendar-outline" size={18} color={theme.textSecondary} />
+          </View>
+
+          <Text
+            style={[
+              dpStyles.inputText,
+              { color: value ? theme.textPrimary : theme.placeholder },
+            ]}
+            numberOfLines={1}
+          >
+            {getDisplayDate() || placeholder}
+          </Text>
+
+          {!!value && !disabled && (
+            <TouchableOpacity onPress={handleClear} activeOpacity={0.7} style={dpStyles.clearButton}>
+              <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+
+        {!!error && <Text style={[dpStyles.errorText, { color: theme.danger }]}>{error}</Text>}
+
+        <DatePickerModal
+          mode="single"
+          visible={open}
+          onDismiss={() => setOpen(false)}
+          date={parsedDate}
+          onConfirm={handleConfirm}
+          validRange={{ startDate: minDate, endDate: today }}
+          locale="en"
+          presentationStyle="pageSheet"
+          animationType="fade"
+        />
+      </View>
+    </PaperProvider>
+  );
+};
+
+const dpStyles = StyleSheet.create({
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: Spacing[4],
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderRadius: Radius.md,
+    minHeight: 48,
+    paddingHorizontal: Spacing[12],
+  },
+  leftIconWrapper: {
+    marginRight: Spacing[8],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inputText: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: Spacing[8],
+  },
+  clearButton: {
+    padding: Spacing[4],
+    marginLeft: Spacing[4],
+  },
+  errorText: {
+    fontSize: 12,
+    marginTop: Spacing[4],
+    fontWeight: '500',
+  },
+});
 
 const styles = StyleSheet.create({
   container: {

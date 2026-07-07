@@ -7,6 +7,12 @@ import { gujarati } from './translations/gujarati';
 import { marathi } from './translations/marathi';
 import { tamil } from './translations/tamil';
 import { bilingual } from './translations/bilingual';
+import { telugu } from './translations/telugu';
+import { kannada } from './translations/kannada';
+import { punjabi } from './translations/punjabi';
+import { bengali } from './translations/bengali';
+import { malayalam } from './translations/malayalam';
+import { urdu } from './translations/urdu';
 
 // Translation registry lookup
 export const TRANSLATIONS: Record<string, any> = {
@@ -16,6 +22,12 @@ export const TRANSLATIONS: Record<string, any> = {
   Marathi: marathi,
   Tamil: tamil,
   Bilingual: bilingual,
+  Telugu: telugu,
+  Kannada: kannada,
+  Punjabi: punjabi,
+  Bengali: bengali,
+  Malayalam: malayalam,
+  Urdu: urdu,
 };
 
 // Local storage backup language state store
@@ -128,17 +140,29 @@ export const formatRelativeDate = (dateStr: string | Date | undefined, currentLa
     d1.getFullYear() === d2.getFullYear();
 
   // Dynamic localization strings based on language selection
-  const isHindiOrBilingual = currentLanguage === 'Hindi' || currentLanguage === 'Bilingual';
-  const todayText = isHindiOrBilingual ? 'आज' : 'Today';
-  const yesterdayText = isHindiOrBilingual ? 'कल' : 'Yesterday';
-  const tomorrowText = isHindiOrBilingual ? 'कल' : 'Tomorrow';
+  const dateTranslations: Record<string, { today: string; yesterday: string; tomorrow: string }> = {
+    English: { today: 'Today', yesterday: 'Yesterday', tomorrow: 'Tomorrow' },
+    Hindi: { today: 'आज', yesterday: 'कल', tomorrow: 'कल' },
+    Bilingual: { today: 'Today (आज)', yesterday: 'Yesterday (कल)', tomorrow: 'Tomorrow (कल)' },
+    Gujarati: { today: 'આજે', yesterday: 'ગઈકાલે', tomorrow: 'આવતીકાલે' },
+    Marathi: { today: 'आज', yesterday: 'काल', tomorrow: 'उद्या' },
+    Tamil: { today: 'இன்று', yesterday: 'நேற்று', tomorrow: 'நாளை' },
+    Telugu: { today: 'నేడు', yesterday: 'నిన్న', tomorrow: 'రేపు' },
+    Kannada: { today: 'ಇಂದು', yesterday: 'ನಿನ್ನೆ', tomorrow: 'ನಾಳೆ' },
+    Punjabi: { today: 'ਅੱਜ', yesterday: 'ਕੱਲ੍ਹ', tomorrow: 'ਕੱਲ੍ਹ' },
+    Bengali: { today: 'আজ', yesterday: 'গতকাল', tomorrow: 'আগামীকাল' },
+    Malayalam: { today: 'ഇന്ന്', yesterday: 'ഇന്നലെ', tomorrow: 'നാളെ' },
+    Urdu: { today: 'آج', yesterday: 'کل', tomorrow: 'کل' }
+  };
+
+  const trans = dateTranslations[currentLanguage] || dateTranslations.English;
 
   if (isSameDay(date, today)) {
-    return currentLanguage === 'Bilingual' ? 'Today (आज)' : todayText;
+    return trans.today;
   } else if (isSameDay(date, yesterday)) {
-    return currentLanguage === 'Bilingual' ? 'Yesterday (कल)' : yesterdayText;
+    return trans.yesterday;
   } else if (isSameDay(date, tomorrow)) {
-    return currentLanguage === 'Bilingual' ? 'Tomorrow (कल)' : tomorrowText;
+    return trans.tomorrow;
   }
 
   // Retrieve user custom date formatting config
@@ -187,7 +211,10 @@ export const formatTime = (timeStr: string | Date | undefined): string => {
 
 // Localize numbers based on language selection
 export const formatNumber = (num: number, currentLanguage = 'English'): string => {
-  const isIndianFormat = ['Hindi', 'Bilingual', 'Tamil', 'Gujarati', 'Marathi'].includes(currentLanguage);
+  const isIndianFormat = [
+    'Hindi', 'Bilingual', 'Tamil', 'Gujarati', 'Marathi',
+    'Telugu', 'Kannada', 'Punjabi', 'Bengali', 'Malayalam', 'Urdu'
+  ].includes(currentLanguage);
   try {
     return new Intl.NumberFormat(isIndianFormat ? 'en-IN' : 'en-US').format(num);
   } catch (e) {
@@ -197,7 +224,10 @@ export const formatNumber = (num: number, currentLanguage = 'English'): string =
 
 // Localize currency symbols & formatting
 export const formatCurrency = (amount: number, currentLanguage = 'English', currencyCode = 'INR'): string => {
-  const isIndianLocale = ['Hindi', 'Bilingual', 'Tamil', 'Gujarati', 'Marathi'].includes(currentLanguage);
+  const isIndianLocale = [
+    'Hindi', 'Bilingual', 'Tamil', 'Gujarati', 'Marathi',
+    'Telugu', 'Kannada', 'Punjabi', 'Bengali', 'Malayalam', 'Urdu'
+  ].includes(currentLanguage);
   try {
     return new Intl.NumberFormat(isIndianLocale ? 'en-IN' : 'en-US', {
       style: 'currency',
@@ -209,6 +239,7 @@ export const formatCurrency = (amount: number, currentLanguage = 'English', curr
     return `${symbol}${formatNumber(amount, currentLanguage)}`;
   }
 };
+
 
 // Localize percentage
 export const formatPercentage = (val: number): string => {
