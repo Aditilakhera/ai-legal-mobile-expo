@@ -20,6 +20,7 @@ import {
   Keyboard,
   Animated,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // @ts-ignore
@@ -448,6 +449,38 @@ export default function ChatScreen() {
   const [inputVal, setInputVal] = useState('');
   const [activeTool, setActiveTool] = useState('legal_my_case');
 
+  const handleClearAllConfirm = () => {
+    Alert.alert(
+      "Clear History",
+      "Are you sure you want to permanently delete all chat history? This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const currentSessions = [...sessions];
+              useChatStore.getState().clearChat();
+              for (const session of currentSessions) {
+                if (session._id || session.createdAt) {
+                  const { ChatService } = require('@/services/chat.service');
+                  ChatService.deleteSession(session.sessionId).catch(() => {});
+                }
+              }
+              showToast('success', 'History Cleared', 'All conversation logs removed.');
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderWelcomeIcon = () => {
     let iconName = 'scale-balance';
     switch (activeTool) {
@@ -793,7 +826,14 @@ export default function ChatScreen() {
       isFocusMode={isFocusMode}
       header={
         <PageHeader
-          title={t('home.aiLegalAssistant')}
+          title={
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+              <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary }}>
+                {t('home.aiLegalAssistant')}
+              </Text>
+            </View>
+          }
           subtitle={t('assistant.welcome')}
           hideNotifications={true}
           rightActions={[
@@ -982,6 +1022,21 @@ export default function ChatScreen() {
             <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
               <View style={styles.drawerHeader}>
                 <Text style={[styles.drawerTitle, { color: theme.textPrimary }]}>{t('assistant.history')}</Text>
+                {filteredSessions.length > 0 && (
+                  <TouchableOpacity
+                    onPress={handleClearAllConfirm}
+                    style={{
+                      marginLeft: 'auto',
+                      marginRight: 16,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6,
+                      backgroundColor: theme.danger + '15',
+                    }}
+                  >
+                    <Text style={{ color: theme.danger, fontSize: 12, fontWeight: 'bold' }}>Clear All</Text>
+                  </TouchableOpacity>
+                )}
                 <Pressable onPress={() => setIsHistoryOpen(false)}>
                   <Ionicons name="close" size={24} color={theme.textPrimary} />
                 </Pressable>
@@ -1184,11 +1239,8 @@ export default function ChatScreen() {
                             activeOpacity={0.7}
                             onPress={() => {
                               const prompt = getPromptText(action.id, activeCaseName);
-                              setInputVal(prompt);
                               setIsToolPickerOpen(false);
-                              setTimeout(() => {
-                                inputRef.current?.focus();
-                              }, 100);
+                              handleSend(prompt);
                             }}
                           >
                             <Text style={styles.actionIcon}>{action.icon}</Text>

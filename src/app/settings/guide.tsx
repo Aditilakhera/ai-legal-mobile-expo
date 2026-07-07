@@ -434,20 +434,16 @@ Ask me anything related to AI LEGAL.`,
           <Ionicons name="chevron-back" size={24} color={theme.primary} />
         </Pressable>
         <View style={styles.headerTitleContainer}>
-          <View style={styles.headerMainRow}>
-            <Ionicons name="sparkles" size={18} color={theme.primary} style={{ marginRight: 6 }} />
-            <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>AI Product Guide</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+            <Text style={[styles.headerTitle, { color: theme.textPrimary, marginHorizontal: 0 }]}>AI Product Guide</Text>
           </View>
           <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>Interactive Application Coach</Text>
         </View>
-        <Pressable onPress={() => setIsContextModalOpen(true)} style={[styles.contextPill, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
-          <Text style={[styles.contextPillText, { color: theme.textSecondary }]}>{currentContext}</Text>
-          <Ionicons name="options-outline" size={14} color={theme.textSecondary} style={{ marginLeft: 4 }} />
-        </Pressable>
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.select({ ios: 90, android: 0 })}
       >

@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
-  KeyboardAvoidingView,
   Platform,
   RefreshControl,
   Dimensions,
@@ -30,6 +29,7 @@ import { CaseWorkspace } from '@/types';
 import { Shadows } from '@/theme';
 import { PageHeader } from '@/components/ui';
 import { useThemeContext } from '@/providers/theme-provider';
+import { NewCaseIntelligenceModal } from '@/components/NewCaseIntelligenceModal';
 import { useTranslation } from '@/localization';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -87,23 +87,7 @@ export default function CasesScreen() {
   const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
-  // Create/Edit form state
-  const [form, setForm] = useState({
-    clientName: '',
-    courtName: '',
-    caseType: '',
-    otherCaseType: '',
-    accused: '',
-    summary: '',
-    priority: 'Medium' as 'Low' | 'Medium' | 'High' | 'Urgent',
-  });
-  
-  // Validation errors
-  const [formErrors, setFormErrors] = useState({
-    clientName: '',
-    caseType: '',
-    otherCaseType: '',
-  });
+
 
   // Fetch cases from backend
   const fetchCases = useCallback(async (silent = false) => {
@@ -212,106 +196,17 @@ export default function CasesScreen() {
   // Open Edit form modal
   const handleOpenEditModal = (c: CaseWorkspace) => {
     setIsActionSheetOpen(false);
-    setEditingCaseId(c._id);
-
-    const standardTypes = ['Civil Case', 'Criminal Case', 'Divorce Case', 'Property Dispute', 'Corporate Legal', 'Consumer Court', 'Labor Dispute'];
-    const isOther = c.caseType && !standardTypes.includes(c.caseType);
-
-    setForm({
-      clientName: c.clientName || '',
-      courtName: c.courtName || '',
-      caseType: isOther ? 'Other' : (c.caseType || ''),
-      otherCaseType: isOther ? c.caseType || '' : '',
-      accused: c.opponentName || c.accused || '',
-      summary: c.summary || c.caseSummary || '',
-      priority: c.priority || 'Medium',
-    });
-    setFormErrors({ clientName: '', caseType: '', otherCaseType: '' });
+    setEditingCaseId(null);
     setIsNewCaseModalOpen(true);
   };
 
   // Open Create modal
   const handleOpenCreateModal = () => {
     setEditingCaseId(null);
-    setForm({
-      clientName: '',
-      courtName: '',
-      caseType: '',
-      otherCaseType: '',
-      accused: '',
-      summary: '',
-      priority: 'Medium',
-    });
-    setFormErrors({ clientName: '', caseType: '', otherCaseType: '' });
     setIsNewCaseModalOpen(true);
   };
 
-  // Form submit (create or update case)
-  const handleSubmitForm = async () => {
-    // Validate fields
-    let isValid = true;
-    const errors = { clientName: '', caseType: '', otherCaseType: '' };
 
-    if (!form.clientName.trim()) {
-      errors.clientName = t('cases.clientNameRequired');
-      isValid = false;
-    }
-
-    if (!form.caseType) {
-      errors.caseType = t('cases.caseTypeRequired');
-      isValid = false;
-    }
-
-    if (form.caseType === 'Other' && !form.otherCaseType.trim()) {
-      errors.otherCaseType = t('cases.enterCustomTypeErr');
-      isValid = false;
-    }
-
-    setFormErrors(errors);
-    if (!isValid) return;
-
-    setIsNewCaseModalOpen(false);
-
-    try {
-      const caseName = form.accused.trim()
-        ? `${form.clientName.trim()} vs ${form.accused.trim()}`
-        : `${form.clientName.trim()} Case`;
-      const finalCaseType = form.caseType === 'Other' ? form.otherCaseType.trim() : form.caseType;
-
-      const payload: Partial<CaseWorkspace> = {
-        name: caseName,
-        clientName: form.clientName.trim(),
-        opponentName: form.accused.trim(),
-        accused: form.accused.trim(), // backward compat
-        caseType: finalCaseType,
-        summary: form.summary.trim(),
-        courtName: form.courtName.trim(),
-        priority: form.priority,
-        isLegalCase: true,
-      };
-
-      if (editingCaseId) {
-        await CaseService.updateCase(editingCaseId, payload);
-        showToast('success', 'Case Updated', 'Litigation parameters synchronized.');
-      } else {
-        const newCaseRes = await CaseService.createCase(payload);
-        const newCase = (newCaseRes as any).data || newCaseRes;
-        showToast('success', 'Case Created', 'New case folder added to list.');
-        
-        // Trigger auto background intelligence analysis
-        if (newCase?._id) {
-          WorkspaceService.triggerAutoAnalysis(newCase._id).catch((err) => {
-            console.warn('[CASES] Background auto-analysis failed (non-critical):', err);
-          });
-        }
-      }
-      fetchCases(true);
-    } catch (err) {
-      console.error('[CASES SCREEN] save case error:', err);
-      showToast('error', 'Operation Failed', 'Failed to save case details.');
-      setIsNewCaseModalOpen(true);
-    }
-  };
 
   // Client side Search, Filter & Sort calculations
   const processedCases = useMemo(() => {
@@ -1219,7 +1114,7 @@ export default function CasesScreen() {
                   >
                     <Text style={styles.actionItemIcon}>⚠️</Text>
                     <Text style={[styles.actionItemText, { color: theme.danger }]}>{t('cases.deleteCasePermanently')}</Text>
-                  </TouchableOpacity>
+</TouchableOpacity>
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -1228,173 +1123,13 @@ export default function CasesScreen() {
       </Modal>
 
       {/* CREATE & EDIT CASE DIALOG FORM MODAL */}
-      <Modal visible={isNewCaseModalOpen} transparent animationType="slide" onRequestClose={() => setIsNewCaseModalOpen(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.formContainer, Shadows.modal]}>
-              <View style={styles.formHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={styles.formIconContainer}>
-                    <Ionicons name={editingCaseId ? 'create' : 'add'} size={20} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.formTitle}>
-                    {editingCaseId ? t('cases.editCaseTitle') : t('cases.newCaseTitle')}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setIsNewCaseModalOpen(false);
-                    setEditingCaseId(null);
-                  }}
-                  style={styles.bottomSheetClose}
-                >
-                  <Ionicons name="close" size={22} color={theme.textSecondary} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {/* Client Name Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>
-                    {t('cases.clientNameComplainant')} <Text style={{ color: theme.danger }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, formErrors.clientName ? { borderColor: theme.danger } : {}]}
-                    placeholder="e.g. Mr. A. Kumar"
-                    placeholderTextColor={theme.placeholder}
-                    value={form.clientName}
-                    onChangeText={(val) => setForm({ ...form, clientName: val })}
-                  />
-                  {formErrors.clientName ? (
-                    <Text style={styles.inputErrorText}>{formErrors.clientName}</Text>
-                  ) : null}
-                </View>
-
-                {/* Court Name Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>{t('cases.courtForum')}</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Delhi High Court"
-                    placeholderTextColor={theme.placeholder}
-                    value={form.courtName}
-                    onChangeText={(val) => setForm({ ...form, courtName: val })}
-                  />
-                </View>
-
-                {/* Accused Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>{t('cases.opponentAccused')}</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Mr. Ravi"
-                    placeholderTextColor={theme.placeholder}
-                    value={form.accused}
-                    onChangeText={(val) => setForm({ ...form, accused: val })}
-                  />
-                </View>
-
-                {/* Case Type Dropdown */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>
-                    {t('cases.caseTypeLabel')} <Text style={{ color: theme.danger }}>*</Text>
-                  </Text>
-                  <View style={styles.chipsSelector}>
-                    {[
-                      'Civil Case',
-                      'Criminal Case',
-                      'Divorce Case',
-                      'Property Dispute',
-                      'Corporate Legal',
-                      'Consumer Court',
-                      'Labor Dispute',
-                      'Other',
-                    ].map((type) => {
-                      const displayType = type === 'Civil Case' ? t('cases.civilCase') : type === 'Criminal Case' ? t('cases.criminalCase') : type === 'Divorce Case' ? t('cases.divorceCase') : type === 'Property Dispute' ? t('cases.propertyDispute') : type === 'Corporate Legal' ? t('cases.corporateLegal') : type === 'Consumer Court' ? t('cases.consumerCourt') : type === 'Labor Dispute' ? t('cases.laborDispute') : type === 'Other' ? t('cases.other') : type;
-                      return (
-                        <TouchableOpacity
-                          key={type}
-                          onPress={() => setForm({ ...form, caseType: type })}
-                          style={[styles.selectorChip, form.caseType === type && styles.selectorChipSelected]}
-                        >
-                          <Text style={[styles.selectorChipText, form.caseType === type && styles.selectorChipTextSelected]}>
-                            {displayType}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  {formErrors.caseType ? (
-                    <Text style={styles.inputErrorText}>{formErrors.caseType}</Text>
-                  ) : null}
-                </View>
-
-                {/* Other Case Type input */}
-                {form.caseType === 'Other' ? (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>
-                      {t('cases.enterCustomType')} <Text style={{ color: theme.danger }}>*</Text>
-                    </Text>
-                    <TextInput
-                      style={[styles.input, formErrors.otherCaseType ? { borderColor: theme.danger } : {}]}
-                      placeholder="e.g. Intellectual Property"
-                      placeholderTextColor={theme.placeholder}
-                      value={form.otherCaseType}
-                      onChangeText={(val) => setForm({ ...form, otherCaseType: val })}
-                    />
-                    {formErrors.otherCaseType ? (
-                      <Text style={styles.inputErrorText}>{formErrors.otherCaseType}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* Priority Selection */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>{t('cases.priority')}</Text>
-                  <View style={styles.chipsSelector}>
-                    {(['Low', 'Medium', 'High', 'Urgent'] as const).map((pr) => (
-                      <TouchableOpacity
-                        key={pr}
-                        onPress={() => setForm({ ...form, priority: pr })}
-                        style={[styles.selectorChip, form.priority === pr && styles.selectorChipSelected]}
-                      >
-                        <Text style={[styles.selectorChipText, form.priority === pr && styles.selectorChipTextSelected]}>
-                          {pr === 'Low' ? t('cases.priorityLow') : pr === 'Medium' ? t('cases.priorityMedium') : pr === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Case Summary Textarea */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>{t('cases.briefSummary')}</Text>
-                  <TextInput
-                    style={[styles.input, styles.textarea]}
-                    placeholder="Brief explanation of litigation details, claims, and goals..."
-                    placeholderTextColor={theme.placeholder}
-                    value={form.summary}
-                    onChangeText={(val) => setForm({ ...form, summary: val })}
-                    multiline
-                    numberOfLines={4}
-                  />
-                </View>
-                
-                <View style={{ height: 40 }} />
-              </ScrollView>
-
-              <TouchableOpacity onPress={handleSubmitForm} style={styles.formSubmitBtn}>
-                <Text style={styles.formSubmitBtnText}>
-                  {editingCaseId ? t('cases.updateFolder') : t('cases.createFolder')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <NewCaseIntelligenceModal
+        visible={isNewCaseModalOpen}
+        onClose={() => setIsNewCaseModalOpen(false)}
+        onSuccess={() => {
+          fetchCases(true);
+        }}
+      />
 
       {/* DELETE CONFIRMATION DIALOG MODAL */}
       <Modal visible={isDeleteConfirmOpen} transparent animationType="fade" onRequestClose={() => setIsDeleteConfirmOpen(false)}>

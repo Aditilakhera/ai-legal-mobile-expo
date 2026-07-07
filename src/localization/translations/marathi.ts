@@ -12,6 +12,8 @@ export const marathi = {
     continueWorking: "काम सुरू ठेवा",
     quickActions: "त्वरित कृती",
     newCase: "नवीन केस",
+    newCaseTitle: "नवीन केस",
+    productGuide: "उत्पादन मार्गदर्शक",
     aiLegalAssistant: "एआय कायदेशीर सहाय्यक",
   },
   cases: {
@@ -207,8 +209,8 @@ export const marathi = {
     noNotes: 'कोणतीही नोंद नाही',
   },
   assistant: {
-    placeholder: 'कोणताही कायदेशीर प्रश्न विचारा...',
-    welcomeSubtitle: 'कोणताही कायदेशीर प्रश्न विचारा',
+    placeholder: 'प्रश्न विचारा...',
+    welcomeSubtitle: 'प्रश्न विचारा',
     thinking: 'एआय विचार करत आहे...',
     retry: 'पुन्हा प्रयत्न करा',
     welcome: 'एआय केस असिस्टंटमध्ये आपले स्वागत आहे',

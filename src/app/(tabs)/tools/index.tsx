@@ -40,8 +40,8 @@ const TOOLS_LIST: ToolItem[] = [
   },
   {
     id: 'argument-builder',
-    title: 'Argument Builder',
-    description: 'Courtroom-Ready Arguments & Counterpoints',
+    title: 'Court Prep Workspace',
+    description: 'Complete Hearing Intelligence Platform',
     image: require('../../../assets/images/tools/argument_builder.png'),
     bgColor: '#FCE8E6',
     color: '#EF4444',

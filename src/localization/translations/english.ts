@@ -12,6 +12,8 @@ export const english = {
     continueWorking: "Continue Working",
     quickActions: "Quick Actions",
     newCase: "NEW CASE",
+    newCaseTitle: "New Case",
+    productGuide: "Product Guide",
     aiLegalAssistant: "AI LEGAL ASSISTANT",
   },
   cases: {
@@ -212,8 +214,8 @@ export const english = {
     noNotes: 'No Notes',
   },
   assistant: {
-    placeholder: 'Ask any legal query...',
-    welcomeSubtitle: 'Ask any legal query',
+    placeholder: 'Ask query...',
+    welcomeSubtitle: 'Ask query',
     thinking: 'AI is thinking...',
     retry: 'Retry',
     welcome: 'Welcome to AI Case Assistant',

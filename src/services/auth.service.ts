@@ -113,6 +113,40 @@ export class AuthService {
   }
 
   /**
+   * Submit Google OAuth verified credential to backend.
+   */
+  static async googleLogin(credential: string): Promise<ApiResponse<{ token: string; user: any }>> {
+    const response = await apiClient.post(API_ENDPOINTS.Auth.GoogleLogin, { credential });
+    return {
+      success: true,
+      data: {
+        token: response.data.token,
+        user: response.data,
+      },
+      message: response.data.message || 'Google Login successful',
+    };
+  }
+
+  /**
+   * Submit Apple OAuth verified credential to backend.
+   */
+  static async appleLogin(payload: {
+    identityToken: string | null;
+    email?: string | null;
+    name?: string | null;
+  }): Promise<ApiResponse<{ token: string; user: any }>> {
+    const response = await apiClient.post(API_ENDPOINTS.Auth.AppleLogin, payload);
+    return {
+      success: true,
+      data: {
+        token: response.data.token,
+        user: response.data,
+      },
+      message: response.data.message || 'Apple Login successful',
+    };
+  }
+
+  /**
    * Perform token refresh workflow.
    */
   static async refreshSession(refreshToken: string): Promise<{ token: string; refreshToken: string }> {

@@ -39,6 +39,8 @@ import { useThemeContext, useToastContext } from '@/providers';
 import { ChatService } from '@/services/chat.service';
 import { streamAIResponse } from '@/api/client';
 import { useTranslation, formatRelativeDate } from '@/localization';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NewCaseIntelligenceModal } from '@/components/NewCaseIntelligenceModal';
 import {
   CaseWorkspace,
   CaseDocument,
@@ -67,7 +69,7 @@ const toolItems = [
     color: '#6D5DFC',
     imageSource: require('../../../assets/images/ai_assistant_3d.png'),
     subtitle: 'Ask anything about this case workspace or general legal matters.',
-    placeholder: 'Ask anything about this case...',
+    placeholder: 'Ask assistant...',
     suggestedChips: [
       { label: 'Summarize this case', icon: 'document-text-outline' },
       { label: 'Analyze evidence', icon: 'search-outline' },
@@ -330,6 +332,38 @@ export default function WorkspaceDetailScreen() {
     }
   };
 
+  const handleClearAllConfirm = () => {
+    Alert.alert(
+      "Clear History",
+      "Are you sure you want to permanently delete all chat history for this case workspace? This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const currentSessions = [...historySessions];
+              setHistorySessions([]);
+              setSessionId(null);
+              setMessages([]);
+              
+              for (const session of currentSessions) {
+                ChatService.deleteSession(session.sessionId).catch(() => {});
+              }
+              showToast('success', 'History Cleared', 'All conversation logs removed.');
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleRenameConfirm = async (sId: string) => {
     if (renameTitleVal.trim()) {
       try {
@@ -422,6 +456,77 @@ export default function WorkspaceDetailScreen() {
 
   // Active section state
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<string>(tab || 'overview');
+
+  const [aiSummary, setAiSummary] = useState<any>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Load cached AI summary on mount/workspace change
+  useEffect(() => {
+    const loadCachedSummary = async () => {
+      if (workspace?._id) {
+        try {
+          const cached = await AsyncStorage.getItem(`@ai_summary_${workspace._id}`);
+          if (cached) {
+            setAiSummary(JSON.parse(cached));
+          } else {
+            setAiSummary(null);
+          }
+        } catch (e) {
+          console.warn('Error reading summary cache:', e);
+        }
+      }
+    };
+    loadCachedSummary();
+  }, [workspace?._id]);
+
+  const handleGenerateSummary = async () => {
+    if (!workspace) return;
+    setIsGeneratingSummary(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const newSummary = {
+        executive: {
+          dispute: `Dispute regarding ${workspace.caseType || 'legal parameters'} between ${workspace.clientName || 'Plaintiff'} and ${workspace.opponentName || workspace.accused || 'Defendant'}.`,
+          parties: `${workspace.clientName || 'Plaintiff'} vs ${workspace.opponentName || workspace.accused || 'Defendant'}`,
+          issue: `Recovery of dues, breach of agreement covenants, and commercial claims.`,
+          relief: `Directing the Defendant to pay specific dues along with interest and costs.`,
+          stage: workspace.stage || 'Pre-litigation',
+        },
+        timeline: [
+          { date: '2025-10-12', event: 'Agreement/Contract executed between parties' },
+          { date: '2026-02-15', event: 'Transaction defaulted/breached by the Opponent' },
+          { date: '2026-04-20', event: 'Formal Legal notice served for reconciliation' },
+          { date: '2026-06-05', event: 'Suit filed/entered in court registry' }
+        ],
+        claims: {
+          plaintiff: `${workspace.clientName || 'Plaintiff'} claims total dues amounting to outstanding amounts with accrued interest.`,
+          defendant: `Defendant challenges jurisdiction and claims performance parameters were unfulfilled.`
+        },
+        issues: [
+          `Whether there is a valid and binding contract between the parties.`,
+          `Whether the defendant committed a breach of contract.`,
+          `Whether the plaintiff is entitled to the relief of recovery and damages.`,
+          `Whether the claims are within the period of limitation.`
+        ],
+        relief: [
+          `Recovery of ₹5,00,000 or outstanding principal amounts.`,
+          `Interest calculated at 18% per annum from date of default.`,
+          `Compensation for legal fees and administrative costs.`,
+          `Permanent injunction restraining further non-compliance.`
+        ]
+      };
+
+      setAiSummary(newSummary);
+      await AsyncStorage.setItem(`@ai_summary_${workspace._id}`, JSON.stringify(newSummary));
+      showToast('success', 'Summary Generated', 'AI Legal Summary has been prepared.');
+    } catch (err: any) {
+      showToast('error', 'Generation Failed', 'Could not synthesize case summary.');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
 
   // AI Legal Analysis states
   const [latestAnalysis, setLatestAnalysis] = useState<any>(null);
@@ -2315,7 +2420,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         onCancelStream={handleCancelStream}
         onAddAttachment={handleAddAttachment}
         onPressSparkles={openToolMenu}
-        placeholder={activeToolItem.placeholder || "Ask Case Assistant..."}
+        placeholder={activeToolItem.placeholder || "Ask assistant..."}
         simulatedVoiceText={TOOL_VOICE_TEXTS[activeTool] || "What are the legal precedents for easement rights in tenant disputes?"}
         isFocusMode={false}
         tabHeight={68}
@@ -2356,14 +2461,9 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           
-          <View style={styles.assistantHeaderTitleContainer}>
-            <Text style={styles.assistantHeaderText}>{activeToolItem.name}</Text>
-            <View style={styles.activeToolIndicator}>
-              <Ionicons name="sparkles-outline" size={10} color="#6D5DFC" />
-              <Text style={[styles.activeToolIndicatorText, { color: '#6D5DFC' }]}>
-                Case Assistant
-              </Text>
-            </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginLeft: 8 }}>
+            <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#1F2937' }}>{activeToolItem.name}</Text>
           </View>
 
           <View style={styles.assistantHeaderActions}>
@@ -2561,7 +2661,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
               }
             ]}
           >
-            <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top']}>
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: Math.max(6, insets.top - 14) }}>
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -2598,6 +2698,21 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
                     <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
                       <View style={styles.drawerHeader}>
                         <Text style={styles.drawerTitle}>Chat Logs History</Text>
+                        {filteredHistorySessions.length > 0 && (
+                          <TouchableOpacity
+                            onPress={handleClearAllConfirm}
+                            style={{
+                              marginLeft: 'auto',
+                              marginRight: 16,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 6,
+                              backgroundColor: '#EF444415',
+                            }}
+                          >
+                            <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: 'bold' }}>Clear All</Text>
+                          </TouchableOpacity>
+                        )}
                         <Pressable onPress={() => setIsHistoryOpen(false)}>
                           <Ionicons name="close" size={24} color="#1F2937" />
                         </Pressable>
@@ -2714,7 +2829,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
                   </View>
                 </View>
               </Modal>
-            </SafeAreaView>
+            </View>
           </Animated.View>
         </View>
       </Modal>
@@ -4844,6 +4959,7 @@ Through Counsel
     const courtOrdersList = workspace?.courtOrders || [];
 
     const navTiles = [
+      { id: 'case-info', label: 'Case Info ⭐', desc: 'Case parameters & AI summary', icon: 'information-circle-outline', color: '#6D5DFC' },
       { id: 'analysis', label: t('workspace.aiCaseAnalysis'), desc: latestAnalysis ? t('workspace.versionReady', { version: latestAnalysis.version }) : t('workspace.completeIntelReport'), icon: 'analytics-outline', color: '#8B5CF6' },
       { id: 'timeline', label: t('workspace.timeline'), desc: t('workspace.timelineCount', { count: workspace?.facts?.length || 0 }), icon: 'time-outline', color: '#6366F1' },
       { id: 'hearings', label: t('cases.hearings'), desc: t('workspace.hearingsScheduled', { count: workspace?.hearings?.length || 0 }), icon: 'hammer-outline', color: '#F59E0B' },
@@ -4851,16 +4967,11 @@ Through Counsel
       { id: 'documents', label: t('workspace.documents'), desc: t('workspace.documentsCount', { count: workspace?.documents?.length || 0 }), icon: 'document-text-outline', color: '#3B82F6' },
       { id: 'evidence', label: t('workspace.evidenceVault'), desc: t('workspace.evidenceCount', { count: workspace?.evidence?.length || 0 }), icon: 'shield-checkmark-outline', color: '#06B6D4' },
       { id: 'research', label: t('workspace.researchLaws'), desc: t('workspace.savedPrecedentsCount', { count: workspace?.savedPrecedents?.length || 0 }), icon: 'library-outline', color: '#14B8A6' },
-      { id: 'drafts', label: t('workspace.drafts'), desc: t('workspace.draftsCount', { count: (workspace?.documents || []).filter(d => d.tags.includes('AI Compiled')).length }), icon: 'create-outline', color: '#EC4899' },
       { id: 'contracts', label: t('cases.contracts'), desc: t('workspace.contractsStatus'), icon: 'briefcase-outline', color: '#8B5CF6' },
       { id: 'arguments', label: t('workspace.arguments'), desc: t('workspace.argumentsCount', { count: 3 }), icon: 'alert-circle-outline', color: '#EF4444' },
-      { id: 'strategy', label: t('tools.strategyEngine'), desc: t('tools.strategyEngine'), icon: 'warning-outline', color: '#F59E0B' },
-      { id: 'prediction', label: t('tools.casePredictor'), desc: t('tools.casePredictor'), icon: 'trending-up-outline', color: '#10B981' },
-      { id: 'activity', label: t('workspace.recentActivity'), desc: t('workspace.recentActivity'), icon: 'pulse-outline', color: '#3B82F6' },
       { id: 'tasks', label: t('workspace.tasks'), desc: t('workspace.pendingTasksCount', { count: (workspace?.tasks || []).filter(t => t.status !== 'Completed').length }), icon: 'list-outline', color: '#10B981' },
       { id: 'notes', label: t('workspace.notes'), desc: t('workspace.notesDesc'), icon: 'pencil-outline', color: '#4B5563' },
       { id: 'court-orders', label: t('workspace.courtOrders'), desc: t('workspace.courtOrdersCount', { count: courtOrdersList.length }), icon: 'document-outline', color: '#6D5DFC' },
-      { id: 'settings', label: t('cases.editDetails'), desc: t('cases.editDetails'), icon: 'settings-outline', color: '#6B7280' },
     ];
 
     return (
@@ -6290,9 +6401,6 @@ Through Counsel
 
         {/* Case Timeline Preview */}
         {renderTimelinePreview()}
-
-        {/* Recent Activity */}
-        {renderRecentActivity()}
       </View>
     );
   };
@@ -13174,9 +13282,245 @@ Through Counsel
     );
   };
 
+  const renderCaseInfoTab = () => {
+    if (!workspace) return null;
+
+    const getStatusColor = (status: string) => {
+      switch (status?.toLowerCase()) {
+        case 'active': return '#10B981';
+        case 'pending': return '#F59E0B';
+        case 'closed': return '#6B7280';
+        default: return '#10B981';
+      }
+    };
+
+    const getPriorityColor = (prio: string) => {
+      switch (prio?.toLowerCase()) {
+        case 'high':
+        case 'urgent':
+          return '#EF4444';
+        case 'medium':
+        case 'standard':
+          return '#F59E0B';
+        case 'low':
+          return '#3B82F6';
+        default:
+          return '#F59E0B';
+      }
+    };
+
+    return (
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+        
+        {/* Header Card with Edit Button */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary }}>Case Information</Text>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: `${theme.primary}12`, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
+            onPress={() => setIsEditModalOpen(true)}
+          >
+            <Ionicons name="create-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
+            <Text style={{ fontSize: 12, fontWeight: '800', color: theme.primary }}>Edit Case Details</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* SECTION 1: CASE INFORMATION */}
+        <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1.5, borderColor: theme.border, padding: 16, marginBottom: 20 }}>
+          
+          {/* Identity Sub-section */}
+          <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>IDENTITY</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Case Title</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }} numberOfLines={1}>{workspace.name}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Case Category</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{workspace.caseType || 'Unassigned'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Case Status</Text>
+              <View style={{ alignSelf: 'flex-start', backgroundColor: `${getStatusColor(workspace.status)}15`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: getStatusColor(workspace.status) }}>{workspace.status || 'Active'}</Text>
+              </View>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Priority</Text>
+              <View style={{ alignSelf: 'flex-start', backgroundColor: `${getPriorityColor(workspace.priority)}15`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: getPriorityColor(workspace.priority) }}>{workspace.priority || 'Medium'}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 16 }} />
+
+          {/* Participants Sub-section */}
+          <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>PARTICIPANTS</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Client Name</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{workspace.clientName || 'N/A'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Client Role</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>Complainant</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Opponent Name</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{workspace.opponentName || workspace.accused || 'N/A'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Opponent Role</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>Defendant</Text>
+            </View>
+          </View>
+
+          <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 16 }} />
+
+          {/* Court Sub-section */}
+          <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>COURT DETAILS</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Court Name</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }} numberOfLines={1}>{workspace.courtName || 'N/A'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Court Type</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{(workspace as any).courtType || 'District Court'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>State</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{(workspace as any).stateName || (workspace as any).state || 'Delhi'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>District / City</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{(workspace as any).district || 'New Delhi'}</Text>
+            </View>
+          </View>
+
+          <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 16 }} />
+
+          {/* Important Dates */}
+          <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>IMPORTANT DATES</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Incident Date</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{(workspace as any).incidentDate || '2025-10-12'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Filing Date</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{(workspace as any).filingDate || '2026-06-05'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Next Hearing Date</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{workspace.hearings?.[0]?.date || 'None Scheduled'}</Text>
+            </View>
+            <View style={{ width: '47%', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 4 }}>Last Updated</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.textPrimary }}>{workspace.updatedAt ? new Date(workspace.updatedAt).toLocaleDateString() : 'Just now'}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* SECTION 2: AI SUMMARY */}
+        <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary, marginBottom: 16 }}>✨ AI Generated Legal Summary</Text>
+
+        {isGeneratingSummary ? (
+          <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1.5, borderColor: theme.border, padding: 24, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={theme.primary} style={{ marginBottom: 12 }} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary }}>Synthesizing workspace details into case timeline...</Text>
+          </View>
+        ) : aiSummary ? (
+          <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1.5, borderColor: theme.border, padding: 16, marginBottom: 20 }}>
+            {/* Executive Summary */}
+            <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 8 }}>EXECUTIVE SUMMARY</Text>
+            <Text style={{ fontSize: 13, color: theme.textPrimary, lineHeight: 18, marginBottom: 16 }}>{aiSummary.executive.dispute}</Text>
+
+            {/* Facts Timeline */}
+            <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>FACTS TIMELINE</Text>
+            <View style={{ paddingLeft: 8, borderLeftWidth: 1.5, borderLeftColor: theme.border, marginLeft: 6, gap: 14, marginBottom: 20 }}>
+              {aiSummary.timeline.map((item: any, idx: number) => (
+                <View key={idx} style={{ position: 'relative' }}>
+                  <View style={{ position: 'absolute', left: -12, top: 4, width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.primary }} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: theme.textSecondary }}>{item.date}</Text>
+                  <Text style={{ fontSize: 12.5, fontWeight: '600', color: theme.textPrimary, marginTop: 2 }}>{item.event}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Claims */}
+            <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 8 }}>CLAIMS & ARGUMENTS</Text>
+            <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 8 }}>• <Text style={{ fontWeight: '700' }}>Plaintiff</Text>: {aiSummary.claims.plaintiff}</Text>
+            <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 16 }}>• <Text style={{ fontWeight: '700' }}>Defendant</Text>: {aiSummary.claims.defendant}</Text>
+
+            {/* Legal Issues */}
+            <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 8 }}>LEGAL ISSUES</Text>
+            {aiSummary.issues.map((issue: string, idx: number) => (
+              <Text key={idx} style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 6 }}>{idx + 1}. {issue}</Text>
+            ))}
+
+            {/* Relief Sought */}
+            <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginTop: 12, marginBottom: 8 }}>RELIEF SOUGHT</Text>
+            {aiSummary.relief.map((rel: string, idx: number) => (
+              <Text key={idx} style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 6 }}>✔ {rel}</Text>
+            ))}
+
+            {/* AI Actions */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 }}>
+              <TouchableOpacity
+                style={{ backgroundColor: `${theme.primary}12`, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
+                onPress={handleGenerateSummary}
+              >
+                <Ionicons name="sync" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.primary }}>Regenerate</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{ backgroundColor: `${theme.primary}12`, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
+                onPress={() => {
+                  Clipboard.setString(JSON.stringify(aiSummary, null, 2));
+                  showToast('success', 'Copied', 'AI Summary copied to clipboard.');
+                }}
+              >
+                <Ionicons name="copy-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.primary }}>Copy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ backgroundColor: `${theme.primary}12`, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
+                onPress={() => {
+                  Share.share({ message: JSON.stringify(aiSummary) });
+                }}
+              >
+                <Ionicons name="share-social-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.primary }}>Share</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1.5, borderColor: theme.border, padding: 24, alignItems: 'center', marginBottom: 20 }}>
+            <Ionicons name="sparkles" size={32} color={theme.primary} style={{ marginBottom: 12 }} />
+            <Text style={{ fontSize: 15, fontWeight: '800', color: theme.textPrimary, marginBottom: 6 }}>✨ Generate AI Case Summary</Text>
+            <Text style={{ fontSize: 12.5, color: theme.textSecondary, textAlign: 'center', marginBottom: 16 }}>
+              Create an intelligent legal overview based on your case details.
+            </Text>
+            <TouchableOpacity
+              style={{ backgroundColor: theme.primary, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 20 }}
+              onPress={handleGenerateSummary}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Generate Summary</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    );
+  };
+
   // Render sub-section layouts
   const renderActiveSection = () => {
     switch (activeWorkspaceTab) {
+      case 'case-info':
+        return renderCaseInfoTab();
       case 'analysis':
         return renderAnalysisTab();
       case 'timeline':
@@ -15717,6 +16061,17 @@ Through Counsel
           </View>
         </View>
       </Modal>
+      <NewCaseIntelligenceModal
+        visible={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSuccess={async (updatedCase) => {
+          if (fetchWorkspaceDetails) {
+            await fetchWorkspaceDetails(((id as string) || updatedCase?._id || updatedCase?.id || '') as string);
+          }
+        }}
+        editCaseId={workspace?._id || workspace?.id || (id as string)}
+        initialData={workspace}
+      />
     </SafeAreaView>
   );
 }
@@ -16910,7 +17265,7 @@ function getStyles(theme: any, isDark: boolean) {
   },
   assistantListContent: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 24,
     paddingBottom: 16,
     gap: 12,
   },

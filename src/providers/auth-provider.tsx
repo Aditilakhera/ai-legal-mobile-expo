@@ -39,6 +39,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await StorageService.deleteSecret(StorageKeys.AuthToken);
       await StorageService.deleteSecret(StorageKeys.RefreshToken);
       await StorageService.removeItem(StorageKeys.UserSession);
+      
+      // Clear native Google Sign-In SDK session if available
+      try {
+        const isExpoGo = require('expo-constants').default.appOwnership === 'expo' || 
+                         require('expo-constants').default.executionEnvironment === 'storeClient';
+        if (!isExpoGo) {
+          let GoogleSigninInstance: any = null;
+          try {
+            GoogleSigninInstance = require('@react-native-google-signin/google-signin').GoogleSignin;
+          } catch (e) {}
+          if (GoogleSigninInstance) {
+            await GoogleSigninInstance.signOut();
+            await GoogleSigninInstance.revokeAccess();
+          }
+        }
+      } catch (googleErr) {
+        console.warn('[AUTH PROVIDER] Google Sign-in local signout error:', googleErr);
+      }
     } catch (e) {
       console.warn('[AUTH PROVIDER] Local session wipe error:', e);
     } finally {

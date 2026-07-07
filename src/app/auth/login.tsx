@@ -1,8 +1,3 @@
-/**
- * AI Legal Mobile - Premium Login Screen
- * Minimal, modern visual form with validation controls and animated entries.
- */
-
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -29,6 +24,27 @@ import { ProfileService } from '@/services/profile.service';
 import { StorageService } from '@/services/storage.service';
 import { StorageKeys } from '@/constants/app-constants';
 import { useToastContext } from '@/providers';
+import Constants from 'expo-constants';
+
+const isExpoGoEnv = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+
+let GoogleSignin: any = null;
+if (!isExpoGoEnv) {
+  try {
+    GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+  } catch (e) {
+    console.warn('[LOGIN] Native Google Sign-In SDK is not loaded in this environment.');
+  }
+}
+
+let AppleAuthentication: any = null;
+if (!isExpoGoEnv) {
+  try {
+    AppleAuthentication = require('expo-apple-authentication');
+  } catch (e) {
+    console.warn('[LOGIN] Native Apple Authentication SDK is not loaded in this environment.');
+  }
+}
 
 export default function LoginScreen() {
   useGuestGuard();
@@ -43,16 +59,21 @@ export default function LoginScreen() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [socialLoadingText, setSocialLoadingText] = useState<string | null>(null);
 
-  // Social Login Dialog States
-  const [socialModalVisible, setSocialModalVisible] = useState(false);
-  const [socialProvider, setSocialProvider] = useState<'google' | 'apple'>('google');
-  const [socialEmail, setSocialEmail] = useState('');
-  const [socialEmailError, setSocialEmailError] = useState('');
-  const [isSocialSubmitting, setIsSocialSubmitting] = useState(false);
-
-  // Load remembered email on startup
+  // Initialize native Google Sign-In SDK conditionally and load remembered email
   useEffect(() => {
+    if (GoogleSignin) {
+      try {
+        GoogleSignin.configure({
+          webClientId: '764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com',
+          offlineAccess: true,
+        });
+      } catch (err) {
+        console.warn('[LOGIN] Failed to configure Google Sign-In:', err);
+      }
+    }
+
     async function loadRememberedEmail() {
       try {
         const rememberedEmail = await StorageService.getItem('ai_legal_remembered_email');
@@ -137,71 +158,184 @@ export default function LoginScreen() {
     }
   };
 
-  const triggerSocialAuth = (provider: 'google' | 'apple') => {
-    setSocialProvider(provider);
-    setSocialEmail('');
-    setSocialEmailError('');
-    setSocialModalVisible(true);
-  };
-
-  const handleSocialSubmit = async () => {
-    if (!socialEmail.trim()) {
-      setSocialEmailError('Email is required.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(socialEmail)) {
-      setSocialEmailError('Please enter a valid email address.');
-      return;
-    }
-    setSocialEmailError('');
-    setIsSocialSubmitting(true);
+  const triggerSocialAuth = async (provider: 'google' | 'apple') => {
+    setLoading(true);
+    setSocialLoadingText(`Signing in with ${provider === 'google' ? 'Google' : 'Apple'}...`);
 
     try {
-      const name = socialEmail.split('@')[0].replace(/[^a-zA-Z]/g, ' ');
-      const nameFormatted = name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') || 'Social User';
-      const providerId = `${socialProvider}_${Date.now()}`;
-      const picture = `https://ui-avatars.com/api/?name=${encodeURIComponent(nameFormatted)}&background=random&color=fff&size=256`;
+      const isExpoGo = Constants.appOwnership === 'expo';
+      if (provider === 'google') {
+        const isNativeGoogleAvailable = GoogleSignin && !isExpoGo;
+        if (isNativeGoogleAvailable) {
+          console.log('[GOOGLE NATIVE LOGIN] Starting Google Play services check and native sign-in...');
+          await GoogleSignin.hasPlayServices();
 
-      console.log(`[SOCIAL LOGIN] Requesting JIT-provision login for ${socialEmail} via ${socialProvider}...`);
-      const res = await AuthService.socialLogin({
-        email: socialEmail.trim().toLowerCase(),
-        name: nameFormatted,
-        picture,
-        provider: socialProvider,
-        providerId
-      });
+          // Force clear cached Google session to always show account picker
+          try {
+            await GoogleSignin.signOut();
+          } catch (signOutErr) {
+            console.log('[GOOGLE NATIVE LOGIN] Pre-signin signOut (expected if not signed in):', signOutErr);
+          }
 
-      if (res.success && res.data) {
-        const { token } = res.data;
-        // Save access token securely
-        await StorageService.saveSecret(StorageKeys.AuthToken, token);
-        
-        // Fetch full profile from DB
-        console.log('[SOCIAL LOGIN] Requesting user profile synchronization...');
-        const profileRes = await ProfileService.getProfile();
-        
-        if (profileRes.success && profileRes.data) {
-          // Cache user profile details in AsyncStorage
-          await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
-          
-          // Load into stores (will trigger auto-redirection via GuestGuard)
-          setCredentials(token, '');
-          setProfile(profileRes.data);
-          
-          showToast('success', 'Social Login Success', `Welcome back, ${profileRes.data.name}!`);
-          setSocialModalVisible(false);
+          const userInfo = await GoogleSignin.signIn();
+          const idToken = userInfo.data?.idToken;
+
+          if (!idToken) {
+            throw new Error('Google ID Token was not returned.');
+          }
+
+          console.log(`[GOOGLE NATIVE LOGIN] Submitting verified ID token to backend...`);
+          const res = await AuthService.googleLogin(idToken);
+
+          if (res.success && res.data) {
+            const { token } = res.data;
+            await StorageService.saveSecret(StorageKeys.AuthToken, token);
+            
+            if (rememberMe) {
+              await StorageService.setItem('ai_legal_remembered_email', res.data.user.email);
+            }
+
+            console.log('[GOOGLE NATIVE LOGIN] Syncing profile...');
+            const profileRes = await ProfileService.getProfile();
+            
+            if (profileRes.success && profileRes.data) {
+              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+              setCredentials(token, '');
+              setProfile(profileRes.data);
+              showToast('success', 'Social Login Success', `Welcome back, ${profileRes.data.name}!`);
+            } else {
+              throw new Error('Could not retrieve user profile from server.');
+            }
+          } else {
+            throw new Error(res.message || 'Google login failed.');
+          }
         } else {
-          throw new Error('Could not retrieve user profile from server.');
+          // Expo Go Sandbox Fallback
+          showToast('info', 'Sandbox Mode', 'Expo Go Fallback: Using sandbox simulation.');
+          console.log('[GOOGLE SANDBOX LOGIN] Simulating Google Sign-In...');
+          const testEmail = 'google_sandbox_user@example.com';
+          const res = await AuthService.socialLogin({
+            email: testEmail,
+            name: 'Google Sandbox User',
+            picture: 'https://ui-avatars.com/api/?name=Google+Sandbox&background=0284c7&color=fff',
+            provider: 'google',
+            providerId: 'sandbox_google_123456',
+          });
+
+          if (res.success && res.data) {
+            const { token } = res.data;
+            await StorageService.saveSecret(StorageKeys.AuthToken, token);
+            if (rememberMe) {
+              await StorageService.setItem('ai_legal_remembered_email', testEmail);
+            }
+            const profileRes = await ProfileService.getProfile();
+            if (profileRes.success && profileRes.data) {
+              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+              setCredentials(token, '');
+              setProfile(profileRes.data);
+              showToast('success', 'Social Login Success (Sandbox)', `Welcome back, ${profileRes.data.name}!`);
+            } else {
+              throw new Error('Could not retrieve user profile from server.');
+            }
+          } else {
+            throw new Error(res.message || 'Sandbox login failed.');
+          }
         }
       } else {
-        throw new Error(res.message || 'Social login failed.');
+        const isAppleAvailable = AppleAuthentication && !isExpoGo;
+        if (isAppleAvailable && await AppleAuthentication.isAvailableAsync()) {
+          console.log('[APPLE NATIVE LOGIN] Starting Apple native authentication sheet...');
+          const credential = await AppleAuthentication.signInAsync({
+            requestedScopes: [
+              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+              AppleAuthentication.AppleAuthenticationScope.EMAIL,
+            ],
+          });
+
+          if (!credential.identityToken) {
+            throw new Error('Apple Identity Token was not returned.');
+          }
+
+          const fullName = credential.fullName;
+          let displayName = undefined;
+          if (fullName) {
+            displayName = `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim() || undefined;
+          }
+
+          console.log(`[APPLE NATIVE LOGIN] Submitting verified Identity token to backend...`);
+          const res = await AuthService.appleLogin({
+            identityToken: credential.identityToken,
+            email: credential.email,
+            name: displayName,
+          });
+
+          if (res.success && res.data) {
+            const { token } = res.data;
+            await StorageService.saveSecret(StorageKeys.AuthToken, token);
+            
+            if (rememberMe) {
+              await StorageService.setItem('ai_legal_remembered_email', res.data.user.email);
+            }
+
+            console.log('[APPLE NATIVE LOGIN] Syncing profile...');
+            const profileRes = await ProfileService.getProfile();
+            
+            if (profileRes.success && profileRes.data) {
+              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+              setCredentials(token, '');
+              setProfile(profileRes.data);
+              showToast('success', 'Social Login Success', `Welcome back, ${profileRes.data.name}!`);
+            } else {
+              throw new Error('Could not retrieve user profile from server.');
+            }
+          } else {
+            throw new Error(res.message || 'Apple login failed.');
+          }
+        } else {
+          // Expo Go Sandbox Fallback
+          showToast('info', 'Sandbox Mode', 'Expo Go Fallback: Using sandbox simulation.');
+          console.log('[APPLE SANDBOX LOGIN] Simulating Apple Sign-In...');
+          const testEmail = 'apple_sandbox_user@example.com';
+          const res = await AuthService.socialLogin({
+            email: testEmail,
+            name: 'Apple Sandbox User',
+            picture: 'https://ui-avatars.com/api/?name=Apple+Sandbox&background=000&color=fff',
+            provider: 'apple',
+            providerId: 'sandbox_apple_123456',
+          });
+
+          if (res.success && res.data) {
+            const { token } = res.data;
+            await StorageService.saveSecret(StorageKeys.AuthToken, token);
+            if (rememberMe) {
+              await StorageService.setItem('ai_legal_remembered_email', testEmail);
+            }
+            const profileRes = await ProfileService.getProfile();
+            if (profileRes.success && profileRes.data) {
+              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+              setCredentials(token, '');
+              setProfile(profileRes.data);
+              showToast('success', 'Social Login Success (Sandbox)', `Welcome back, ${profileRes.data.name}!`);
+            } else {
+              throw new Error('Could not retrieve user profile from server.');
+            }
+          } else {
+            throw new Error(res.message || 'Sandbox login failed.');
+          }
+        }
       }
     } catch (err: any) {
       console.error('[SOCIAL LOGIN ERROR]', err);
-      const errMsg = err.error || err.message || 'Failed to authenticate social profile.';
-      showToast('error', 'Authentication Failed', errMsg);
+      // Native cancellation checks
+      if (err.code === 'SIGN_IN_CANCELLED' || err.code === '1001' || err.message?.includes('cancel')) {
+        showToast('info', 'Cancelled', 'Social sign-in cancelled.');
+      } else {
+        const errMsg = err.error || err.message || 'Failed to authenticate social profile.';
+        showToast('error', 'Authentication Failed', errMsg);
+      }
     } finally {
-      setIsSocialSubmitting(false);
+      setSocialLoadingText(null);
+      setLoading(false);
     }
   };
 
@@ -282,7 +416,7 @@ export default function LoginScreen() {
 
               {/* Form submit button */}
               <Button
-                title="Log In"
+                title={socialLoadingText || "Log In"}
                 variant="primary"
                 onPress={handleLogin}
                 loading={loading}
@@ -301,8 +435,9 @@ export default function LoginScreen() {
 
               <View style={styles.socialButtonsRow}>
                 <Pressable 
-                  style={styles.socialBtn} 
-                  onPress={() => triggerSocialAuth('google')}
+                  style={[styles.socialBtn, loading && { opacity: 0.5 }]} 
+                  onPress={() => !loading && triggerSocialAuth('google')}
+                  disabled={loading}
                   accessibilityLabel="Log in with Google" 
                   accessibilityRole="button"
                 >
@@ -315,8 +450,9 @@ export default function LoginScreen() {
                 </Pressable>
 
                 <Pressable 
-                  style={styles.socialBtn} 
-                  onPress={() => triggerSocialAuth('apple')}
+                  style={[styles.socialBtn, loading && { opacity: 0.5 }]} 
+                  onPress={() => !loading && triggerSocialAuth('apple')}
+                  disabled={loading}
                   accessibilityLabel="Log in with Apple" 
                   accessibilityRole="button"
                 >
@@ -344,80 +480,6 @@ export default function LoginScreen() {
           </Slide>
         </SafeAreaView>
       </ScrollView>
-
-      {/* Premium Social Sign-In Modal */}
-      <Modal
-        visible={socialModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setSocialModalVisible(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setSocialModalVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContainer}>
-                {/* Header branding */}
-                <View style={styles.modalHeader}>
-                  <Image 
-                    source={
-                      socialProvider === 'google' 
-                        ? require('../../../assets/images/official_google_g_logo.png')
-                        : require('../../../assets/images/official_black_apple_logo.png')
-                    }
-                    style={{ width: 44, height: 44, marginBottom: 12 }}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.modalTitle}>
-                    Sign in with {socialProvider === 'google' ? 'Google' : 'Apple'}
-                  </Text>
-                  <Text style={styles.modalSubtitle}>
-                    Enter your {socialProvider === 'google' ? 'Google' : 'Apple ID'} email to establish secure handshake
-                  </Text>
-                </View>
-
-                {/* Input block */}
-                <View style={styles.modalForm}>
-                  <TextInput
-                    label="Email Address"
-                    placeholder="name@example.com"
-                    value={socialEmail}
-                    onChangeText={setSocialEmail}
-                    error={socialEmailError}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    accessibilityLabel="Social Email Input"
-                  />
-
-                  {/* Submit / Cancel buttons */}
-                  <View style={styles.modalButtonsRow}>
-                    <TouchableOpacity 
-                      style={[styles.modalBtn, styles.modalCancelBtn]} 
-                      onPress={() => setSocialModalVisible(false)}
-                      disabled={isSocialSubmitting}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={[styles.modalBtn, styles.modalSubmitBtn, { backgroundColor: '#6D5DFC' }]} 
-                      onPress={handleSocialSubmit}
-                      disabled={isSocialSubmitting}
-                      activeOpacity={0.7}
-                    >
-                      {isSocialSubmitting ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text style={styles.modalSubmitBtnText}>Continue</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }

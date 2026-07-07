@@ -1,23 +1,22 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   View,
   Text,
-  FlatList,
   TextInput,
   Pressable,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
-  UIManager,
+  ActivityIndicator,
+  Platform,
+  TouchableOpacity,
   Modal,
   Dimensions,
-  TouchableWithoutFeedback,
-  TouchableOpacity,
   Clipboard,
   Share,
   Animated,
+  TouchableWithoutFeedback,
+  Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -25,1913 +24,650 @@ import { useRouter } from 'expo-router';
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
 import { useToastContext, useThemeContext } from '@/providers';
-import { useAuthGuard } from '@/navigation/guards';
-import { streamAIResponse } from '@/api/client';
-import { ChatService } from '@/services/chat.service';
-import { Shadows, Radius } from '@/theme';
-import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
-import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
-import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
-import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
-import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
-import { CaseWorkspace } from '@/types';
 import { CaseService } from '@/services/case.service';
+import { CaseSummary } from '@/types';
 
 const { width, height } = Dimensions.get('window');
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-// Mock Case Inputs for upload simulator
-const MOCK_CASE_FILES = [
-  {
-    id: 'cheque',
-    name: 'complainant_case_facts.pdf',
-    type: 'application/pdf',
-    size: 1024 * 720,
-    detectedType: 'Cheque Bounce',
-    url: 'https://ailegal.com/cases/complainant_case_facts.pdf',
-  },
-  {
-    id: 'property',
-    name: 'partition_suit_plaint.docx',
-    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    size: 1024 * 1024 * 1.8,
-    detectedType: 'Property Dispute',
-    url: 'https://ailegal.com/cases/partition_suit_plaint.docx',
-  },
-  {
-    id: 'criminal',
-    name: 'fir_records_assault.pdf',
-    type: 'application/pdf',
-    size: 1024 * 1024 * 3.4,
-    detectedType: 'Criminal Matter',
-    url: 'https://ailegal.com/cases/fir_records_assault.pdf',
-  },
-  {
-    id: 'family',
-    name: 'custody_dispute_appeal.eml',
-    type: 'message/rfc822',
-    size: 1024 * 120,
-    detectedType: 'Family Matter',
-    url: 'https://ailegal.com/cases/custody_dispute_appeal.eml',
-  },
+// Step 1: Upload Documents mockup
+const MOCK_STRATEGY_DOCS = [
+  { id: 'contract_dispute', name: 'breach_of_service_contract.pdf', size: '1.8 MB', type: 'Statement of Claim' },
+  { id: 'evict', name: 'tenancy_agreement_notice.docx', size: '980 KB', type: 'Eviction Notice' },
+  { id: 'ip', name: 'trademark_infringement_brief.pdf', size: '3.1 MB', type: 'Cease & Desist Reply' },
 ];
 
-// Helper functions for search term highlighting
-const renderWithSearchHighlight = (text: string, searchQuery: string) => {
-  if (!searchQuery) return text;
-  const escaped = searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
-  const parts = text.split(regex);
-  return parts.map((part, i) =>
-    regex.test(part) ? (
-      <Text key={i} style={{ backgroundColor: '#FDE047', color: '#1F2937', fontWeight: '700' }}>
-        {part}
-      </Text>
-    ) : (
-      part
-    )
-  );
-};
-
-const parseInlineStyles = (text: string, isUserText: boolean, theme: any, searchQuery: string) => {
-  if (!text) return null;
-
-  const parts = text.split(/\*\*([\s\S]*?)\*\*/g);
-  return parts.map((part, index) => {
-    const isBold = index % 2 === 1;
-
-    const subParts = part.split(/`([^`]+)`/g);
-    const subElements = subParts.map((subPart, subIdx) => {
-      const isInlineCode = subIdx % 2 === 1;
-      if (isInlineCode) {
-        return (
-          <Text
-            key={`${index}-${subIdx}`}
-            style={{
-              fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-              fontSize: 13,
-              backgroundColor: isUserText ? 'rgba(0, 0, 0, 0.15)' : 'rgba(138, 92, 245, 0.08)',
-              color: isUserText ? '#FFFFFF' : '#8A5CF5',
-              paddingHorizontal: 4,
-              borderRadius: 4,
-            }}
-          >
-            {renderWithSearchHighlight(subPart, searchQuery)}
-          </Text>
-        );
-      }
-
-      const citationParts = subPart.split(/(\[\d+\])/g);
-      return citationParts.map((citPart, citIdx) => {
-        const isCit = citPart.match(/^\[\d+\]$/);
-        if (isCit) {
-          return (
-            <Text
-              key={`${index}-${subIdx}-${citIdx}`}
-              style={{
-                color: isUserText ? '#EEECFF' : '#8A5CF5',
-                fontWeight: '700',
-                textDecorationLine: 'underline',
-                fontSize: 13,
-              }}
-            >
-              {citPart}
-            </Text>
-          );
-        }
-        return renderWithSearchHighlight(citPart, searchQuery);
-      });
-    });
-
-    return (
-      <Text key={index} style={isBold ? { fontWeight: '700' } : undefined}>
-        {subElements}
-      </Text>
-    );
-  });
-};
-
-const CustomMarkdownText: React.FC<{ content: string; isUser: boolean; searchQuery: string; theme: any }> = ({
-  content,
-  isUser,
-  searchQuery,
-  theme,
-}) => {
-  if (!content) return null;
-
-  const lines = content.split('\n');
-  const renderedElements: React.ReactNode[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Headers
-    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
-    if (headerMatch) {
-      const level = headerMatch[1].length;
-      const headerText = headerMatch[2];
-      const fontSize = level === 1 ? 18 : level === 2 ? 16 : 14;
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize,
-            fontWeight: '700',
-            marginTop: 8,
-            marginBottom: 4,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(headerText, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Bullet items
-    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
-      const bulletContent = trimmed.slice(2);
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6 }}>•</Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(bulletContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Numbered items
-    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-    if (numMatch) {
-      const num = numMatch[1];
-      const listContent = numMatch[2];
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6, fontWeight: '700' }}>
-            {num}.
-          </Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(listContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Plain-text custom headings (e.g. ⚖️ FINAL VERDICT, Win Probability)
-    const isLegalHeading = (text: string): boolean => {
-      const clean = text.replace(/^[^\w\s]*\s*/, '').trim().toLowerCase();
-      const headings = [
-        'final verdict',
-        'simplified explanation',
-        'legal analysis',
-        'risks & loopholes',
-        'enforceability check',
-        'what to do next',
-        'improved clause (rewrite)',
-        'improved clause',
-        'law references',
-        'legal disclaimer',
-        'win probability',
-        'case strength',
-        'positive factors',
-        'negative factors',
-        'judicial outlook',
-        'possible outcome',
-        'risk analysis',
-        'immediate actions',
-        'tactical plan',
-        'opponent strategy',
-        'counter strategy',
-        'courtroom strategy',
-        'filing strategy',
-        'evidence strategy',
-        'evidence summary',
-        'evidence classification',
-        'admissibility',
-        'strength analysis',
-        'missing evidence',
-        'contradictions',
-        'weaknesses',
-        'recommendations',
-        'overall evidence strength',
-        'clause',
-        'risk level',
-        'why risk exists',
-        'suggested change',
-        'original clause',
-        'reason for rewrite',
-        'legal overview',
-        'explanation',
-        'relevant sections',
-        'landmark judgments',
-        'practical application',
-        'judicial interpretation',
-        'requirement',
-        'status',
-        'missing compliance',
-        'similarities',
-        'differences',
-        'applicability',
-        'strategic advantage',
-        'main arguments',
-        'supporting facts',
-        'counter arguments',
-        'rebuttals',
-        'cross examination',
-        'closing submission',
-        'date',
-        'event',
-        'legal significance',
-        'overall evidence assessment',
-        'evidence breakdown',
-        'risks, gaps & loopholes',
-        'courtroom admissibility check',
-        'defense attack strategy',
-        'prosecution / user strategy',
-        'evidence improvement plan',
-        'legal backing',
-        'evidence priority',
-        'final insight',
-        'case position (top summary)',
-        'primary arguments (courtroom ready)',
-        'strongest argument (highlight)',
-        'opposition arguments (prediction)',
-        'rebuttal strategy',
-        'cross-examination questions',
-        'courtroom narrative',
-        'argument strategy (how to win)',
-        'final closing statement',
-        'final outcome (top summary)',
-        'win probability breakdown',
-        'key reasons (why this outcome)',
-        'multi-scenario outcome',
-        'scenario 1 — worst case',
-        'scenario 1 - worst case',
-        'scenario 2 — most likely case',
-        'scenario 2 - most likely case',
-        'scenario 3 — best case',
-        'scenario 3 - best case',
-        'case breakpoints (deciding factors)',
-        'strategic action plan (lawyer-level)',
-        'final strategic position',
-        'core strategy (big picture)',
-        'step-by-step action plan',
-        'phase 1 – immediate actions',
-        'phase 1 - immediate actions',
-        'phase 2 – evidence strengthening',
-        'phase 2 - evidence strengthening',
-        'phase 3 – courtroom execution',
-        'phase 3 - courtroom execution',
-        'risks & defense challenges',
-        'counter-strategy',
-        'winning argument framework',
-        'courtroom focus',
-        'high-impact legal moves',
-        'success strategy (final execution plan)',
-        'key legal elements',
-        'landmark case laws',
-        'common defenses & loopholes',
-        'strategic insight',
-        'related legal provisions'
-      ];
-      return headings.includes(clean);
-    };
-    if (isLegalHeading(trimmed)) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 18,
-            fontWeight: '800',
-            marginTop: 16,
-            marginBottom: 8,
-            color: isUser ? '#FFFFFF' : '#111827',
-          }}
-        >
-          {parseInlineStyles(trimmed, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Normal text lines
-    if (trimmed.length > 0) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 14.5,
-            lineHeight: 21,
-            marginVertical: 3,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(line, isUser, theme, searchQuery)}
-        </Text>
-      );
-    } else {
-      renderedElements.push(<View key={i} style={{ height: 6 }} />);
-    }
-  }
-
-  return <View style={{ alignSelf: 'stretch' }}>{renderedElements}</View>;
-};
-
-// Response structured sections definitions for Strategy report output
-interface StrategySection {
-  title: string;
-  content: string;
-  type:
-    | 'summary'
-    | 'issues'
-    | 'position'
-    | 'laws'
-    | 'sections'
-    | 'judgments'
-    | 'strength'
-    | 'weakness'
-    | 'opponent'
-    | 'counter'
-    | 'evidence'
-    | 'missing'
-    | 'steps'
-    | 'timeline'
-    | 'risk'
-    | 'settlement'
-    | 'probability'
-    | 'recommendations'
-    | 'final'
-    | 'normal';
-}
-
-const parseStrategyResponse = (content: string): StrategySection[] => {
-  const lines = content.split('\n');
-  const sections: StrategySection[] = [];
-  let currentTitle = '';
-  let currentContent: string[] = [];
-
-  const getSectionType = (title: string): StrategySection['type'] => {
-    const t = title.toLowerCase();
-    if (t.includes('summary')) return 'summary';
-    if (t.includes('issues')) return 'issues';
-    if (t.includes('position')) return 'position';
-    if (t.includes('laws')) return 'laws';
-    if (t.includes('sections')) return 'sections';
-    if (t.includes('judgments')) return 'judgments';
-    if (t.includes('strength')) return 'strength';
-    if (t.includes('weakness')) return 'weakness';
-    if (t.includes('opponent')) return 'opponent';
-    if (t.includes('counter')) return 'counter';
-    if (t.includes('evidence')) return 'evidence';
-    if (t.includes('missing')) return 'missing';
-    if (t.includes('steps') || t.includes('next')) return 'steps';
-    if (t.includes('timeline')) return 'timeline';
-    if (t.includes('risk')) return 'risk';
-    if (t.includes('settlement')) return 'settlement';
-    if (t.includes('probability')) return 'probability';
-    if (t.includes('recommendations')) return 'recommendations';
-    if (t.includes('final')) return 'final';
-    return 'normal';
-  };
-
-  for (const line of lines) {
-    const match = line.match(/^(#{1,3})\s+(.*)/);
-    if (match) {
-      if (currentContent.length > 0 || currentTitle) {
-        sections.push({
-          title: currentTitle || 'Litigation Strategy',
-          content: currentContent.join('\n').trim(),
-          type: getSectionType(currentTitle),
-        });
-      }
-      currentTitle = match[2].trim();
-      currentContent = [];
-    } else {
-      currentContent.push(line);
-    }
-  }
-  if (currentContent.length > 0 || currentTitle) {
-    sections.push({
-      title: currentTitle || 'Litigation Strategy',
-      content: currentContent.join('\n').trim(),
-      type: getSectionType(currentTitle),
-    });
-  }
-
-  if (sections.length === 0) {
-    sections.push({
-      title: '',
-      content: content,
-      type: 'normal',
-    });
-  }
-
-  return sections;
-};
-
-const StructuredStrategyView: React.FC<{ content: string; searchQuery: string; theme: any }> = ({
-  content,
-  searchQuery,
-  theme,
-}) => {
-  const { isDark } = useThemeContext();
-  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
-  const isStructured =
-    content.includes('Case Summary') ||
-    content.includes('Key Legal Issues') ||
-    content.includes('Winning Probability') ||
-    content.includes('Opponent Strategy') ||
-    content.includes('Final Strategy') ||
-    content.includes('Judgments');
-
-  if (!isStructured) {
-    return <CustomMarkdownText content={content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-  }
-
-  const sections = parseStrategyResponse(content);
-
-  return (
-    <View style={{ alignSelf: 'stretch', gap: 12 }}>
-      {sections.map((sec, index) => {
-        if (sec.type === 'probability') {
-          const scoreText = sec.content;
-          let probColor = '#EF4444'; // Red
-          let progressVal = 0.4;
-          let levelText = 'Low Probability';
-
-          const matchNum = scoreText.match(/(\d+)\%/);
-          if (matchNum) {
-            const p = parseInt(matchNum[1]);
-            progressVal = p / 100;
-            if (p >= 75) {
-              probColor = '#10B981'; // Green
-              levelText = 'Strong Position';
-            } else if (p >= 50) {
-              probColor = '#F59E0B'; // Amber
-              levelText = 'Moderate Outlook';
-            }
-          } else if (scoreText.toLowerCase().includes('high')) {
-            probColor = '#10B981';
-            progressVal = 0.82;
-            levelText = 'Strong Position';
-          }
-
-          return (
-            <View key={index} style={[styles.strategyCard, { borderLeftColor: probColor }]}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="trending-up-outline" size={18} color={probColor} />
-                <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>
-                  {sec.title || 'Winning Probability'}
-                </Text>
-              </View>
-              <View style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 6 }}>
-                  {renderWithSearchHighlight(sec.content, searchQuery)}
-                </Text>
-                <View style={styles.progressBarBg}>
-                  <View style={{ height: '100%', width: `${progressVal * 100}%`, backgroundColor: probColor, borderRadius: 4 }} />
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Unfavorable</Text>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: probColor }}>{levelText}</Text>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Highly Favorable</Text>
-                </View>
-              </View>
-            </View>
-          );
-        }
-
-        let borderLeftColor = theme.border;
-        let cardIcon = 'git-commit-outline';
-        let iconColor = theme.textSecondary;
-        let cardBg = theme.surface;
-
-        switch (sec.type) {
-          case 'summary':
-            borderLeftColor = '#EF4444'; // Red
-            cardIcon = 'eye-outline';
-            iconColor = '#EF4444';
-            cardBg = '#FFF5F5';
-            break;
-          case 'issues':
-          case 'position':
-            borderLeftColor = '#64748B';
-            cardIcon = 'help-circle-outline';
-            iconColor = '#64748B';
-            break;
-          case 'laws':
-          case 'sections':
-            borderLeftColor = '#8A5CF5'; // Violet
-            cardIcon = 'book-outline';
-            iconColor = '#8A5CF5';
-            cardBg = '#F5F3FF';
-            break;
-          case 'judgments':
-            borderLeftColor = '#14B8A6'; // Teal
-            cardIcon = 'ribbon-outline';
-            iconColor = '#14B8A6';
-            cardBg = '#F0FDFA';
-            break;
-          case 'strength':
-          case 'final':
-            borderLeftColor = '#10B981'; // Green
-            cardIcon = 'shield-checkmark-outline';
-            iconColor = '#10B981';
-            cardBg = '#F0FDF4';
-            break;
-          case 'weakness':
-          case 'risk':
-            borderLeftColor = '#EF4444'; // Red
-            cardIcon = 'alert-circle-outline';
-            iconColor = '#EF4444';
-            cardBg = '#FFF5F5';
-            break;
-          case 'opponent':
-          case 'counter':
-          case 'settlement':
-            borderLeftColor = '#F59E0B'; // Amber
-            cardIcon = 'warning-outline';
-            iconColor = '#F59E0B';
-            cardBg = '#FFFBEB';
-            break;
-          case 'steps':
-          case 'timeline':
-          case 'recommendations':
-            borderLeftColor = '#8A5CF5';
-            cardIcon = 'git-commit-outline';
-            iconColor = '#8A5CF5';
-            cardBg = '#F5F3FF';
-            break;
-        }
-
-        if (sec.type === 'normal') {
-          return <CustomMarkdownText key={index} content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-        }
-
-        return (
-          <View key={index} style={[styles.strategyCard, { borderLeftColor, backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name={cardIcon as any} size={18} color={iconColor} />
-              <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>{sec.title}</Text>
-            </View>
-            <View style={{ marginTop: 6 }}>
-              <CustomMarkdownText content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-};
-
-// DICTIONARY OF ACTION SHEETS
-const STRATEGY_ACTIONS = {
-  litigationPlanning: [
-    { id: 'build_roadmap', label: 'Build Complete Litigation Roadmap', desc: 'Create end-to-end litigation timeline and plan', isImmediate: true },
-    { id: 'winning_strategy', label: 'Winning Litigation Strategy', desc: 'Prepare complete strategy focusing on legal positions', isImmediate: false, promptText: 'Prepare a complete litigation strategy for this case focusing on the strongest legal position, procedural roadmap, risks, expected objections, evidence planning, and courtroom recommendations.' },
-    { id: 'plaintiff_strategy', label: 'Plaintiff Strategy', desc: 'Maximize impact of primary plaint and claims', isImmediate: true },
-    { id: 'defendant_strategy', label: 'Defendant Strategy', desc: 'Maximize strength of written statements and counters', isImmediate: true },
-    { id: 'trial_strategy', label: 'Trial Strategy', desc: 'Formulate witness timelines and examination order', isImmediate: true },
-    { id: 'appeal_strategy', label: 'Appeal Strategy', desc: 'Draft grounds of appeal and record error audits', isImmediate: true },
-    { id: 'interim_relief', label: 'Interim Relief Strategy', desc: 'Prepare injunctions, stays, and emergency relief orders', isImmediate: true },
-    { id: 'execution_strategy', label: 'Execution Strategy', desc: 'Plan enforcement of decrees and recoveries', isImmediate: true },
-    { id: 'recovery_strategy', label: 'Recovery Strategy', desc: 'Maximize financial recoveries and attachments', isImmediate: true },
-  ],
-  courtPreparation: [
-    { id: 'next_hearing', label: 'Next Hearing Preparation', desc: 'Draft specific checklists and briefs for next date', isImmediate: true },
-    { id: 'judge_convincing', label: 'Judge Convincing Strategy', desc: 'Determine judicial focus and key ratios to highlight', isImmediate: true },
-    { id: 'presentation_plan', label: 'Courtroom Presentation Plan', desc: 'Structure oral arguments and facts folders', isImmediate: true },
-    { id: 'hearing_checklist', label: 'Daily Hearing Checklist', desc: 'Checklist of case files and procedural motions', isImmediate: true },
-    { id: 'court_notes', label: 'Court Notes', desc: 'Consolidated briefing sheets for argue sessions', isImmediate: true },
-    { id: 'possible_judge_questions', label: 'Possible Judge Questions', desc: 'Scan and predict hard questions from bench', isImmediate: true },
-    { id: 'emergency_prep', label: 'Emergency Hearing Preparation', desc: 'Prepare strategies for uncooperative witnesses or new facts', isImmediate: true },
-    { id: 'court_timeline', label: 'Court Timeline', desc: 'Track dates and procedural timelines', isImmediate: true },
-  ],
-  opponentIntelligence: [
-    { id: 'predict_opponent_arguments', label: 'Predict Opponent Arguments', desc: 'Anticipate defense or prosecution arguments', isImmediate: true },
-    { id: 'predict_opponent_evidence', label: 'Predict Opponent Evidence', desc: 'Determine opposing evidence entries', isImmediate: true },
-    { id: 'predict_opponent_strategy', label: 'Predict Opponent Strategy', desc: 'Predict general opponent actions', isImmediate: true },
-    { id: 'possible_objections', label: 'Possible Objections', desc: 'Highlight where opposing counsel will object', isImmediate: true },
-    { id: 'opponent_weakness', label: 'Weakness in Opponent Case', desc: 'Isolate opposing gaps or credibility failures', isImmediate: true },
-    { id: 'counter_litigation', label: 'Counter Litigation Plan', desc: 'Strategies to disrupt opponent litigation path', isImmediate: true },
-    { id: 'opponent_risk', label: 'Opponent Risk Analysis', desc: 'Examine opposing liability exposure', isImmediate: true },
-  ],
-  evidencePlanning: [
-    { id: 'evidence_mapping', label: 'Evidence Mapping', desc: 'Correlate facts to supportive evidence', isImmediate: true },
-    { id: 'evidence_priority', label: 'Evidence Priority', desc: 'Order of exhibits filing for maximum impact', isImmediate: true },
-    { id: 'missing_evidence', label: 'Missing Evidence', desc: 'Highlight gaps in current case documents', isImmediate: true },
-    { id: 'missing_documents', label: 'Missing Documents', desc: 'Identify records to summon', isImmediate: true },
-    { id: 'strongest_evidence', label: 'Strongest Supporting Evidence', desc: 'Highlight primary corroborative details', isImmediate: true },
-    { id: 'weak_evidence', label: 'Weak Evidence Detection', desc: 'Audit inadmissible or compromised evidence', isImmediate: true },
-    { id: 'evidence_timeline', label: 'Evidence Timeline', desc: 'Verify chronological sequence of logs', isImmediate: true },
-    { id: 'evidence_risk', label: 'Evidence Risk Analysis', desc: 'Examine risk of opposing admissibility checks', isImmediate: true },
-  ],
-  settlementIntelligence: [
-    { id: 'settlement_probability', label: 'Settlement Probability', desc: 'Calculate likelihood of out-of-court settlement', isImmediate: true },
-    { id: 'negotiation_strategy', label: 'Negotiation Strategy', desc: 'Formulate target compromise thresholds', isImmediate: true },
-    { id: 'mediation_plan', label: 'Mediation Plan', desc: 'Check mediation parameters and briefs', isImmediate: true },
-    { id: 'compromise_suggestions', label: 'Compromise Suggestions', desc: 'Recommend concession points to secure compromise', isImmediate: true },
-    { id: 'best_time_settle', label: 'Best Time to Settle', desc: 'Highlight ideal litigation phase for settlement offer', isImmediate: true },
-    { id: 'settlement_risk', label: 'Settlement Risk Analysis', desc: 'Audit risk of settling vs trial costs', isImmediate: true },
-    { id: 'settlement_draft', label: 'Settlement Draft Guidance', desc: 'Structure release terms and compromise drafts', isImmediate: true },
-  ],
-  litigationRoadmap: [
-    { id: 'case_timeline', label: 'Case Timeline', desc: 'Historical timeline of events and logs', isImmediate: true },
-    { id: 'legal_deadlines', label: 'Legal Deadlines', desc: 'Calculate limitation deadlines and check schedules', isImmediate: true },
-    { id: 'next_legal_steps', label: 'Next Legal Steps', desc: 'Immediate procedural tasks catalog', isImmediate: true },
-    { id: 'court_calendar', label: 'Court Calendar', desc: 'View local listing times and schedule', isImmediate: true },
-    { id: 'doc_checklist', label: 'Document Checklist', desc: 'Checklist of filings needed', isImmediate: true },
-    { id: 'compliance_tracker', label: 'Compliance Tracker', desc: 'Track adherence to statutory rules', isImmediate: true },
-    { id: 'appeal_timeline', label: 'Appeal Timeline', desc: 'Limitation periods for appeal filings', isImmediate: true },
-    { id: 'execution_timeline', label: 'Execution Timeline', desc: 'Verify timelines for decree execution', isImmediate: true },
-  ],
-  successAnalysis: [
-    { id: 'winning_probability', label: 'Winning Probability', desc: 'Calculate success probability and liability', isImmediate: true },
-    { id: 'risk_score', label: 'Risk Score', desc: 'Generate complete risk index audit', isImmediate: true },
-    { id: 'strength_score', label: 'Strength Score', desc: 'Calculate overall case strength metrics', isImmediate: true },
-    { id: 'weakness_score', label: 'Weakness Score', desc: 'Audit internal case weaknesses and leaks', isImmediate: true },
-    { id: 'case_readiness', label: 'Case Readiness Score', desc: 'Assess readiness of documents and witness prep', isImmediate: true },
-    { id: 'cost_benefit', label: 'Cost vs Benefit Analysis', desc: 'Examine litigation costs vs recovery probability', isImmediate: true },
-    { id: 'time_estimation', label: 'Time Estimation', desc: 'Predict litigation duration based on court backend', isImmediate: true },
-    { id: 'complexity_analysis', label: 'Complexity Analysis', desc: 'Assess legal issues and statutory density', isImmediate: true },
-  ],
-  courtSimulation: [
-    { id: 'mock_court', label: 'Mock Courtroom', desc: 'Simulate full moot hearing with AI judge and counsel', isImmediate: false, promptText: 'Simulate a mock courtroom hearing for my case. Roleplay as the Judge. Ask me difficult questions about my claim.' },
-    { id: 'sim_judge', label: 'Judge Simulation', desc: 'AI roleplays as judge asking hard legal questions', isImmediate: false, promptText: 'Simulate a Judge. Review my case facts and ask me 3 difficult questions to challenge my claims.' },
-    { id: 'sim_opp', label: 'Opposing Counsel Simulation', desc: 'AI acts as opposing counsel attacking case weak points', isImmediate: false, promptText: 'Simulate Opposing Counsel. Attack my case weak points and present 3 objections.' },
-    { id: 'sim_cross', label: 'Cross Examination Practice', desc: 'Practice answering cross questions for witness preparation', isImmediate: false, promptText: 'Simulate Cross Examination of my witness Nitin. Ask questions to challenge witness credibility.' },
-    { id: 'sim_rapid', label: 'Rapid Fire Questions', desc: 'Answer quick procedural questions to test arguments', isImmediate: false, promptText: 'Ask me 5 rapid fire legal questions about the procedural deadlines of my case.' },
-    { id: 'sim_scenarios', label: 'Unexpected Court Scenarios', desc: 'Practice response to surprise evidence or new objections', isImmediate: false, promptText: 'Simulate an unexpected courtroom scenario (e.g. opposing counsel presents surprise document). Prepare me on how to respond.' },
-    { id: 'sim_emergency', label: 'Emergency Responses', desc: 'Simulate responses for adverse judge remarks or hostile witness', isImmediate: false, promptText: 'Draft emergency responses for adverse judge remarks during oral arguments.' },
-  ]
-};
-
-// Input-Focused Custom Actions
-const INPUT_ACTIONS = [
-  { id: 'search_strategy', label: 'Search Strategy', desc: 'Search for phrases in case strategy logs', placeholder: 'Search within litigation files...' },
-  { id: 'find_precedents', label: 'Find Precedents', desc: 'Locate binding court cases', placeholder: 'Enter keyword to find precedents...' },
-  { id: 'custom_strategy', label: 'Custom Strategy', desc: 'Submit custom strategic litigation requests', placeholder: 'Describe the specific issue you want strategy for...' }
+// Step 3: AI Processing steps
+const PROCESSING_STEPS = [
+  'Reading Case',
+  'Loading Timeline',
+  'Evaluating Evidence',
+  'Opponent Analysis',
+  'Finding Similar Judgments',
+  'Building Litigation Strategy',
+  'Risk Assessment',
+  'Preparing Court Roadmap',
+  'Generating Final Report',
 ];
 
-const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
-  if (!details) return '';
-  let summary = `[Case Context Info]\n`;
-  summary += `Case Name: ${details.name}\n`;
-  if (details.clientName) summary += `Client: ${details.clientName}\n`;
-  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
-  if (details.courtName) summary += `Court: ${details.courtName}\n`;
-  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
-  if (details.summary || details.caseSummary) {
-    summary += `Summary: ${details.summary || details.caseSummary}\n`;
-  }
-  
-  if (details.evidence && details.evidence.length > 0) {
-    summary += `Evidence List:\n`;
-    details.evidence.forEach((ev, idx) => {
-      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
-    });
-  }
-  
-  if (details.hearings && details.hearings.length > 0) {
-    summary += `Hearings List:\n`;
-    details.hearings.forEach((h, idx) => {
-      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
-    });
-  }
-  
-  if (details.documents && details.documents.length > 0) {
-    summary += `Documents List:\n`;
-    details.documents.forEach((doc, idx) => {
-      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
-    });
-  }
-  
-  if (details.facts && details.facts.length > 0) {
-    summary += `Timeline / Facts:\n`;
-    details.facts.forEach((fact, idx) => {
-      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
-    });
-  }
-  
-  summary += `[End of Case Context Info]\n\n`;
-  return summary;
-};
+// Roadmap vertical timeline steps mockup
+const ROADMAP_STAGES = [
+  { stage: 'Legal Notice', status: 'COMPLETED', duration: '14 Days', docs: 'Draft Notice copy, delivery confirmation receipts' },
+  { stage: 'Dispute Filing', status: 'COMPLETED', duration: '30 Days', docs: 'Suit plaint, court fee stamps registry index' },
+  { stage: 'Interim Relief Application', status: 'CURRENT', duration: '45 Days', docs: 'Affidavit in support, injunction notice' },
+  { stage: 'Written Statement Reply', status: 'UPCOMING', duration: '90 Days', docs: 'Respondent counter affidavit files' },
+  { stage: 'Issues Formulation', status: 'UPCOMING', duration: '120 Days', docs: 'Agreed issues summary sheets' },
+  { stage: 'Evidence Trial', status: 'UPCOMING', duration: '180 Days', docs: 'Section 65B certified screenshot logs, witnesses lists' },
+  { stage: 'Arguments Hearing', status: 'UPCOMING', duration: '240 Days', docs: 'Written notes of arguments copy' },
+  { stage: 'Final Judgment', status: 'UPCOMING', duration: '280 Days', docs: 'Certified copy application' }
+];
 
 export default function StrategyEngineScreen() {
-  useAuthGuard();
-  const router = useRouter();
   const { showToast } = useToastContext();
   const { theme, isDark } = useThemeContext();
-  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
+  const styles: any = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Wizard Navigation States
+  // 'HOME' -> 'ANALYZING' -> 'INTELLIGENCE'
+  const [step, setStep] = useState<'HOME' | 'ANALYZING' | 'INTELLIGENCE'>('HOME');
 
-  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
-  const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
-  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
-  const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
-  const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
+  // Sticky tabs selectors: Overview, Opponent, Evidence, Arguments, Risk, Roadmap, Reports
+  const [activeTab, setActiveTab] = useState<'overview' | 'opponent' | 'evidence' | 'arguments' | 'risk' | 'roadmap' | 'reports'>('overview');
 
+  // Cases Workspace listing state
+  const [cases, setCases] = useState<CaseSummary[]>([]);
+  const [linkedCaseId, setLinkedCaseId] = useState<string>('');
+  const [isCaseSelectOpen, setIsCaseSelectOpen] = useState(false);
+  const [showSyncSuccess, setShowSyncSuccess] = useState(false);
 
+  // Manual inputs form (Card 3)
+  const [isManualFormOpen, setIsManualFormOpen] = useState(false);
+  const [manualFacts, setManualFacts] = useState('');
+  const [manualClaims, setManualClaims] = useState('');
+  const [manualDefence, setManualDefence] = useState('');
+  const [manualCourt, setManualCourt] = useState('');
+  const [manualObjective, setManualObjective] = useState('');
 
-  const fetchActiveCaseDetails = async (caseId: string) => {
-    try {
-      const res = await CaseService.getCaseDetails(caseId);
-      const details = (res as any).data || res;
-      if (details) {
-        setActiveCaseDetails(details);
-      }
-    } catch (err) {
-      console.warn('Failed to load active case details:', err);
-    }
-  };
+  // Upload selectors state (Card 2)
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
-  const fetchAllCaseSummaries = async () => {
-    try {
-      const res = await CaseService.listCases();
-      const list = Array.isArray(res) ? res : (res?.data || []);
-      const mapping: Record<string, string> = {};
-      list.forEach((c: any) => {
-        mapping[c._id] = c.name;
-      });
-      setCaseSummariesMap(mapping);
-    } catch (err) {
-      console.warn('Failed to load case summaries list for history mapping:', err);
-    }
-  };
+  // AI Extraction checklist progress index
+  const [currentStepIdx, setCurrentStepIdx] = useState(0);
+  const [progressVal] = useState(new Animated.Value(0));
 
-  useEffect(() => {
-    if (activeCaseId) {
-      fetchActiveCaseDetails(activeCaseId);
-    } else {
-      setActiveCaseDetails(null);
-    }
-  }, [activeCaseId]);
+  // Expandable accordions state trackers
+  const [expandedOverview, setExpandedOverview] = useState<Record<string, boolean>>({ summary: true });
+  const [expandedOpponent, setExpandedOpponent] = useState<Record<string, boolean>>({ defence: true });
+  const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({ strength: true });
+  const [expandedArguments, setExpandedArguments] = useState<Record<string, boolean>>({ primary: true });
+  const [expandedRisks, setExpandedRisks] = useState<Record<string, boolean>>({ overall: true });
+  const [expandedRoadmap, setExpandedRoadmap] = useState<Record<number, boolean>>({ 2: true }); // current step open
 
-  useEffect(() => {
-    fetchAllCaseSummaries();
-  }, [sessionId]);
+  // Executive Document Viewer overlays
+  const [isReportViewerOpen, setIsReportViewerOpen] = useState(false);
 
-  const [inputVal, setInputVal] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const streamTimerRef = useRef<any>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
+  // Floating Ask AI Assistant Chat panel
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
+  const [sheetSize, setSheetSize] = useState<'collapsed' | 'expanded' | 'full'>('expanded');
+  const copilotScrollRef = useRef<ScrollView>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [chatReplies, setChatReplies] = useState<Array<{ sender: 'user' | 'ai'; text: string }>>([
+    { sender: 'ai', text: 'Litigation Strategy Workspace loaded. How can I help refine target arguments or analyze opponent delay tactics?' }
+  ]);
+  const [isAiThinking, setIsAiThinking] = useState(false);
 
   useEffect(() => {
-    return () => {
-      if (streamTimerRef.current) clearInterval(streamTimerRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, []);
-  
-  const {
-    attachments,
-    setAttachments,
-    isBottomSheetVisible,
-    isCameraVisible,
-    isUploading,
-    showAttachmentOptions,
-    hideAttachmentOptions,
-    hideCamera,
-    handleRemoveAttachment,
-    clearAttachments,
-    handleSelectOption,
-    handleCameraConfirm,
-    uploadPendingAttachments,
-  } = useAttachmentHandler();
-
-  // Search feature
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Chat History Drawer States
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [historySessions, setHistorySessions] = useState<any[]>([]);
-  const [searchHistoryQuery, setSearchHistoryQuery] = useState('');
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [renameTitleVal, setRenameTitleVal] = useState('');
-
-  const fetchHistorySessions = async () => {
-    try {
-      const res = await ChatService.listSessions();
-      const sessionList = Array.isArray(res) ? res : (res?.data || []);
-      const filtered = sessionList.filter((s: any) => s.activeTool === 'strategyEngine');
-      setHistorySessions(filtered);
-    } catch (err) {
-      console.warn('Failed to fetch chat history:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchHistorySessions();
-  }, [sessionId]);
-
-  const handleSelectSession = async (sId: string) => {
-    try {
-      setIsHistoryOpen(false);
-      const res = await ChatService.getSessionDetails(sId);
-      const detailSession = (res as any).data || res;
-      if (detailSession) {
-        setSessionId(sId);
-        setMessages(detailSession.messages || []);
-        if (detailSession.projectId) {
-          setActiveCaseId(detailSession.projectId);
-        } else {
-          setActiveCaseId(null);
-        }
-        showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
-      }
-    } catch (err) {
-      console.warn('Failed to load session details:', err);
-      showToast('error', 'Load Failed', 'Could not load conversation.');
-    }
-  };
-
-  const handleDeleteSession = async (sId: string) => {
-    try {
-      await ChatService.deleteSession(sId);
-      setHistorySessions((prev) => prev.filter((s) => s.sessionId !== sId));
-      if (sessionId === sId) {
-        setSessionId(null);
-        setMessages([]);
-      }
-      showToast('success', 'Conversation Deleted', 'Logs removed.');
-    } catch (err) {
-      console.warn('Failed to delete session:', err);
-      showToast('error', 'Delete Failed', 'Could not delete conversation.');
-    }
-  };
-
-  const handleRenameConfirm = async (sId: string) => {
-    if (renameTitleVal.trim()) {
-      try {
-        await ChatService.renameSession(sId, renameTitleVal.trim());
-        setHistorySessions((prev) =>
-          prev.map((s) => (s.sessionId === sId ? { ...s, title: renameTitleVal.trim() } : s))
-        );
-        setEditingSessionId(null);
-        setRenameTitleVal('');
-        showToast('success', 'Session Renamed', 'Title updated.');
-      } catch (err) {
-        console.warn('Failed to rename session:', err);
-        showToast('error', 'Rename Failed', 'Could not rename conversation.');
-      }
-    }
-  };
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setSessionId(null);
-    clearAttachments();
-    setInputVal('');
-    setActiveCaseId(null);
-    setShouldComposerFocus(false);
-    showToast('info', 'New Chat', 'New chat conversation started.');
-  };
-
-  const filteredHistorySessions = useMemo(() => {
-    let list = historySessions;
-    if (searchHistoryQuery.trim()) {
-      list = historySessions.filter((s) =>
-        s.title.toLowerCase().includes(searchHistoryQuery.toLowerCase())
-      );
-    }
-    return [...list].sort((a, b) => b.lastModified - a.lastModified);
-  }, [historySessions, searchHistoryQuery]);
-
-  const groupedHistory = useMemo(() => {
-    const caseGroups: Record<string, any[]> = {};
-    const generalList: any[] = [];
-    filteredHistorySessions.forEach((s) => {
-      if (s.projectId) {
-        if (!caseGroups[s.projectId]) {
-          caseGroups[s.projectId] = [];
-        }
-        caseGroups[s.projectId].push(s);
-      } else {
-        generalList.push(s);
-      }
-    });
-    return { caseGroups, generalList };
-  }, [filteredHistorySessions]);
-
-  // Actions bottom sheet
-  const [isActionsOpen, setIsActionsOpen] = useState(false);
-  const [actionsSearchQuery, setActionsSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<string[]>(['Build Complete Litigation Roadmap', 'Winning Litigation Strategy', 'Mock Courtroom']);
-  const [recentlyUsed, setRecentlyUsed] = useState<string[]>(['Build Complete Litigation Roadmap', 'Winning Litigation Strategy', 'Trial Strategy']);
-
-  // UI state for inputs composer
-  const [composerPlaceholder, setComposerPlaceholder] = useState('Ask about this case...');
-  const textInputRef = useRef<TextInput>(null);
-  const flatListRef = useRef<FlatList>(null);
-  const isAtBottomRef = useRef(true);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
-  const scrollBtnScale = useRef(new Animated.Value(0.95)).current;
-  const hideTimerRef = useRef<any>(null);
-  const lastOffsetRef = useRef<number>(0);
-
-  const handleScrollAction = (shouldShow: boolean) => {
-    if (shouldShow) {
-      if (!showScrollBtn) {
-        setShowScrollBtn(true);
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 1, duration: 200, useNativeDriver: true }),
-        ]).start();
-      }
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-        ]).start((result: { finished: boolean }) => {
-          if (result.finished) {
-            setShowScrollBtn(false);
-          }
-        });
-      }, 2500);
-    } else {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = null;
-      }
-      Animated.parallel([
-        Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-      ]).start((result: { finished: boolean }) => {
-        if (result.finished) {
-          setShowScrollBtn(false);
-        }
-      });
-    }
-  };
-
-  useEffect(() => {
-    if (inputVal.trim() !== '') {
-      handleScrollAction(false);
-    }
-  }, [inputVal]);
-
-  // Expanded bubble states
-  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
-
-  // Dynamic Case Type Detection (based on attachments name)
-  const detectedCaseType = useMemo(() => {
-    if (attachments.length === 0) return '';
-    const name = attachments[0].name.toLowerCase();
-    if (name.includes('cheque') || name.includes('bounce') || name.includes('complainant')) return 'Cheque Bounce';
-    if (name.includes('property') || name.includes('partition') || name.includes('plaint')) return 'Property Dispute';
-    if (name.includes('criminal') || name.includes('fir') || name.includes('assault')) return 'Criminal Matter';
-    if (name.includes('family') || name.includes('custody') || name.includes('appeal')) return 'Family Matter';
-    return 'Civil Litigation Case';
-  }, [attachments]);
-
-  // AI Recommended Actions depending on the active case type
-  const aiRecommendedActions = useMemo(() => {
-    if (!detectedCaseType) return [];
-    
-    if (detectedCaseType === 'Cheque Bounce') {
-      return [
-        { id: 'recovery_strategy', label: 'Build Recovery Strategy', desc: 'Create end-to-end recovery roadmap' },
-        { id: 'predict_opponent_strategy', label: 'Predict Defence', desc: 'Anticipate opposing security cheque arguments' },
-        { id: 'settlement_possibility', label: 'Settlement Possibility', desc: 'Check mediation concessions possibilities' },
-        { id: 'court_timeline', label: 'Court Timeline', desc: 'Track trial calendar dates and limitation schedules' },
-        { id: 'winning_probability', label: 'Winning Probability', desc: 'Calculate success probability and liability risks' },
-      ];
-    }
-    if (detectedCaseType === 'Property Dispute') {
-      return [
-        { id: 'prop_plan', label: 'Property Litigation Plan', desc: 'Audit adverse possession or title limits' },
-        { id: 'evidence_mapping', label: 'Evidence Strategy', desc: 'Correlate electricity bill pings and tax logs' },
-        { id: 'civil_roadmap', label: 'Civil Court Roadmap', desc: 'Limit suit parameters under Limitation Act' },
-        { id: 'appeal_strategy', label: 'Appeal Planning', desc: 'Draft grounds of appeal and record error audits' }
-      ];
-    }
-    if (detectedCaseType === 'Criminal Matter') {
-      return [
-        { id: 'defense_strat', label: 'Defence Strategy', desc: 'Examine procedural failures in FIR logs' },
-        { id: 'cross_questions', label: 'Cross Examination Plan', desc: 'Discredit opposing eyewitness credibility' },
-        { id: 'witness_prep', label: 'Witness Preparation', desc: 'Prepare own witnesses for cross questions' },
-        { id: 'opponent_risk', label: 'Risk Analysis', desc: 'Scan and predict hard prosecution pings' }
-      ];
-    }
-    if (detectedCaseType === 'Family Matter') {
-      return [
-        { id: 'settlement_strategy', label: 'Settlement Strategy', desc: 'Formulate target compromise thresholds' },
-        { id: 'custody_planning', label: 'Custody Planning', desc: 'Draft child welfare and visitation agreements' },
-        { id: 'negotiation_roadmap', label: 'Negotiation Roadmap', desc: 'Prepare mediation concession roadmap' },
-        { id: 'next_hearing', label: 'Court Preparation', desc: 'Prepare oral opening speech scripts' }
-      ];
-    }
-    
-    return [
-      { id: 'build_roadmap', label: 'Build Litigation Roadmap', desc: 'General findings litigation timeline' },
-      { id: 'winning_strategy', label: 'Winning Strategy', desc: 'Build primary core legal claims' }
-    ];
-  }, [detectedCaseType]);
-
-  const scrollToBottom = (animated = true) => {
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated });
-    }, 100);
-  };
-
-  const handleSend = async (overrideText?: string, actionId?: string, editMessageId?: string) => {
-    const text = overrideText || inputVal.trim();
-    if (!text && attachments.length === 0) return;
-
-    setIsSending(true);
-    setShouldComposerFocus(false);
-
-    let uploadedAttachments = attachments;
-    if (attachments.length > 0 && !editMessageId) {
-      try {
-        uploadedAttachments = await uploadPendingAttachments();
-      } catch (uploadErr) {
-        setIsSending(false);
-        return;
-      }
-    }
-
-    // Optimistic user message append / edit replacement
-    let userMsgId = `msg_${Date.now()}`;
-    let updatedMessages: ChatMessage[] = [];
-
-    if (editMessageId) {
-      const msgIdx = messages.findIndex((m) => m.id === editMessageId);
-      if (msgIdx !== -1) {
-        const editedMsg = {
-          ...messages[msgIdx],
-          content: text,
-          timestamp: Date.now(),
-        };
-        updatedMessages = [
-          ...messages.slice(0, msgIdx),
-          editedMsg
-        ];
-        userMsgId = editMessageId;
-      } else {
-        const newUserMessage: ChatMessage = {
-          id: userMsgId,
-          role: 'user',
-          content: text,
-          timestamp: Date.now(),
-          attachments: [],
-        };
-        updatedMessages = [...messages, newUserMessage];
-      }
-    } else {
-      const newUserMessage: ChatMessage = {
-        id: userMsgId,
-        role: 'user',
-        content: text,
-        timestamp: Date.now(),
-        attachments: [...uploadedAttachments],
-      };
-      updatedMessages = [...messages, newUserMessage];
-    }
-
-    setMessages(updatedMessages);
-    if (!editMessageId) {
-      setInputVal('');
-      setComposerPlaceholder('Plan your legal strategy...');
-    }
-    scrollToBottom(true);
-
-    const aiMsgId = `msg_ai_${Date.now()}`;
-    const placeholderAiMessage: ChatMessage = {
-      id: aiMsgId,
-      role: 'model',
-      content: '',
-      timestamp: Date.now() + 1,
-      isProcessing: true,
-    };
-
-    const finalMessages = [...updatedMessages, placeholderAiMessage];
-    setMessages(finalMessages);
-
-    // Keep track of recently used
-    if (actionId) {
-      const allActs = [
-        ...STRATEGY_ACTIONS.litigationPlanning,
-        ...STRATEGY_ACTIONS.courtPreparation,
-        ...STRATEGY_ACTIONS.opponentIntelligence,
-        ...STRATEGY_ACTIONS.evidencePlanning,
-        ...STRATEGY_ACTIONS.settlementIntelligence,
-        ...STRATEGY_ACTIONS.litigationRoadmap,
-        ...STRATEGY_ACTIONS.successAnalysis,
-        ...STRATEGY_ACTIONS.courtSimulation,
-        ...aiRecommendedActions
-      ];
-      const match = allActs.find((a) => a.id === actionId);
-      if (match) {
-        setRecentlyUsed((prev) => {
-          const filtered = prev.filter((n) => n !== match.label);
-          return [match.label, ...filtered].slice(0, 3);
-        });
-      }
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    isCancelledRef.current = false;
-
-    try {
-      const currentSessionId = sessionId || `session_strategy_${Date.now()}`;
-      setSessionId(currentSessionId);
-
-      const history = finalMessages
-        .filter((m) => m.id !== aiMsgId)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      let contentToSend = text;
-      if (activeCaseDetails && history.length === 0) {
-        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
-      }
-
-      const payload: Record<string, any> = {
-        content: contentToSend,
-        sessionId: currentSessionId,
-        activeTool: 'strategyEngine',
-        stream: true,
-        history,
-      };
-
-      if (activeCaseId) {
-        payload.projectId = activeCaseId;
-      }
-
-      if (uploadedAttachments.length > 0 && !editMessageId) {
-        payload.document = uploadedAttachments.map((a) => ({
-          name: a.name,
-          mimeType: a.type,
-          base64Data: a.base64Data || '',
-          url: a.url,
-        }));
-      }
-
-      let isFallbackNeeded = true;
-      let accumulatedText = '';
-
-      try {
-        const stream = streamAIResponse('/chat', payload, controller.signal);
-        for await (const token of stream) {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            break;
-          }
-          isFallbackNeeded = false;
-          accumulatedText += token;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, content: accumulatedText } : m))
-          );
-        }
-      } catch (streamErr) {
-        console.warn('[StrategyEngine] Stream err, fallback used:', streamErr);
-      }
-
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-        setIsSending(false);
-        return;
-      }
-
-      if (isFallbackNeeded) {
-        let key = 'build_roadmap';
-        if (actionId) {
-          if (MOCK_ANSWERS[actionId]) {
-            key = actionId;
-          } else if (actionId.includes('roadmap') || actionId.includes('build')) {
-            key = 'build_roadmap';
-          } else if (actionId.includes('winning')) {
-            key = 'winning_strategy';
-          } else if (actionId.includes('opp') || actionId.includes('weakness')) {
-            key = 'opponent_weakness';
-          }
-        } else {
-          if (detectedCaseType === 'Cheque Bounce') key = 'build_roadmap';
-          else if (detectedCaseType === 'Property Dispute') key = 'defense_strat';
-          else if (detectedCaseType === 'Criminal Matter') key = 'opponent_weakness';
-        }
-
-        const fallbackResponse = MOCK_ANSWERS[key] || MOCK_ANSWERS.build_roadmap;
-
-        const chunks = fallbackResponse.split(' ');
-        let curIdx = 0;
-        let runningText = '';
-
-        const timer = setInterval(() => {
-          if (isCancelledRef.current) {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            return;
-          }
-          if (curIdx < chunks.length) {
-            runningText += (curIdx === 0 ? '' : ' ') + chunks[curIdx];
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, content: runningText } : m))
-            );
-            curIdx += 2;
-          } else {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-            );
-            setIsSending(false);
-            scrollToBottom(true);
-          }
-        }, 15);
-        streamTimerRef.current = timer;
-
-        return;
-      }
-
-      setMessages((prev) =>
-        prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-      );
-
-      setTimeout(async () => {
-        try {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const res = await ChatService.getSessionDetails(currentSessionId);
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const sess = (res as any).data || res;
-          if (sess?.messages) {
-            setMessages(sess.messages);
-          }
-        } catch (e) {
-          console.warn('[StrategyEngine] Session details sync error:', e);
-        }
-      }, 1000);
-
-    } catch (e) {
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-      } else {
-        console.error(e);
-        showToast('error', 'Strategy Generation Failed', 'Unable to reach AI Strategy Engine.');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId
-              ? {
-                  ...m,
-                  content: '⚠️ Strategy audit failed. Please verify connection and try again.',
-                  isProcessing: false,
-                }
-              : m
-          )
-        );
-      }
-    } finally {
-      setIsSending(false);
-      abortControllerRef.current = null;
-      scrollToBottom(true);
-    }
-  };
-
-
-  // Response utilities
-  const handleCopyText = (content: string) => {
-    Clipboard.setString(content);
-    showToast('success', 'Copied', 'Strategy brief copied to clipboard.');
-  };
-
-  const handleExportPDF = (name: string) => {
-    showToast('success', 'PDF Export Success', `${name} litigation strategy report saved.`);
-  };
-
-  const handleExportDOCX = (name: string) => {
-    showToast('success', 'Word Export Success', `${name} court preparation report saved.`);
-  };
-
-  const handleShareAnalysis = () => {
-    showToast('info', 'Share Screen', 'Court strategy brief sharing activated.');
-  };
-
-  const handleSaveToCase = () => {
-    showToast('success', 'Saved', 'Court strategy report linked to active case dossiers.');
-  };
-
-  const handleCancelStream = () => {
-    isCancelledRef.current = true;
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    if (streamTimerRef.current) {
-      clearInterval(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-    setMessages((prev) =>
-      prev.map((m) => (m.isProcessing ? { ...m, isProcessing: false } : m))
-    );
-    setIsSending(false);
-  };
-
-  // Bottom Sheet execution rules
-  const handleExecuteAction = (action: { id: string; label: string; isImmediate: boolean; promptText?: string; placeholder?: string }) => {
-    setIsActionsOpen(false);
-    if (action.isImmediate || attachments.length > 0) {
-      let prompt = action.promptText || `Run ${action.label} on case records.`;
-      if (attachments.length > 0) {
-        prompt = `${action.label} on attached case files: ${attachments.map((a) => `"${a.name}"`).join(', ')}.`;
-      }
-      handleSend(prompt, action.id);
-    } else {
-      // Prompt pre-filling logic
-      setInputVal(action.promptText || '');
-      setComposerPlaceholder(action.placeholder || 'Ask about this case...');
+    if (isAiAssistantOpen) {
       setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 150);
+        copilotScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     }
-  };
+  }, [isAiAssistantOpen, chatReplies]);
 
-  // Filter actions based on bottom sheet search phrase
-  const filteredActions = useMemo(() => {
-    const query = actionsSearchQuery.toLowerCase().trim();
-    if (!query) return STRATEGY_ACTIONS;
-
-    const filterList = (list: { id: string; label: string; desc: string; isImmediate: boolean }[]) =>
-      list.filter((a) => a.label.toLowerCase().includes(query) || a.desc.toLowerCase().includes(query));
-
-    return {
-      litigationPlanning: filterList(STRATEGY_ACTIONS.litigationPlanning),
-      courtPreparation: filterList(STRATEGY_ACTIONS.courtPreparation),
-      opponentIntelligence: filterList(STRATEGY_ACTIONS.opponentIntelligence),
-      evidencePlanning: filterList(STRATEGY_ACTIONS.evidencePlanning),
-      settlementIntelligence: filterList(STRATEGY_ACTIONS.settlementIntelligence),
-      litigationRoadmap: filterList(STRATEGY_ACTIONS.litigationRoadmap),
-      successAnalysis: filterList(STRATEGY_ACTIONS.successAnalysis),
-      courtSimulation: filterList(STRATEGY_ACTIONS.courtSimulation),
-    };
-  }, [actionsSearchQuery]);
-
-  const toggleFavorite = (actionLabel: string) => {
-    setFavorites((prev) => {
-      if (prev.includes(actionLabel)) {
-        return prev.filter((a) => a !== actionLabel);
-      } else {
-        return [...prev, actionLabel];
+  // Fetch Cases list on start
+  useEffect(() => {
+    const fetchCasesList = async () => {
+      try {
+        const response = await CaseService.listCases();
+        const list = Array.isArray(response) ? response : (response?.data || []);
+        setCases(list.filter((c: any) => c.isLegalCase));
+      } catch (err) {
+        console.warn('Failed to load cases:', err);
       }
-    });
-    showToast('info', 'Favorites Updated', `Favorites checklist updated.`);
+    };
+    fetchCasesList();
+  }, []);
+
+  const handleSelectCase = (caseId: string) => {
+    setLinkedCaseId(caseId);
+    setShowSyncSuccess(true);
+    showToast('success', 'Case Workspace Selected', 'Linked successfully.');
+    
+    // Simulate short auto success banner display
+    setTimeout(() => {
+      setShowSyncSuccess(false);
+      handleStartAnalysis();
+    }, 1200);
   };
 
-  const handleClearWorkspace = () => {
-    setMessages([]);
-    setSessionId(null);
-    setAttachments([]);
-    showToast('info', 'Session Reset', 'Court strategy workspace cleared.');
+  const handleSelectDoc = (docId: string) => {
+    setSelectedDocId(docId);
+    showToast('success', 'File Selected', 'Pleading document linked into Strategy builder.');
   };
+
+  const handleStartAnalysis = () => {
+    setStep('ANALYZING');
+    setCurrentStepIdx(0);
+    progressVal.setValue(0);
+
+    let idx = 0;
+    const interval = setInterval(() => {
+      idx += 1;
+      if (idx < PROCESSING_STEPS.length) {
+        setCurrentStepIdx(idx);
+        Animated.timing(progressVal, {
+          toValue: (idx + 1) / PROCESSING_STEPS.length,
+          duration: 250,
+          useNativeDriver: false,
+        }).start();
+      } else {
+        clearInterval(interval);
+        setStep('INTELLIGENCE');
+        showToast('success', 'Strategy Generated', 'Litigation dashboard ready.');
+      }
+    }, 400);
+  };
+
+  // Toggle handlers for accordions
+  const toggleOverview = (key: string) => {
+    setExpandedOverview(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleOpponent = (key: string) => {
+    setExpandedOpponent(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleEvidence = (key: string) => {
+    setExpandedEvidence(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleArgument = (key: string) => {
+    setExpandedArguments(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleRisk = (key: string) => {
+    setExpandedRisks(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleRoadmap = (idx: number) => {
+    setExpandedRoadmap(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const handleSendChat = (overrideText?: string) => {
+    const textToSend = overrideText || chatInput;
+    if (!textToSend.trim()) return;
+
+    const qLower = textToSend.toLowerCase();
+    const isPredictorQuery = qLower.includes('66%') || qLower.includes('probability') || qLower.includes('winning') || qLower.includes('forecast') || qLower.includes('model') || qLower.includes('risk rate') || qLower.includes('settlement');
+    const isContractQuery = qLower.includes('contract') || qLower.includes('clause') || qLower.includes('terms') || qLower.includes('liability') || qLower.includes('indemnity');
+
+    let replyText = "";
+    if (isPredictorQuery || isContractQuery) {
+      replyText = "I am the Litigation Strategy Copilot. I only answer litigation strategy, argument builder, and courtroom preparation questions. For case predictions, please use the Litigation Predictor Copilot. For contracts, please use the Contract Review Copilot.";
+    } else {
+      if (qLower.includes('opponent') || qLower.includes('weakness') || qLower.includes('delay')) {
+        replyText = "AI Strategy Assistant: Opponent has severe exposure in Q2 bank transfer reconciliations (they admitted payments in email but claim non-receipt in pleadings). Under CPC Order 12, we should file an immediate application for judgment on admissions.";
+      } else if (qLower.includes('argument') || qLower.includes('stronger') || qLower.includes('improve')) {
+        replyText = "AI Strategy Assistant: To strengthen arguments, emphasize promissory estoppel regarding the tax incentives policy. Defendant holds retrospective tariff hike limits. Avoid tortious claims.";
+      } else if (qLower.includes('appeal') || qLower.includes('court') || qLower.includes('prep')) {
+        replyText = "AI Strategy Assistant: Interim injunction relief hearings are upcoming in 45 days. We must compile authenticated timeline records beforehand.";
+      } else {
+        replyText = "AI Strategy Assistant: Roadmaps suggest interim injunction relief hearings are upcoming in 45 days. We must compile authenticated timeline records beforehand.";
+      }
+    }
+
+    setChatReplies(prev => [...prev, { sender: 'user', text: textToSend.trim() }]);
+    setChatInput('');
+    setIsAiThinking(true);
+    Keyboard.dismiss();
+
+    setTimeout(() => {
+      setIsAiThinking(false);
+      setChatReplies(prev => [...prev, { sender: 'ai', text: replyText }]);
+    }, 850);
+  };
+
+  const linkedCaseName = useMemo(() => {
+    const matched = cases.find(c => c._id === linkedCaseId);
+    return matched ? matched.name : 'Independent Analysis';
+  }, [cases, linkedCaseId]);
 
   return (
-    <KeyboardSafeChatLayout
-      backgroundColor={theme.background}
-      header={
-        <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
-          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
-          </Pressable>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      
+      {/* Navigation Header bar */}
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
 
-          <View style={styles.headerTitleContainer}>
-            <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Strategy Engine</Text>
-          </View>
-
-          <View style={styles.headerRightActions}>
-            <Pressable onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
-              <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
-            </Pressable>
-          </View>
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Strategy Engine</Text>
+          <Text style={styles.headerSubtitle}>Design litigation roadmaps and active defense strategies.</Text>
         </View>
-      }
-      messages={
-        messages.length === 0 ? (
-          activeCaseDetails ? (
-            <View style={{ flex: 1 }} />
-          ) : (
-            <ChatWelcome 
-              title="Strategy Engine" 
-              subtitle="Design litigation roadmaps and active defense strategies."
-              icon="🧠" 
-            />
-          )
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
-            onScroll={(e) => {
-              const offset = e.nativeEvent.contentOffset.y;
-              const contentHeight = e.nativeEvent.contentSize.height;
-              const layoutHeight = e.nativeEvent.layoutMeasurement.height;
-              const distanceFromBottom = contentHeight - (offset + layoutHeight);
-              isAtBottomRef.current = distanceFromBottom <= 50;
+      </View>
 
-              const isScrollingUp = offset < lastOffsetRef.current;
-              lastOffsetRef.current = offset;
+      {/* Case Synced Success green banner */}
+      {showSyncSuccess && (
+        <View style={[styles.successBanner, { backgroundColor: '#10B981' }]}>
+          <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+          <Text style={styles.successBannerText}>Case Synced Successfully</Text>
+        </View>
+      )}
 
-              if (distanceFromBottom <= 50) {
-                handleScrollAction(false);
-              } else {
-                const shouldShow = isScrollingUp && 
-                                   distanceFromBottom > 100 && 
-                                   messages.length > 4 && 
-                                   inputVal.trim() === '';
-                handleScrollAction(shouldShow);
-              }
-            }}
-            onContentSizeChange={() => {
-              if (isAtBottomRef.current && !isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            onLayout={() => {
-              if (!isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            renderItem={({ item }) => {
-              return (
-                <ChatMessageBubble
-                  message={item}
-                  aiName="Strategy Engine"
-                  aiIcon="🧠"
-                  onCopy={() => {
-                    Clipboard.setString(item.content);
-                    showToast('success', 'Copied', 'Strategy copied to clipboard.');
-                  }}
-                  onShare={async () => {
-                    try {
-                      await Share.share({ message: item.content });
-                    } catch (err) {
-                      console.error(err);
-                    }
-                  }}
-                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-                />
-              );
-            }}
-            ListFooterComponent={null}
-          />
-        )
-      }
-      scrollBtn={
-        showScrollBtn && (
-          <Animated.View
-            style={[
-              styles.scrollDownBtn,
-              {
-                opacity: scrollBtnOpacity,
-                transform: [{ scale: scrollBtnScale }]
-              }
-            ]}
-          >
-            <Pressable
-              onPress={() => {
-                handleScrollAction(false);
-                scrollToBottom(true);
-              }}
-              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-            >
-              <Ionicons name="arrow-down" size={18} color="#000000" />
-            </Pressable>
-          </Animated.View>
-        )
-      }
-      attachments={
-        attachments.length > 0 && (
-          <View style={styles.attachmentsBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {attachments.map((a) => {
-                const fileMock = MOCK_CASE_FILES.find((f) => f.name === a.name);
-                const docType = fileMock?.detectedType || 'Case File';
+      {/* STEP 1: Choose Strategy Source */}
+      {step === 'HOME' && (
+        <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.homeTitle, { color: theme.textPrimary }]}>Litigation Strategy Workspace</Text>
+          <Text style={[styles.homeDesc, { color: theme.textSecondary }]}>
+            Initiate a comprehensive litigation audit by linking active workspaces or uploading material pleadings.
+          </Text>
+
+          {/* Card 1: Existing Case */}
+          <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="folder-open-outline" size={26} color="#6D5DFC" style={{ marginBottom: 8 }} />
+            <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Existing Case Workspace</Text>
+            <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
+              Load active timeline logs, witness details, pleadings briefs, and custom evidence matrices directly.
+            </Text>
+            <TouchableOpacity style={styles.cardBtn} onPress={() => setIsCaseSelectOpen(true)}>
+              <Text style={styles.cardBtnText}>Select Case Workspace</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Card 2: Upload Documents */}
+          <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="cloud-upload-outline" size={26} color="#6D5DFC" style={{ marginBottom: 8 }} />
+            <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Upload Court Pleadings</Text>
+            <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
+              Analyze PDFs, ZIP files, or DOCX formats to extract fact issues and formulate opponent defences.
+            </Text>
+            <TouchableOpacity style={styles.cardBtn} onPress={() => setIsUploadOpen(true)}>
+              <Text style={styles.cardBtnText}>Upload Documents</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Card 3: Manual Strategy form */}
+          <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="create-outline" size={26} color="#6D5DFC" style={{ marginBottom: 8 }} />
+            <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Manual Strategy Registry</Text>
+            <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
+              Configure your claims, defence strategies, court levels, and litigation objectives manually.
+            </Text>
+            <TouchableOpacity style={styles.cardBtn} onPress={() => setIsManualFormOpen(true)}>
+              <Text style={styles.cardBtnText}>Write Facts Manually</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* STEP 3: AI Processing loading */}
+      {step === 'ANALYZING' && (
+        <View style={[styles.analyzingWrapper, { backgroundColor: theme.background }]}>
+          <View style={[styles.analyzingBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <ActivityIndicator size="large" color="#6D5DFC" style={{ marginBottom: 16 }} />
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary, textAlign: 'center' }]}>Synthesizing Litigation Strategies</Text>
+            <Text style={[styles.sectionDesc, { color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
+              Mapping opponent counter strategies, running admissibility metrics, and planning timelines.
+            </Text>
+
+            {/* Progress Bar */}
+            <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+              <Animated.View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: progressVal.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0%', '100%'],
+                    }),
+                  },
+                ]}
+              />
+            </View>
+
+            {/* Checklist progress */}
+            <ScrollView style={styles.stepsList} contentContainerStyle={{ gap: 10 }}>
+              {PROCESSING_STEPS.map((text, idx) => {
+                const isPassed = idx < currentStepIdx;
+                const isActive = idx === currentStepIdx;
                 return (
-                  <View key={a.name} style={styles.attachmentChip}>
-                    <Ionicons name="document-text" size={16} color="#8A5CF5" />
-                    <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        {a.name}
-                      </Text>
-                      {detectedCaseType ? (
-                        <View style={styles.detectedBadge}>
-                          <Text style={styles.detectedBadgeText}>{docType}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
-                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
+                  <View key={text} style={styles.stepRow}>
+                    {isPassed ? (
+                      <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                    ) : isActive ? (
+                      <ActivityIndicator size="small" color="#6D5DFC" />
+                    ) : (
+                      <Ionicons name="ellipse-outline" size={18} color={theme.textMuted} />
+                    )}
+                    <Text
+                      style={[
+                        styles.stepRowText,
+                        { color: isPassed ? theme.textPrimary : isActive ? '#6D5DFC' : theme.textSecondary },
+                        isActive && { fontWeight: '800' }
+                      ]}
+                    >
+                      {text}
+                    </Text>
                   </View>
                 );
               })}
-              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-                <Ionicons name="add" size={16} color="#475569" />
-                <Text style={styles.addMoreText}>Add Document</Text>
-              </TouchableOpacity>
             </ScrollView>
           </View>
-        )
-      }
-      composer={
-        <ChatComposer
-          value={inputVal}
-          onChangeText={setInputVal}
-          sending={isSending}
-          onSend={(text) => handleSend(text)}
-          onCancelStream={handleCancelStream}
-          onAddAttachment={showAttachmentOptions}
-          onPressSparkles={() => { setActionsSearchQuery(''); setIsActionsOpen(true); }}
-          placeholder={activeCaseId ? "Ask anything about this case..." : "Plan legal strategy..."}
-          autoFocus={shouldComposerFocus}
-          simulatedVoiceText="Develop a litigation roadmap and settlement strategy for this case."
-        />
-      }
-    >
+        </View>
+      )}
 
-      <AttachmentBottomSheet
-        visible={isBottomSheetVisible}
-        onClose={hideAttachmentOptions}
-        onSelectOption={handleSelectOption}
-      />
+      {/* STEP 4: Executive Strategy Dashboard & Sticky Tabs */}
+      {step === 'INTELLIGENCE' && (
+        <View style={{ flex: 1 }}>
+          
+          {/* Dashboard Header Panel */}
+          <View style={[styles.forecastDashboard, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.forecastSummaryRow}>
+              {/* Radial Strategy Score */}
+              <View style={styles.radialCircle}>
+                <Text style={styles.radialVal}>82%</Text>
+                <Text style={styles.radialLabel}>READINESS SCORE</Text>
+              </View>
 
-      <CustomCameraModal
-        visible={isCameraVisible}
-        onClose={hideCamera}
-        onConfirm={handleCameraConfirm}
-      />
+              {/* Stats KPIs Grid */}
+              <View style={styles.forecastKpis}>
+                <View style={[styles.kpiRowGrid]}>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: '#10B981' }]}>Strong</Text><Text style={styles.kpiLabelText}>Strategy</Text></View>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: '#10B981' }]}>High</Text><Text style={styles.kpiLabelText}>Evidence</Text></View>
+                </View>
+                <View style={[styles.kpiRowGrid]}>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: '#6D5DFC' }]}>High</Text><Text style={styles.kpiLabelText}>Confidence</Text></View>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: '#F59E0B' }]}>Moderate</Text><Text style={styles.kpiLabelText}>Settlement</Text></View>
+                </View>
+                <View style={[styles.kpiRowGrid]}>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: '#EF4444' }]}>Medium</Text><Text style={styles.kpiLabelText}>Risk Level</Text></View>
+                  <View style={[styles.kpiBox, { backgroundColor: theme.surfaceVariant }]}><Text style={[styles.kpiValText, { color: theme.textPrimary }]}>18 M</Text><Text style={styles.kpiLabelText}>Est Duration</Text></View>
+                </View>
+              </View>
+            </View>
+          </View>
 
-      {/* STRATEGY ACTIONS BOTTOM SHEET */}
-      <Modal visible={isActionsOpen} animationType="slide" transparent={true} onRequestClose={() => setIsActionsOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsActionsOpen(false)}>
+          {/* Sticky Tab Bar */}
+          <View style={[styles.tabBar, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ height: '100%' }}>
+              {[
+                { id: 'overview', label: 'Overview' },
+                { id: 'opponent', label: 'Opponent' },
+                { id: 'evidence', label: 'Evidence' },
+                { id: 'arguments', label: 'Arguments' },
+                { id: 'risk', label: 'Risk' },
+                { id: 'roadmap', label: 'Roadmap' },
+                { id: 'reports', label: 'Reports' },
+              ].map(tab => (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={[styles.tabBtn, { paddingHorizontal: 12 }, activeTab === tab.id && { borderBottomColor: '#6D5DFC' }]}
+                  onPress={() => setActiveTab(tab.id as any)}
+                >
+                  <Text style={[styles.tabBtnText, { color: activeTab === tab.id ? '#6D5DFC' : theme.textSecondary }]}>
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Scrollable Tab Contents */}
+          <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+            
+            {/* OVERVIEW TAB */}
+            {activeTab === 'overview' && (
+              <View style={{ gap: 14 }}>
+                <View style={[styles.verdictBox, { backgroundColor: 'rgba(109, 93, 252, 0.06)' }]}>
+                  <Text style={[styles.cardTitle, { color: theme.textPrimary, marginBottom: 4 }]}>Executive Strategy Summary</Text>
+                  <Text style={{ fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 }}>
+                    The litigation position is robust based on estoppel precedents. Immediate focus is on securing interim relief application logs and mapping key witness statement consistency rates.
+                  </Text>
+                </View>
+
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Case Scope Objectives</Text>
+                {[
+                  { key: 'summary', title: 'Case Readiness Index', desc: 'Active exhibits are registered. Timelines meet statutory filing criteria under Arbitration Acts.' },
+                  { key: 'issues', title: 'Key Legal Issues', desc: '1. Promissory estoppel validity against electricity board tariffs.\n2. Retrospective rates recovery limits.' },
+                  { key: 'obj', title: 'Case Objectives', desc: 'Secure temporary stay orders on energy supply cuts before main arbitration trial begins.' }
+                ].map(item => (
+                  <View key={item.key} style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleOverview(item.key)}>
+                      <Ionicons name="ribbon-outline" size={16} color="#6D5DFC" style={{ marginRight: 6 }} />
+                      <Text style={[styles.accordionTitleText, { color: theme.textPrimary }]}>{item.title}</Text>
+                      <Ionicons name={expandedOverview[item.key] ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                    {expandedOverview[item.key] && (
+                      <View style={styles.accordionBody}>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* OPPONENT TAB */}
+            {activeTab === 'opponent' && (
+              <View style={{ gap: 14 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Opponent Defence Mapping</Text>
+                
+                {[
+                  { key: 'defence', title: 'Likely Defence Position', desc: 'Respondent will claim policy incentives were subject to absolute public interest override provisions, making promissory estoppel inapplicable.' },
+                  { key: 'weakness', title: 'Opponent Key Weaknesses', desc: 'They admitted signing execution contracts in correspondence dated June 14, 2026. This admits liability and estoppel basis.' },
+                  { key: 'objections', title: 'Expected Procedural Objections', desc: 'Objection on admissibility of secondary email screenshots lacking signed Section 65B certificates.' },
+                  { key: 'delay', title: 'Delay Tactics to Watch', desc: 'Seeking multiple adjournments during admission hearings stage under the guise of solicitor cabinet changes.' }
+                ].map(item => (
+                  <View key={item.key} style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleOpponent(item.key)}>
+                      <Ionicons name="shield-outline" size={16} color="#6D5DFC" style={{ marginRight: 6 }} />
+                      <Text style={[styles.accordionTitleText, { color: theme.textPrimary }]}>{item.title}</Text>
+                      <Ionicons name={expandedOpponent[item.key] ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                    {expandedOpponent[item.key] && (
+                      <View style={styles.accordionBody}>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* EVIDENCE TAB */}
+            {activeTab === 'evidence' && (
+              <View style={{ gap: 14 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Evidence Audit Dashboard</Text>
+                
+                {[
+                  { key: 'strength', title: 'Strong Primary Evidence', desc: 'Ex-1: Registered incentive policy copy with municipal seal.', status: 'Compliant', color: '#10B981' },
+                  { key: 'missing', title: 'Missing Documents', desc: 'Original audit ledger logs confirming capital investments receipt.', status: 'Missing', color: '#EF4444' },
+                  { key: 'priority', title: 'Priority Evidence Collection', desc: 'Affidavit from accounts director confirming investment costs.', status: 'Pending', color: '#F59E0B' },
+                  { key: 'weak', title: 'Weak/Challenged Evidence', desc: 'WhatsApp snapshots between assistant engineers (objection: no certificate).', status: 'High Risk', color: '#EF4444' },
+                ].map(item => (
+                  <View key={item.key} style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleEvidence(item.key)}>
+                      <View style={[styles.riskDot, { backgroundColor: item.color }]} />
+                      <Text style={[styles.accordionTitleText, { color: theme.textPrimary }]}>{item.title}</Text>
+                      <View style={[styles.riskLabelBadge, { backgroundColor: item.color + '1C' }]}><Text style={{ fontSize: 10, fontWeight: '800', color: item.color }}>{item.status}</Text></View>
+                      <Ionicons name={expandedEvidence[item.key] ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
+                    {expandedEvidence[item.key] && (
+                      <View style={styles.accordionBody}>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* ARGUMENTS TAB */}
+            {activeTab === 'arguments' && (
+              <View style={{ gap: 14 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Courtroom Arguments & Prayer</Text>
+                
+                {[
+                  { key: 'primary', title: 'Primary Estoppel Argument', desc: 'The government made explicit policy promises of incentives. Relying on this, petitioner setup factories. They cannot retrospectively cancel exceptions.' },
+                  { key: 'avoid', title: 'Arguments to Avoid', desc: 'Avoid absolute damages tort arguments. Restrict pleadings to performance breach bounds.' },
+                  { key: 'cross', title: 'Cross Examination Checklist', desc: 'Cross-examine electricity board auditors on correspondence receipts logs.' },
+                  { key: 'prayer', title: 'Relief Requested (Prayer)', desc: '1. Injunction restraining board from cuts.\n2. Invalidation of retrospective tariff rates hike notifications.' }
+                ].map(item => (
+                  <View key={item.key} style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleArgument(item.key)}>
+                      <Ionicons name="create-outline" size={16} color="#6D5DFC" style={{ marginRight: 6 }} />
+                      <Text style={[styles.accordionTitleText, { color: theme.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+                      <Ionicons name={expandedArguments[item.key] ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                    {expandedArguments[item.key] && (
+                      <View style={styles.accordionBody}>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
+                        <View style={styles.clauseBtnRow}>
+                          <TouchableOpacity style={styles.clauseActionBtn} onPress={() => Clipboard.setString(item.desc)}><Ionicons name="copy-outline" size={12} color="#6D5DFC" /><Text style={styles.clauseActionBtnText}>Copy</Text></TouchableOpacity>
+                          <TouchableOpacity style={styles.clauseActionBtn} onPress={() => showToast('success', 'Shared', 'Argument details shared.')}><Ionicons name="share-outline" size={12} color="#6D5DFC" /><Text style={styles.clauseActionBtnText}>Share</Text></TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* RISK TAB */}
+            {activeTab === 'risk' && (
+              <View style={{ gap: 14 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Litigation Risk Matrix</Text>
+                
+                {[
+                  { key: 'overall', title: 'Financial Risk Exposure', desc: 'Risk of retrospective bill rates payment stays rejection. Mitigation: Secure secondary banking guarantees.', rate: 'High', color: '#EF4444' },
+                  { key: 'wit', title: 'Witness Risk', desc: 'Witness account records mismatch on investments receipts. Mitigation: Secure certified bank audits.', rate: 'Medium', color: '#F59E0B' },
+                  { key: 'procedural', title: 'Procedural Delay Risk', desc: 'Objections to jurisdiction can delay hearings. Mitigation: File in Bombay HC principal bench.', rate: 'Low', color: '#10B981' }
+                ].map(item => (
+                  <View key={item.key} style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleRisk(item.key)}>
+                      <View style={[styles.riskDot, { backgroundColor: item.color }]} />
+                      <Text style={[styles.accordionTitleText, { color: theme.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+                      <View style={[styles.riskLabelBadge, { backgroundColor: item.color + '1C' }]}><Text style={{ fontSize: 10, fontWeight: '800', color: item.color }}>{item.rate}</Text></View>
+                      <Ionicons name={expandedRisks[item.key] ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
+                    {expandedRisks[item.key] && (
+                      <View style={styles.accordionBody}>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* ROADMAP TAB */}
+            {activeTab === 'roadmap' && (
+              <View style={{ gap: 12 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Litigation vertical timeline</Text>
+                
+                {ROADMAP_STAGES.map((stepItem, idx) => {
+                  const isCurrent = stepItem.status === 'CURRENT';
+                  const isCompleted = stepItem.status === 'COMPLETED';
+                  const isOpen = expandedRoadmap[idx];
+
+                  return (
+                    <View key={idx} style={[styles.roadmapCard, { borderLeftColor: isCurrent ? '#6D5DFC' : isCompleted ? '#10B981' : theme.border }]}>
+                      <TouchableOpacity style={styles.roadmapHeader} onPress={() => toggleRoadmap(idx)}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.roadmapTitle, { color: theme.textPrimary }]}>{stepItem.stage}</Text>
+                          <Text style={{ fontSize: 10, color: isCurrent ? '#6D5DFC' : isCompleted ? '#10B981' : theme.textSecondary, fontWeight: '800' }}>
+                            {stepItem.status} • Est: {stepItem.duration}
+                          </Text>
+                        </View>
+                        <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={theme.textSecondary} />
+                      </TouchableOpacity>
+                      {isOpen && (
+                        <View style={styles.roadmapBody}>
+                          <Text style={{ fontSize: 11.5, color: theme.textSecondary }}>Documents: {stepItem.docs}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* REPORTS TAB */}
+            {activeTab === 'reports' && (
+              <View style={{ gap: 12 }}>
+                <Text style={[styles.sectionHeading, { color: theme.textPrimary }]}>Strategy Briefs & Reports</Text>
+                
+                {[
+                  { name: 'Litigation Strategy Report', status: 'GENERATED', key: 'strategy' },
+                  { name: 'Court Prep Brief', status: 'GENERATED', key: 'court' },
+                  { name: 'Cross Examination Brief', status: 'GENERATED', key: 'cross' },
+                  { name: 'Settlement Plan brief', status: 'PENDING', key: 'settle' },
+                ].map(item => (
+                  <View key={item.key} style={[styles.reportCardRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <Ionicons name="document-text-outline" size={20} color="#6D5DFC" style={{ marginRight: 8 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.reportCardName, { color: theme.textPrimary }]}>{item.name}</Text>
+                      <Text style={{ fontSize: 10, color: item.status === 'GENERATED' ? '#10B981' : '#F59E0B', fontWeight: '800' }}>{item.status}</Text>
+                    </View>
+                    {item.status === 'GENERATED' && (
+                      <TouchableOpacity style={styles.reportOpenBtn} onPress={() => setIsReportViewerOpen(true)}>
+                        <Text style={styles.reportOpenBtnText}>Open Report</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+          </ScrollView>
+
+          {/* Floating Ask Strategy AI Button */}
+          <TouchableOpacity style={styles.floatingAiBtn} onPress={() => setIsAiAssistantOpen(true)}>
+            <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Existing Case Workspace link bottom sheet selector */}
+      <Modal visible={isCaseSelectOpen} transparent animationType="slide" onRequestClose={() => setIsCaseSelectOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setIsCaseSelectOpen(false)}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={[styles.bottomSheetContainer, Shadows.modal]}>
+              <View style={styles.bottomSheetContainer}>
                 <View style={styles.bottomSheetDragHandle} />
-
                 <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Litigation Workflows</Text>
-                  <TouchableOpacity onPress={() => setIsActionsOpen(false)}>
+                  <Text style={styles.bottomSheetTitle}>Select Case Workspace</Text>
+                  <TouchableOpacity onPress={() => setIsCaseSelectOpen(false)}>
                     <Ionicons name="close-circle" size={24} color="#94A3B8" />
                   </TouchableOpacity>
                 </View>
-
-                {/* Actions filter search input */}
-                <View style={styles.sheetSearchContainer}>
-                  <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={styles.sheetSearchInput}
-                    placeholder="Search strategy workflows (e.g. roadmap, settlement)..."
-                    value={actionsSearchQuery}
-                    onChangeText={setActionsSearchQuery}
-                  />
-                  {actionsSearchQuery ? (
-                    <TouchableOpacity onPress={() => setActionsSearchQuery('')}>
-                      <Ionicons name="close" size={18} color="#94A3B8" />
+                <ScrollView style={{ flex: 1 }}>
+                  {cases.map((c) => (
+                    <TouchableOpacity
+                      key={c._id}
+                      style={[styles.caseItemRow, { borderBottomColor: theme.border }]}
+                      onPress={() => {
+                        handleSelectCase(c._id);
+                        setIsCaseSelectOpen(false);
+                      }}
+                    >
+                      <Ionicons name="folder-outline" size={18} color="#6D5DFC" style={{ marginRight: 10 }} />
+                      <Text style={[styles.caseItemText, { color: theme.textPrimary }]}>{c.name}</Text>
                     </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <ScrollView style={styles.bottomSheetContent} showsVerticalScrollIndicator={false}>
-                  {/* Recently Used (if no search active) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>⭐ Recently Used</Text>
-                      <View style={styles.actionsGrid}>
-                        {recentlyUsed.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={styles.recentActionItem}
-                            onPress={() => {
-                              const item = [...STRATEGY_ACTIONS.litigationPlanning, ...STRATEGY_ACTIONS.courtPreparation, ...STRATEGY_ACTIONS.opponentIntelligence, ...STRATEGY_ACTIONS.evidencePlanning, ...STRATEGY_ACTIONS.settlementIntelligence, ...STRATEGY_ACTIONS.litigationRoadmap, ...STRATEGY_ACTIONS.successAnalysis, ...STRATEGY_ACTIONS.courtSimulation].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
-                            <Text style={styles.recentActionText}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                      {/* Favorites */}
-                      <Text style={styles.categoryHeading}>❤️ Favorites</Text>
-                      <View style={styles.actionsGrid}>
-                        {favorites.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={[styles.recentActionItem, { borderColor: '#8A5CF5' }]}
-                            onPress={() => {
-                              const item = [...STRATEGY_ACTIONS.litigationPlanning, ...STRATEGY_ACTIONS.courtPreparation, ...STRATEGY_ACTIONS.opponentIntelligence, ...STRATEGY_ACTIONS.evidencePlanning, ...STRATEGY_ACTIONS.settlementIntelligence, ...STRATEGY_ACTIONS.litigationRoadmap, ...STRATEGY_ACTIONS.successAnalysis, ...STRATEGY_ACTIONS.courtSimulation].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="star" size={12} color="#8A5CF5" style={{ marginRight: 4 }} />
-                            <Text style={[styles.recentActionText, { color: '#8A5CF5' }]}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Recommended Actions (changes based on active case type) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>🤖 AI Recommended</Text>
-                      {aiRecommendedActions.length > 0 ? (
-                        <View style={styles.actionsList}>
-                          {aiRecommendedActions.map((action) => (
-                            <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: true })}>
-                              <View style={styles.actionListIcon}>
-                                <Ionicons name="sparkles" size={16} color="#8A5CF5" />
-                              </View>
-                              <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.actionListTitle}>{action.label}</Text>
-                                <Text style={styles.actionListDesc}>{action.desc}</Text>
-                              </View>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      ) : (
-                        <View style={styles.actionsEmpty}>
-                          <Text style={styles.actionsEmptyText}>Please attach case records to activate recommended command center roadmaps.</Text>
-                        </View>
-                      )}
-                    </>
-                  )}
-
-                  {/* Litigation Planning Category */}
-                  {filteredActions.litigationPlanning.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>⚖️ Litigation Planning</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.litigationPlanning.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
-                              <Ionicons name="map-outline" size={16} color="#3B82F6" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Court Preparation Category */}
-                  {filteredActions.courtPreparation.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🎯 Court Preparation</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.courtPreparation.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
-                              <Ionicons name="megaphone-outline" size={16} color="#10B981" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Opponent Intelligence Category */}
-                  {filteredActions.opponentIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🧠 Opponent Intelligence</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.opponentIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FFFBEB' }]}>
-                              <Ionicons name="eye-outline" size={16} color="#F59E0B" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Input-required Actions */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>⌨️ Search & Query Inputs</Text>
-                      <View style={styles.actionsList}>
-                        {INPUT_ACTIONS.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: false })}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#E2E8F0' }]}>
-                              <Ionicons name="chatbox-ellipses-outline" size={16} color="#475569" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Evidence Planning Category */}
-                  {filteredActions.evidencePlanning.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>📑 Evidence Auditing</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.evidencePlanning.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
-                              <Ionicons name="document-attach-outline" size={16} color="#10B981" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Settlement Intelligence Category */}
-                  {filteredActions.settlementIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🤝 Settlement Intelligence</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.settlementIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
-                              <Ionicons name="people-outline" size={16} color="#3B82F6" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Litigation Roadmap Category */}
-                  {filteredActions.litigationRoadmap.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>📅 Litigation Roadmaps & Deadlines</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.litigationRoadmap.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F5F3FF' }]}>
-                              <Ionicons name="calendar-outline" size={16} color="#8A5CF5" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Success Analysis Category */}
-                  {filteredActions.successAnalysis.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>📈 AI Success Metrics Diagnostics</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.successAnalysis.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#E0F2FE' }]}>
-                              <Ionicons name="pulse-outline" size={16} color="#0284C7" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Court Simulation Category */}
-                  {filteredActions.courtSimulation.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🎭 Moot Simulation Practice</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.courtSimulation.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FEF2F2' }]}>
-                              <Ionicons name="logo-medium" size={16} color="#EF4444" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  <View style={{ height: 40 }} />
+                  ))}
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -1939,1197 +675,839 @@ export default function StrategyEngineScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Sliding Sidebar History modal drawer */}
-      <Modal
-        visible={isHistoryOpen}
-        animationType="none"
-        transparent={true}
-        onRequestClose={() => setIsHistoryOpen(false)}
-      >
-        <View style={styles.drawerOverlay}>
-          {/* Semi-transparent backdrop */}
-          <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
-
-          {/* Sidebar Drawer container */}
-          <View style={styles.drawerContainer}>
-            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-              <View style={styles.drawerHeader}>
-                <Text style={styles.drawerTitle}>Chat Logs History</Text>
-                <Pressable onPress={() => setIsHistoryOpen(false)}>
-                  <Ionicons name="close" size={24} color={theme.textPrimary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.drawerSearchContainer}>
-                <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  placeholder="Search chats..."
-                  placeholderTextColor="#94A3B8"
-                  value={searchHistoryQuery}
-                  onChangeText={setSearchHistoryQuery}
-                  style={styles.drawerSearchInput}
-                />
-              </View>
-
-              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
-                <View style={styles.drawerActionsRow}>
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
-                    onPress={() => {
-                      setIsHistoryOpen(false);
-                      setIsCaseModalOpen(true);
-                    }}
-                  >
-                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
-                    onPress={() => {
-                      handleNewChat();
-                      setActiveCaseId(null);
-                      setIsHistoryOpen(false);
-                    }}
-                  >
-                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
+      {/* Upload pleadings modal selection */}
+      <Modal visible={isUploadOpen} transparent animationType="slide" onRequestClose={() => setIsUploadOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setIsUploadOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.bottomSheetContainer}>
+                <View style={styles.bottomSheetDragHandle} />
+                <View style={styles.bottomSheetHeader}>
+                  <Text style={styles.bottomSheetTitle}>Upload Court pleadings</Text>
+                  <TouchableOpacity onPress={() => setIsUploadOpen(false)}>
+                    <Ionicons name="close-circle" size={24} color="#94A3B8" />
                   </TouchableOpacity>
                 </View>
-
-                {filteredHistorySessions.length === 0 ? (
-                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
-                ) : (
-                  <>
-                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
-                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
-                    ) : (
-                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
-                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
-                        return (
-                          <View key={projId} style={styles.historyCaseGroup}>
-                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
-                              {caseName}
-                            </Text>
-                            {sessions.map((item) => (
-                              <View
-                                key={item.sessionId}
-                                style={[
-                                  styles.drawerItem,
-                                  sessionId === item.sessionId && styles.drawerItemActive,
-                                ]}
-                              >
-                                <Pressable
-                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                                  onPress={() => handleSelectSession(item.sessionId)}
-                                >
-                                  <Ionicons
-                                    name="chatbox-ellipses-outline"
-                                    size={16}
-                                    color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                                    style={{ marginRight: 10 }}
-                                  />
-
-                                  {editingSessionId === item.sessionId ? (
-                                    <TextInput
-                                      style={styles.drawerRenameInput}
-                                      value={renameTitleVal}
-                                      onChangeText={setRenameTitleVal}
-                                      autoFocus={true}
-                                      onBlur={() => handleRenameConfirm(item.sessionId)}
-                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                                    />
-                                  ) : (
-                                    <View style={styles.drawerItemTextContainer}>
-                                      <Text
-                                        style={[
-                                          styles.drawerItemText,
-                                          sessionId === item.sessionId && styles.drawerItemTextActive,
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {item.title}
-                                      </Text>
-                                      <Text style={styles.drawerItemSubtext}>
-                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </Pressable>
-
-                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                                  <Pressable
-                                    onPress={() => {
-                                      setEditingSessionId(item.sessionId);
-                                      setRenameTitleVal(item.title);
-                                    }}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleDeleteSession(item.sessionId)}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                  </Pressable>
-                                </View>
-                              </View>
-                            ))}
-                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
-                          </View>
-                        );
-                      })
-                    )}
-
-                    <Text style={styles.historySectionHeader}>General Conversations</Text>
-                    {groupedHistory.generalList.length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
-                    ) : (
-                      groupedHistory.generalList.map((item) => (
-                        <View
-                          key={item.sessionId}
-                          style={[
-                            styles.drawerItem,
-                            sessionId === item.sessionId && styles.drawerItemActive,
-                          ]}
-                        >
-                          <Pressable
-                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                            onPress={() => handleSelectSession(item.sessionId)}
-                          >
-                            <Ionicons
-                              name="chatbox-ellipses-outline"
-                              size={16}
-                              color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                              style={{ marginRight: 10 }}
-                            />
-
-                            {editingSessionId === item.sessionId ? (
-                              <TextInput
-                                style={styles.drawerRenameInput}
-                                value={renameTitleVal}
-                                onChangeText={setRenameTitleVal}
-                                autoFocus={true}
-                                onBlur={() => handleRenameConfirm(item.sessionId)}
-                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                              />
-                            ) : (
-                              <View style={styles.drawerItemTextContainer}>
-                                <Text
-                                  style={[
-                                    styles.drawerItemText,
-                                    sessionId === item.sessionId && styles.drawerItemTextActive,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {item.title}
-                                </Text>
-                                <Text style={styles.drawerItemSubtext}>
-                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </Text>
-                              </View>
-                            )}
-                          </Pressable>
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                            <Pressable
-                              onPress={() => {
-                                setEditingSessionId(item.sessionId);
-                                setRenameTitleVal(item.title);
-                              }}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => handleDeleteSession(item.sessionId)}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                            </Pressable>
-                          </View>
-                        </View>
-                      ))
-                    )}
-                  </>
-                )}
-              </ScrollView>
-            </SafeAreaView>
+                <ScrollView style={{ flex: 1 }}>
+                  {MOCK_STRATEGY_DOCS.map((doc) => (
+                    <TouchableOpacity
+                      key={doc.id}
+                      style={[styles.caseItemRow, { borderBottomColor: theme.border }]}
+                      onPress={() => {
+                        handleSelectDoc(doc.id);
+                        setIsUploadOpen(doc.id === 'contract_dispute'); // quick select
+                        handleStartAnalysis();
+                      }}
+                    >
+                      <Ionicons name="document-outline" size={18} color="#6D5DFC" style={{ marginRight: 10 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.caseItemText, { color: theme.textPrimary }]}>{doc.name}</Text>
+                        <Text style={{ fontSize: 10, color: theme.textSecondary }}>{doc.type} • {doc.size}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Manual Strategy form popup */}
+      <Modal visible={isManualFormOpen} transparent={false} animationType="slide" onRequestClose={() => setIsManualFormOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+            <TouchableOpacity onPress={() => setIsManualFormOpen(false)}>
+              <Ionicons name="close" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+            <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary, marginLeft: 10 }]}>Manual Strategy Setup</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.scrollBody}>
+            <View style={styles.formGroup}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Court Jurisdiction</Text>
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                value={manualCourt}
+                onChangeText={setManualCourt}
+                placeholder="e.g. Bombay High Court"
+                placeholderTextColor={theme.placeholder}
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Case Facts</Text>
+              <TextInput
+                style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                multiline
+                numberOfLines={3}
+                value={manualFacts}
+                onChangeText={setManualFacts}
+                placeholder="Facts background..."
+                placeholderTextColor={theme.placeholder}
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Primary Claims</Text>
+              <TextInput
+                style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                multiline
+                numberOfLines={2}
+                value={manualClaims}
+                onChangeText={setManualClaims}
+                placeholder="Specific remedies demanded..."
+                placeholderTextColor={theme.placeholder}
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Likely Defence</Text>
+              <TextInput
+                style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                multiline
+                numberOfLines={2}
+                value={manualDefence}
+                onChangeText={setManualDefence}
+                placeholder="Opponent anticipated defense..."
+                placeholderTextColor={theme.placeholder}
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Litigation Objective</Text>
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                value={manualObjective}
+                onChangeText={setManualObjective}
+                placeholder="e.g. stay energy cuts"
+                placeholderTextColor={theme.placeholder}
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.actionBtnLarge}
+              onPress={() => {
+                setIsManualFormOpen(false);
+                handleStartAnalysis();
+              }}
+            >
+              <Text style={styles.actionBtnLargeText}>Generate Strategy Roadmap</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Strategy Report Viewer Modal */}
+      <Modal visible={isReportViewerOpen} transparent={false} animationType="slide" onRequestClose={() => setIsReportViewerOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+            <TouchableOpacity onPress={() => setIsReportViewerOpen(false)}>
+              <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+            <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary, marginLeft: 10 }]}>Executive Strategy brief</Text>
+            <TouchableOpacity style={{ marginLeft: 'auto' }} onPress={() => showToast('success', 'Shared', 'PDF shared.')}>
+              <Ionicons name="share-outline" size={22} color={theme.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.scrollBody}>
+            <View style={[styles.reportContentBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.reportHeaderTitle, { color: theme.textPrimary }]}>LITIGATION STRATEGY BRIEF</Text>
+              <Text style={{ fontSize: 10, color: theme.textSecondary, marginBottom: 14 }}>Prepared for active court hearings</Text>
+
+              <Text style={[styles.reportSectionTitle, { color: theme.textPrimary }]}>1. Executive Summary</Text>
+              <Text style={[styles.reportParaText, { color: theme.textSecondary }]}>
+                Strategy score is calculated as 82%. Estoppel ratios protect current infrastructure investments.
+              </Text>
+
+              <Text style={[styles.reportSectionTitle, { color: theme.textPrimary, marginTop: 14 }]}>2. Opponent Weaknesses</Text>
+              <Text style={[styles.reportParaText, { color: theme.textSecondary }]}>
+                Admission signatures logged in correspondence records on June 14, 2026 restrict absolute denial defenses.
+              </Text>
+
+              <Text style={[styles.reportSectionTitle, { color: theme.textPrimary, marginTop: 14 }]}>3. Settlement Strategy</Text>
+              <Text style={[styles.reportParaText, { color: theme.textSecondary }]}>
+                Early stay orders stay cuts; if settlement is proposed at 75% valuation, early exit is recommended.
+              </Text>
+            </View>
+            
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <TouchableOpacity style={[styles.footerBtn, { flex: 1 }]} onPress={() => showToast('success', 'Export PDF', 'PDF downloaded.')}>
+                <Ionicons name="download-outline" size={16} color="#6D5DFC" style={{ marginRight: 4 }} />
+                <Text style={styles.footerBtnText}>Export PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.footerBtn, { flex: 1 }]} onPress={() => showToast('success', 'Export DOCX', 'DOCX downloaded.')}>
+                <Ionicons name="document-outline" size={16} color="#6D5DFC" style={{ marginRight: 4 }} />
+                <Text style={styles.footerBtnText}>Export DOCX</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Floating AI Strategy assistant drawer chat */}
+      <Modal visible={isAiAssistantOpen} transparent animationType="slide" onRequestClose={() => setIsAiAssistantOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsAiAssistantOpen(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={[
+              styles.chatDrawerContainer, 
+              { 
+                backgroundColor: theme.surface,
+                height: sheetSize === 'collapsed' ? 250 : sheetSize === 'full' ? height * 0.9 : height * 0.6 
+              }
+            ]}
+          >
+            <View style={{ flex: 1 }}>
+              <Pressable 
+                onPress={() => {
+                  if (sheetSize === 'collapsed') setSheetSize('expanded');
+                  else if (sheetSize === 'expanded') setSheetSize('full');
+                  else setSheetSize('collapsed');
+                }}
+              >
+                <View style={styles.bottomSheetDragHandle} />
+              </Pressable>
+              <View style={styles.bottomSheetHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+                      <Text style={styles.bottomSheetTitle}>Litigation Strategy Copilot</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setIsAiAssistantOpen(false)}>
+                      <Ionicons name="close-circle" size={24} color="#94A3B8" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Chat dialog Scrollable lists */}
+                  <ScrollView ref={copilotScrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 14 }} showsVerticalScrollIndicator={false}>
+                    {chatReplies.map((msg, idx) => (
+                      <View key={idx} style={[styles.chatBubble, msg.sender === 'user' ? styles.userBubble : [styles.aiBubble, { backgroundColor: theme.surfaceVariant }]]}>
+                        <Text style={msg.sender === 'user' ? styles.userBubbleText : styles.aiBubbleText}>
+                          {msg.text
+                            .replace(/^AI Strategy Assistant:\s*/i, '')
+                            .replace(/^AI Predictor Assistant:\s*/i, '')
+                            .replace(/^AI Contract Intelligence:\s*/i, '')
+                            .replace(/^AI LEGAL Strategy Assistant:\s*/i, '')
+                            .trim()}
+                        </Text>
+                      </View>
+                    ))}
+                    {isAiThinking && (
+                      <View style={{ alignItems: 'center', marginVertical: 8 }}>
+                        <ActivityIndicator size="small" color="#6D5DFC" />
+                      </View>
+                    )}
+                  </ScrollView>
+
+                  {/* Quick Prompts */}
+                  <View style={styles.promptBubbleScroll}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.promptBubbleScrollContent}>
+                      {['Improve this strategy', 'Suggest stronger arguments', 'Prepare appeal strategy', 'Opponent weaknesses', 'Court preparation'].map(prompt => (
+                        <TouchableOpacity
+                          key={prompt}
+                          style={[styles.promptBubble, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                          onPress={() => handleSendChat(prompt)}
+                          disabled={isAiThinking}
+                        >
+                          <Text style={[styles.promptBubbleText, { color: theme.primary }]}>{prompt}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  {/* Chat messenger input */}
+                  <View style={[styles.chatComposer, { backgroundColor: theme.surfaceVariant, marginBottom: Platform.OS === 'ios' ? 24 : 10 }]}>
+                    <TextInput
+                      style={[styles.chatComposerInput, { color: theme.textPrimary }]}
+                      placeholder="Ask AI Strategy Engine..."
+                      placeholderTextColor={theme.placeholder}
+                      value={chatInput}
+                      onChangeText={setChatInput}
+                      onSubmitEditing={() => handleSendChat()}
+                      editable={!isAiThinking}
+                    />
+                    <TouchableOpacity 
+                      style={[
+                        styles.chatComposerSendBtn, 
+                        { backgroundColor: theme.primary },
+                        (!chatInput.trim() || isAiThinking) && { opacity: 0.5 }
+                      ]} 
+                      onPress={() => handleSendChat()}
+                      disabled={!chatInput.trim() || isAiThinking}
+                    >
+                      <Ionicons name="send" size={14} color="#FFFFFF" />
+                    </TouchableOpacity>
+            </View>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
-      <CaseSelectionModal
-        visible={isCaseModalOpen}
-        onClose={() => setIsCaseModalOpen(false)}
-        activeCaseId={activeCaseId}
-        onSelectCase={(caseId) => {
-          setActiveCaseId(caseId);
-          setMessages([]);
-          setSessionId(null);
-          clearAttachments();
-          setInputVal('');
-          setShouldComposerFocus(true);
-          showToast('success', 'Case Workspace', 'Case workspace selected.');
-        }}
-      />
-    </KeyboardSafeChatLayout>
+    </SafeAreaView>
   );
 }
 
-// Offline Answer Mocks
-const MOCK_ANSWERS: Record<string, string> = {
-  build_roadmap: `# Case Summary
-Cheque Dishonour Suit under Section 138 of the Negotiable Instruments (NI) Act, 1881. The complainant claims the defendant Nitin Kumar issued a cheque of INR 5,00,000 which dishonoured due to "Funds Insufficient".
-
-# Key Legal Issues
-* Did the defendant issue the cheque in discharge of a legally enforceable debt?
-* Was the notice of dishonour served within the statutory period of 30 days?
-
-# Current Legal Position
-Complainant holds the dishonoured cheque and return memo. Presumptions under Section 118 and 139 of the NI Act are in the complainant's favour.
-
-# Applicable Laws
-* Negotiable Instruments Act, 1881
-* Code of Criminal Procedure, 1973
-
-# Applicable Sections
-* **Section 138:** Offense of cheque dishonour.
-* **Section 139:** Presumption in favour of holder.
-
-# Relevant Judgments
-* **Rangappa v. Sri Mohan (2010 SC):** The Supreme Court held that the presumption mandated by Section 139 includes the existence of a legally enforceable debt.
-
-# Strength Analysis
-* Direct proof of signature and return memo. Burden of proof is on Nitin Kumar to rebut the presumption.
-
-# Weakness Analysis
-* The transaction was made in cash; lack of written loan agreement or bank transaction trace.
-
-# Opponent Strategy Prediction
-* Nitin will argue the cheque was given as security and that the loan amount was never advanced.
-
-# Counter Strategy
-* Rely on SC precedent that security cheques also attract Section 138 if default exists at the time of presentation.
-
-# Evidence Planning
-* File postal registry tracking logs to prove notice delivery.
-
-# Missing Documents
-* Complainant bank account statements verifying cash withdrawals matching the loan date.
-
-# Immediate Next Steps
-* Submit certified bank returns and registry receipts.
-
-# Court Timeline
-* Trial estimated at 8-12 months in Magistrate Court.
-
-# Risk Assessment
-* High risk of dispute if defendant proves financial incapacity of complainant at the loan date.
-
-# Settlement Possibility
-* Recommended to settle if defendant offers 80% (INR 4,00,000) lump sum before trial.
-
-# Winning Probability: 85% Probability
-High probability of success due to NI Act statutory presumptions.
-
-# Practical Recommendations
-* Serve summons through speed post and email.
-
-# Final Strategy
-* Retain primary focus on the Section 139 presumption, forcing Nitin Kumar to lead evidence first to rebut it.`,
-
-  winning_strategy: `# Case Summary
-Winning Litigation Strategy Brief.
-
-# Current Legal Position
-We hold primary legal title checks. The opponent's claims are barred under Article 65 of the Limitation Act.
-
-# Strength Analysis
-* Open and continuous possession of the suit property since 2010.
-
-# Weakness Analysis
-* Absence of registered sale deeds or conveyance maps.
-
-# Winning Probability: 68% Probability
-Moderate success probability depending on possession evidence.
-
-# Next Best Action
-* Submit electricity connection logs and property tax cards from 2012.`,
-
-  opponent_weakness: `# Case Summary
-Opponent weaknesses audit for Criminal Prosecution cases.
-
-# Key Findings
-* Prosecution has failed to list independent eye-witnesses, relying solely on testimony from relative witnesses.
-* Delayed FIR registration: incident occurred on May 10, but FIR was registered on May 15 with no reasonable explanation for delay.
-
-# Weaknesses
-* Defense witness credibility is unverified.
-
-# Winning Probability: 72% Probability
-Highly favorable defense outlook due to delay in FIR.
-
-# Next Best Action
-* Prepare cross examination questions highlighting the timeline gap.`,
-
-  defense_strat: `# Case Summary
-Defense strategy audit for property partition claims.
-
-# Strength Analysis
-* Continuous title records verify possession.
-* Limitation boundaries exist.
-
-# Winning Probability: 65% Probability
-Moderate success probability depending on possession evidence.
-
-# Next Best Action
-* Collate tax receipts from 2010 onwards.`
-};
-
 function getStyles(theme: any, isDark: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-  },
-  headerBtn: {
-    width: 38,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 19,
-  },
-  headerTitleContainer: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 1,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchInput: {
-    flex: 1,
-    height: 38,
-    borderRadius: 19,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    marginHorizontal: 10,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingBottom: 110,
-  },
-  absoluteComposerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-  },
-  welcomeCard: {
-    backgroundColor: theme.card,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginVertical: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  welcomeIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  welcomeText: {
-    fontSize: 14.5,
-    color: theme.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  bubbleContainer: {
-    flexDirection: 'row',
-    marginVertical: 8,
-    alignSelf: 'stretch',
-  },
-  userAlign: {
-    justifyContent: 'flex-end',
-    paddingLeft: 40,
-  },
-  aiAlign: {
-    justifyContent: 'flex-start',
-    paddingRight: 40,
-  },
-  aiAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    maxWidth: '100%',
-  },
-  collapsedOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-    backgroundColor: isDark ? 'rgba(24, 24, 27, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingBottom: 10,
-  },
-  expandButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
-    ...Shadows.sm,
-  },
-  expandButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  collapseToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    alignSelf: 'center',
-    gap: 4,
-  },
-  collapseToggleText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  msgAttachments: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 6,
-  },
-  msgAttachChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  msgAttachName: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    fontWeight: '600',
-    maxWidth: 120,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    marginTop: 6,
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 4,
-  },
-  actionBtnLabel: {
-    fontSize: 11.5,
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  followUpRow: {
-    marginTop: 8,
-  },
-  followUpChip: {
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  followUpChipText: {
-    fontSize: 12,
-    color: theme.primary,
-    fontWeight: '600',
-  },
-  strategyCard: {
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    marginVertical: 4,
-    alignSelf: 'stretch',
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  cardTitleText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-  },
-  progressBarBg: {
-    height: 8,
-    width: '100%',
-    backgroundColor: theme.border,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  attachmentsBar: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.card,
-  },
-  attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(139, 92, 246, 0.3)' : '#DDD6FE',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  attachmentName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: isDark ? '#C084FC' : '#5B21B6',
-  },
-  detectedBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
-    borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    marginTop: 1,
-  },
-  detectedBadgeText: {
-    fontSize: 9,
-    color: isDark ? '#C084FC' : '#5B21B6',
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  addMoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: theme.surfaceVariant,
-    gap: 4,
-  },
-  addMoreText: {
-    fontSize: 11.5,
-    color: theme.textSecondary,
-    fontWeight: '700',
-  },
-  composerContainer: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.card,
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  composerOptionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  composerInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: theme.border,
-    color: theme.textPrimary,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 14,
-    backgroundColor: theme.surfaceVariant,
-    maxHeight: 100,
-  },
-  micBtnActive: {
-    backgroundColor: '#EF4444',
-  },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.4,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: theme.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: theme.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    maxHeight: height * 0.7,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 16.5,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    lineHeight: 18,
-    marginBottom: 14,
-  },
-  mockList: {
-    gap: 8,
-  },
-  mockFileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    backgroundColor: theme.card,
-  },
-  customMockItem: {
-    backgroundColor: theme.card,
-    borderStyle: 'dashed',
-    borderColor: theme.border,
-  },
-  mockFileName: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  mockFileDesc: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    marginTop: 2,
-  },
-  bottomSheetContainer: {
-    width: '100%',
-    height: height * 0.75,
-    backgroundColor: theme.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-  bottomSheetDragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.border,
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  bottomSheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    marginBottom: 12,
-  },
-  bottomSheetTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  bottomSheetContent: {
-    flex: 1,
-  },
-  sheetSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 10,
-  },
-  sheetSearchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: theme.textPrimary,
-    padding: 0,
-  },
-  categoryHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recentActionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  recentActionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.textSecondary,
-  },
-  actionsList: {
-    gap: 8,
-  },
-  actionListItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.card,
-  },
-  actionListIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#EDE9FE',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionListTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  actionListDesc: {
-    fontSize: 10.5,
-    color: theme.textSecondary,
-    marginTop: 1,
-  },
-  actionsEmpty: {
-    padding: 12,
-    backgroundColor: theme.surfaceVariant,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-  },
-  actionsEmptyText: {
-    fontSize: 12,
-    color: theme.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  scrollDownBtn: {
-    position: 'absolute',
-    bottom: 96,
-    left: '50%',
-    marginLeft: -21,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 4,
-    zIndex: 999,
-  },
-  drawerOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: theme.overlay,
-  },
-  drawerContainer: {
-    width: width * 0.8,
-    height: '100%',
-    backgroundColor: theme.background,
-    borderRightWidth: 1,
-    borderRightColor: theme.border,
-    paddingHorizontal: 16,
-  },
-  drawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-  },
-  drawerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  drawerSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 8,
-    backgroundColor: theme.surfaceVariant,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  drawerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: theme.textPrimary,
-    padding: 0,
-  },
-  drawerList: {
-    flex: 1,
-  },
-  drawerEmptyText: {
-    fontSize: 12.5,
-    color: theme.textMuted,
-    textAlign: 'center',
-    marginTop: 24,
-    fontStyle: 'italic',
-  },
-  drawerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
-  },
-  drawerItemActive: {
-    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF',
-  },
-  drawerItemTextContainer: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  drawerItemText: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    fontWeight: '500',
-  },
-  drawerItemTextActive: {
-    color: theme.primary,
-    fontWeight: '700',
-  },
-  drawerItemSubtext: {
-    fontSize: 10,
-    color: theme.textMuted,
-    marginTop: 2,
-  },
-  drawerRenameInput: {
-    fontSize: 13,
-    color: theme.textPrimary,
-    fontWeight: '600',
-    flex: 1,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.primary,
-    padding: 0,
-  },
-  drawerActionIcon: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    marginLeft: 4,
-  },
-  activeCaseBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  activeCaseLeft: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  activeCaseLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: theme.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 2,
-  },
-  activeCaseName: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-  activeCaseSubtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activeCaseSubtext: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  activeCaseRight: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  activeStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  activeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-    marginRight: 4,
-  },
-  activeStatusText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#10B981',
-    textTransform: 'uppercase',
-  },
-  changeCaseBtn: {
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  changeCaseBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  drawerActionsRow: {
-    flexDirection: 'row',
-    marginVertical: 12,
-    gap: 8,
-  },
-  drawerActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  drawerActionBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  historySectionHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  historyEmptySubtext: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: theme.textMuted,
-    paddingLeft: 12,
-    marginVertical: 4,
-  },
-  historyCaseGroup: {
-    marginTop: 4,
-  },
-  historyCaseNameHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    color: theme.textPrimary,
-  },
-  historyGroupDivider: {
-    height: 1,
-    marginVertical: 8,
-    opacity: 0.5,
-    backgroundColor: theme.border,
-  },
-  activeCaseCenterContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    backgroundColor: 'transparent',
-  },
-  activeCaseCenterCard: {
-    width: '100%',
-    backgroundColor: theme.surface,
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Shadows.md,
-    alignItems: 'center',
-  },
-  activeCaseCenterHeaderLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#8A5CF5',
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-  },
-  activeCaseCenterTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  activeCaseCenterDivider: {
-    width: '100%',
-    height: 1,
-    backgroundColor: theme.border,
-    marginBottom: 16,
-  },
-  activeCaseCenterDetailsGrid: {
-    width: '100%',
-    gap: 12,
-    marginBottom: 20,
-  },
-  activeCaseCenterDetailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  activeCaseCenterDetailLabel: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  activeCaseCenterDetailValue: {
-    fontSize: 13,
-    color: theme.textPrimary,
-    fontWeight: '700',
-    maxWidth: '65%',
-    textAlign: 'right',
-  },
-  activeCaseCenterChangeBtn: {
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#8A5CF5',
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
-  },
-  activeCaseCenterChangeBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#8A5CF5',
-  },
-});
+    container: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+    },
+    headerBtn: {
+      width: 48,
+      height: 48,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 24,
+      marginRight: 8,
+      marginLeft: -10,
+    },
+    headerTitleContainer: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      fontSize: 10.5,
+      color: '#94A3B8',
+      marginTop: 2,
+      fontWeight: '700',
+    },
+    successBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 8,
+    },
+    successBannerText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    scrollBody: {
+      padding: 16,
+      paddingBottom: 40,
+    },
+    homeTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    homeDesc: {
+      fontSize: 12.5,
+      lineHeight: 18,
+      marginBottom: 20,
+    },
+    workspaceCard: {
+      borderWidth: 1.5,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 12,
+    },
+    cardTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      marginBottom: 4,
+    },
+    cardDesc: {
+      fontSize: 12,
+      lineHeight: 16,
+      marginBottom: 12,
+    },
+    cardBtn: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 8,
+      alignItems: 'center',
+    },
+    cardBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+
+    // Step 3: AI Processing screen
+    analyzingWrapper: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    analyzingBox: {
+      width: '100%',
+      borderWidth: 1.5,
+      borderRadius: 16,
+      padding: 20,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    sectionDesc: {
+      fontSize: 12.5,
+      lineHeight: 18,
+      marginBottom: 20,
+    },
+    progressBarBg: {
+      height: 6,
+      borderRadius: 3,
+      width: '100%',
+      overflow: 'hidden',
+      marginBottom: 20,
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    stepsList: {
+      maxHeight: 280,
+    },
+    stepRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
+    stepRowText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+    },
+
+    // Executive Dashboard
+    forecastDashboard: {
+      padding: 16,
+      borderBottomWidth: 1.5,
+    },
+    forecastSummaryRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    radialCircle: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      borderWidth: 6,
+      borderColor: '#6D5DFC',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 8,
+    },
+    radialVal: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: '#6D5DFC',
+    },
+    radialLabel: {
+      fontSize: 7.5,
+      fontWeight: '800',
+      textAlign: 'center',
+      marginTop: 2,
+    },
+    forecastKpis: {
+      flex: 1,
+      marginLeft: 16,
+      gap: 4,
+    },
+    kpiRowGrid: {
+      flexDirection: 'row',
+      gap: 4,
+    },
+    kpiBox: {
+      flex: 1,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      alignItems: 'center',
+    },
+    kpiValText: {
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    kpiLabelText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+
+    // Sticky Tab headers
+    tabBar: {
+      flexDirection: 'row',
+      borderBottomWidth: 1.5,
+      height: 44,
+    },
+    tabBtn: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderBottomWidth: 3,
+      borderBottomColor: 'transparent',
+    },
+    tabBtnText: {
+      fontSize: 11.5,
+      fontWeight: '800',
+    },
+
+    // Tab contents
+    verdictBox: {
+      padding: 12,
+      borderRadius: 12,
+    },
+    sectionHeading: {
+      fontSize: 14.5,
+      fontWeight: '800',
+      marginBottom: 10,
+    },
+    accordion: {
+      borderWidth: 1.5,
+      borderRadius: 12,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    accordionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 12,
+    },
+    accordionTitleText: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      flex: 1,
+    },
+    accordionBody: {
+      paddingHorizontal: 12,
+      paddingBottom: 12,
+      borderTopWidth: 1,
+      borderTopColor: '#F1F5F9',
+      paddingTop: 10,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 4,
+    },
+    infoLabel: {
+      fontSize: 11.5,
+      fontWeight: '700',
+    },
+    infoValue: {
+      fontSize: 11.5,
+      fontWeight: '800',
+    },
+    clauseBtnRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 10,
+    },
+    clauseActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    clauseActionBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+
+    // Risk indicator
+    riskDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      marginRight: 8,
+    },
+    riskLabelBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+
+    // Roadmap timeline specific styles
+    roadmapCard: {
+      borderLeftWidth: 3.5,
+      paddingLeft: 12,
+      paddingVertical: 8,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      borderRadius: 8,
+      backgroundColor: '#FFFFFF',
+    },
+    roadmapHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    roadmapTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    roadmapBody: {
+      marginTop: 6,
+      borderTopWidth: 1,
+      borderTopColor: '#F1F5F9',
+      paddingTop: 6,
+    },
+
+    // Reports list
+    reportCardRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderRadius: 12,
+      padding: 12,
+    },
+    reportCardName: {
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    reportOpenBtn: {
+      backgroundColor: 'rgba(109, 93, 252, 0.1)',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+    },
+    reportOpenBtnText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+
+    // Floating AI
+    floatingAiBtn: {
+      position: 'absolute',
+      right: 16,
+      bottom: 16,
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: '#6D5DFC',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+
+    // Input forms styles
+    formGroup: {
+      marginBottom: 16,
+    },
+    inputLabel: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    input: {
+      height: 44,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      fontSize: 13,
+    },
+    textArea: {
+      height: 80,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      fontSize: 13,
+      textAlignVertical: 'top',
+    },
+    actionBtnLarge: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 10,
+      height: 46,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      marginTop: 10,
+    },
+    actionBtnLargeText: {
+      color: '#FFFFFF',
+      fontSize: 13.5,
+      fontWeight: '800',
+    },
+
+    // Report Doc Viewer overlay
+    reportContentBlock: {
+      borderWidth: 1.5,
+      borderRadius: 16,
+      padding: 16,
+    },
+    reportHeaderTitle: {
+      fontSize: 15,
+      fontWeight: '900',
+    },
+    reportSectionTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    reportParaText: {
+      fontSize: 12,
+      lineHeight: 18,
+    },
+
+    // Actions button
+    footerBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: '#E2E8F0',
+      borderRadius: 10,
+      height: 40,
+    },
+    footerBtnText: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+
+    // Drawer chatbot panel
+    chatDrawerContainer: {
+      width: '100%',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+    },
+    chatBubble: {
+      padding: 12,
+      borderRadius: 12,
+      maxWidth: '85%',
+      marginVertical: 4,
+    },
+    userBubble: {
+      backgroundColor: '#6D5DFC',
+      alignSelf: 'flex-end',
+    },
+    userBubbleText: {
+      fontSize: 12.5,
+      color: '#FFFFFF',
+      fontWeight: '600',
+    },
+    aiBubble: {
+      backgroundColor: 'rgba(109, 93, 252, 0.08)',
+      alignSelf: 'flex-start',
+    },
+    aiBubbleText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+    },
+    promptBubbleScroll: {
+      maxHeight: 40,
+      marginBottom: 10,
+    },
+    promptBubbleScrollContent: {
+      gap: 8,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+    },
+    promptBubble: {
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    promptBubbleText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    chatComposer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 44,
+      borderRadius: 22,
+      paddingHorizontal: 12,
+      gap: 8,
+    },
+    chatComposerInput: {
+      flex: 1,
+      fontSize: 13,
+      paddingVertical: 4,
+    },
+    chatComposerSendBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    // Modal Headers
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+    },
+    modalHeaderTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+    },
+
+    // Bottom sheets Case selector list
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    bottomSheetContainer: {
+      width: '100%',
+      height: height * 0.5,
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    },
+    bottomSheetDragHandle: {
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#E2E8F0',
+      alignSelf: 'center',
+      marginTop: 8,
+      marginBottom: 8,
+    },
+    bottomSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E2E8F0',
+      marginBottom: 12,
+    },
+    bottomSheetTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    caseItemRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+    },
+    caseItemText: {
+      fontSize: 13.5,
+      fontWeight: '600',
+    },
+  });
 }

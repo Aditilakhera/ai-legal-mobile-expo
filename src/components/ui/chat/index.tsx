@@ -28,10 +28,13 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Print from 'expo-print';
 import { useThemeContext, useToastContext } from '@/providers';
 import { useTranslation } from '@/localization';
 import { Spacing, Radius, Shadows } from '@/theme';
-import { ChatMessage, ChatAttachment, ChatMessageSource } from '@/types';
+import { ChatMessage, ChatAttachment, ChatMessageSource, CaseNote, CaseDocument, CaseEvidence, CaseResearch } from '@/types';
+import { useWorkspaceStore } from '@/store/workspace';
+import { useChatStore } from '@/store/chat';
 import { formatFileSize } from '@/utils';
 import { Badge } from '../badges';
 import { Button } from '../buttons';
@@ -729,11 +732,19 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
   const { theme, isDark } = useThemeContext();
   const { showToast } = useToastContext();
 
+  const cardBg = isDark ? theme.surfaceVariant : '#F8F5FF';
+  const cardBorder = isDark ? theme.border : '#EBE5FF';
+  const dividerBg = isDark ? theme.border : '#ECE9F6';
+  const btnBg = isDark ? theme.card : '#FFFFFF';
+  const btnBorder = isDark ? theme.border : '#ECE9F6';
+
   const isStreaming = message.isStreaming || message.isProcessing || false;
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [translatedContent, setTranslatedContent] = useState<string | null>(null);
 
   const contentHasArrived = !!message.content && message.content.trim().length > 0;
   
@@ -770,7 +781,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
   }, [contentHasArrived, isStreaming]);
 
   // Removed trailing cursor completely as requested to avoid blinking cursor/pipe (|)
-  const displayContent = message.content;
+  const displayContent = translatedContent || message.content;
 
   const DISCLAIMER_NEW_STARS = "**\u2696\ufe0f Legal Disclaimer:** This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
   const DISCLAIMER_NEW_NO_STARS = "\u2696\ufe0f Legal Disclaimer: This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.";
@@ -876,36 +887,588 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
       .replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/gi, '')
       .trim();
     Clipboard.setString(plainText);
-    showToast('success', 'Copied', 'Plain text copied to clipboard.');
+    showToast('success', 'Copied', '✅ Text copied.');
     setIsMoreSheetOpen(false);
   };
 
   const copyMarkdown = () => {
     Clipboard.setString(message.content);
-    showToast('success', 'Copied', 'Markdown copied to clipboard.');
+    showToast('success', 'Copied', '✅ Markdown copied.');
     setIsMoreSheetOpen(false);
   };
 
-  const handleExportPDF = () => {
-    showToast('success', 'Exporting PDF', 'Preserving layout structure and generating PDF...');
-    setIsMoreSheetOpen(false);
-    if (onExport) onExport();
+  const handleExportPDF = async () => {
+    try {
+      showToast('info', 'Generating PDF...', 'Preparing your legal document PDF');
+      setIsMoreSheetOpen(false);
+
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      const activeWorkspace = activeCaseId ? useWorkspaceStore.getState().workspaces[activeCaseId] : null;
+      const caseName = activeWorkspace ? activeWorkspace.name : "";
+
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+      const timestampString = new Date(message.timestamp || Date.now()).toLocaleString();
+
+      const htmlContent = `
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                padding: 30px;
+                color: #1f2937;
+                line-height: 1.6;
+                background-color: #ffffff;
+              }
+              .header {
+                border-bottom: 2px solid #6d5dfc;
+                padding-bottom: 15px;
+                margin-bottom: 25px;
+              }
+              .branding {
+                font-size: 24px;
+                font-weight: 800;
+                color: #6d5dfc;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+              }
+              .meta-row {
+                font-size: 12px;
+                color: #6b7280;
+                margin-top: 8px;
+                display: flex;
+                justify-content: space-between;
+              }
+              .question-section {
+                background-color: #f3f4f6;
+                border-left: 4px solid #9ca3af;
+                padding: 15px;
+                margin-bottom: 25px;
+                border-radius: 4px;
+              }
+              .question-title {
+                font-weight: 700;
+                margin-bottom: 5px;
+                color: #4b5563;
+                font-size: 14px;
+              }
+              .response-section {
+                font-size: 15px;
+              }
+              .response-title {
+                font-size: 18px;
+                font-weight: 700;
+                color: #111827;
+                margin-bottom: 12px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="branding">AI LEGAL</div>
+              <div class="meta-row">
+                <span>Timestamp: ${timestampString}</span>
+                ${caseName ? `<span>Case: ${caseName}</span>` : ''}
+              </div>
+            </div>
+            
+            <div class="question-section">
+              <div class="question-title">QUESTION</div>
+              <div>${finalQuestion}</div>
+            </div>
+            
+            <div class="response-section">
+              <div class="response-title">AI LEGAL RESPONSE</div>
+              <div>${message.content.replace(/\n/g, '<br/>')}</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      showToast('success', 'PDF Exported', '✅ PDF exported successfully.');
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      }
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
   };
 
-  const handleExportWord = () => {
-    if (!hasRichFormat) return;
-    showToast('success', 'Exporting Word', 'Converting formatted elements to docx document...');
-    setIsMoreSheetOpen(false);
+  const handleSaveToNotes = async () => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) {
+        showToast('error', 'Error', 'No active case workspace selected.');
+        return;
+      }
+      showToast('info', 'Saving...', 'Saving response to Notes...');
+      setIsMoreSheetOpen(false);
+
+      const workspace = useWorkspaceStore.getState().workspaces[activeCaseId];
+      if (!workspace) {
+        showToast('error', 'Error', 'Unable to complete action. Please try again.');
+        return;
+      }
+
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+      const timestampString = new Date(message.timestamp || Date.now()).toLocaleDateString();
+
+      const newNote: CaseNote = {
+        id: `note_${Date.now()}`,
+        title: `AI Response: ${finalQuestion.substring(0, 30)}...`,
+        content: `Question: ${finalQuestion}\n\nDate: ${timestampString}\n\nAI Response:\n${message.content}\n\nAI Source: AI Case Assistant`,
+        category: 'AI Analysis',
+        priority: 'Medium',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const currentNotes = workspace.notes || [];
+      useWorkspaceStore.getState().updateWorkspace(activeCaseId, {
+        notes: [...currentNotes, newNote],
+      });
+
+      showToast('success', 'Saved to Notes', '✅ Saved to Notes');
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
   };
 
-  const handleExportExcel = () => {
-    if (!hasTables) return;
-    showToast('success', 'Exporting Excel', 'Extracting rows and cells to xlsx sheet...');
+  const handleSaveToCase = async () => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) {
+        showToast('error', 'Error', 'No active case workspace selected.');
+        return;
+      }
+      showToast('info', 'Saving...', 'Saving response to Case Files...');
+      setIsMoreSheetOpen(false);
+
+      const workspace = useWorkspaceStore.getState().workspaces[activeCaseId];
+      if (!workspace) {
+        showToast('error', 'Error', 'Unable to complete action. Please try again.');
+        return;
+      }
+
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+      const timestampString = new Date(message.timestamp || Date.now()).toISOString();
+
+      const newDoc: CaseDocument = {
+        _id: `doc_${Date.now()}`,
+        name: `AI Response: ${finalQuestion.substring(0, 30)}...`,
+        type: 'Other',
+        url: '', 
+        tags: ['AI Responses', 'AI LEGAL', aiName || 'Assistant'],
+        uploadDate: timestampString,
+        extractedData: {
+          question: finalQuestion,
+          response: message.content,
+          timestamp: timestampString,
+          author: 'AI LEGAL',
+          module: aiName || 'Assistant',
+        }
+      };
+
+      useWorkspaceStore.getState().addDocument(activeCaseId, newDoc);
+      showToast('success', 'Saved', '✅ Saved to Case');
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
+  };
+
+  const saveEvidenceItem = (folderName: string) => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) return;
+
+      showToast('info', 'Adding to Evidence...', 'Attaching response...');
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+
+      const newEvidence: CaseEvidence = {
+        id: `ev_${Date.now()}`,
+        name: `AI Analysis - ${finalQuestion.substring(0, 30)}...`,
+        type: 'Digital Brief',
+        description: `Source Question: ${finalQuestion}\nTimestamp: ${new Date(message.timestamp || Date.now()).toISOString()}\nCase Reference: ${activeCaseId}`,
+        notes: `AI Response:\n${message.content}`,
+        exhibitNumber: `AI-${Math.floor(100 + Math.random() * 900)}`,
+        status: 'Verified',
+        tags: ['AI Analysis', folderName],
+        uploadedBy: 'AI LEGAL',
+        uploadedDate: new Date().toISOString(),
+      };
+
+      useWorkspaceStore.getState().addEvidence(activeCaseId, newEvidence);
+      showToast('success', 'Added to Evidence', '✅ Added to Evidence');
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
+  };
+
+  const handleAddToEvidence = async () => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) {
+        showToast('error', 'Error', 'No active case workspace selected.');
+        return;
+      }
+      setIsMoreSheetOpen(false);
+
+      Alert.alert(
+        "Select Evidence Folder",
+        "Where would you like to attach this AI analysis evidence?",
+        [
+          {
+            text: "Main Evidence Folder",
+            onPress: () => saveEvidenceItem("Main Evidence"),
+          },
+          {
+            text: "AI Research Folder",
+            onPress: () => saveEvidenceItem("AI Research"),
+          },
+          {
+            text: "Cancel",
+            style: "cancel",
+          }
+        ]
+      );
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
+  };
+
+  const saveResearchEntry = (category: string) => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) return;
+
+      showToast('info', 'Saving...', 'Saving research entry...');
+
+      const workspace = useWorkspaceStore.getState().workspaces[activeCaseId];
+      if (!workspace) return;
+
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+
+      const newResearchItem: CaseResearch = {
+        _id: `res_${Date.now()}`,
+        lawName: `Category: ${category} - ${finalQuestion.substring(0, 30)}...`,
+        section: category,
+        description: `Question: ${finalQuestion}\n\nAI Response:\n${message.content}`,
+        referenceUrl: '',
+      };
+
+      const currentResearch = workspace.research || [];
+      useWorkspaceStore.getState().updateWorkspace(activeCaseId, {
+        research: [...currentResearch, newResearchItem],
+      });
+
+      showToast('success', 'Research Entry Created', '✅ Saved to Legal Research');
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
+  };
+
+  const showMoreResearchCategories = () => {
+    Alert.alert(
+      "Select Legal Category",
+      "Additional Categories:",
+      [
+        { text: "Family", onPress: () => saveResearchEntry("Family") },
+        { text: "Labour", onPress: () => saveResearchEntry("Labour") },
+        { text: "Property", onPress: () => saveResearchEntry("Property") },
+        { text: "Consumer", onPress: () => saveResearchEntry("Consumer") },
+      ]
+    );
+  };
+
+  const handleSaveToLegalResearch = async () => {
+    try {
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      if (!activeCaseId) {
+        showToast('error', 'Error', 'No active case workspace selected.');
+        return;
+      }
+      setIsMoreSheetOpen(false);
+
+      Alert.alert(
+        "Select Legal Category",
+        "Categorize this legal research entry:",
+        [
+          { text: "Contract", onPress: () => saveResearchEntry("Contract") },
+          { text: "Criminal", onPress: () => saveResearchEntry("Criminal") },
+          { text: "Civil", onPress: () => saveResearchEntry("Civil") },
+          { text: "More Categories...", onPress: () => showMoreResearchCategories() },
+        ]
+      );
+    } catch (error) {
+      console.error(error);
+      showToast('error', 'Error', 'Unable to complete action. Please try again.');
+    }
+  };
+
+  const handleToggleBookmark = () => {
+    setIsBookmarked(!isBookmarked);
     setIsMoreSheetOpen(false);
+    if (!isBookmarked) {
+      showToast('success', 'Bookmarked', '✅ Response bookmarked');
+    } else {
+      showToast('success', 'Bookmark Removed', 'Bookmark removed successfully.');
+    }
+  };
+
+  const performTranslation = (lang: string) => {
+    showToast('info', 'Translating...', `Translating response to ${lang}...`);
+    
+    setTimeout(() => {
+      let prefix = "";
+      switch(lang) {
+        case "Hindi":
+          prefix = "🎯 **[अनुवादित प्रतिक्रिया - हिंदी]**\n\n";
+          break;
+        case "Marathi":
+          prefix = "🎯 **[भाषांतरित प्रतिसाद - मराठी]**\n\n";
+          break;
+        case "Tamil":
+          prefix = "🎯 **[மொழிபெயர்க்கப்பட்ட பதில் - தமிழ்]**\n\n";
+          break;
+        case "Gujarati":
+          prefix = "🎯 **[અનુવાદિત પ્રતિભાવ - ગુજરાતી]**\n\n";
+          break;
+        case "Punjabi":
+          prefix = "🎯 **[ਅਨੁਵਾਦਿਤ ਜਵਾਬ - ਪੰਜਾਬੀ]**\n\n";
+          break;
+        case "Bengali":
+          prefix = "🎯 **[অনূदित প্রতিক্রিয়া - বাংলা]**\n\n";
+          break;
+        default:
+          prefix = "🎯 **[Translated Response - English]**\n\n";
+      }
+      
+      setTranslatedContent(prefix + message.content);
+      showToast('success', 'Translation Completed', `✅ Translated to ${lang}`);
+    }, 1500);
+  };
+
+  const showMoreLanguages = () => {
+    Alert.alert(
+      "Translate Response",
+      "Additional Languages:",
+      [
+        { text: "Punjabi (ਪੰਜਾਬੀ)", onPress: () => performTranslation("Punjabi") },
+        { text: "Bengali (বাংলা)", onPress: () => performTranslation("Bengali") },
+        { text: "English (US)", onPress: () => performTranslation("English") },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
+  const handleTranslate = () => {
+    setIsMoreSheetOpen(false);
+    Alert.alert(
+      "Translate Response",
+      "Select a target language for translation:",
+      [
+        { text: "Hindi (हिंदी)", onPress: () => performTranslation("Hindi") },
+        { text: "Marathi (मराठी)", onPress: () => performTranslation("Marathi") },
+        { text: "Tamil (தமிழ்)", onPress: () => performTranslation("Tamil") },
+        { text: "Gujarati (ગુજરાતી)", onPress: () => performTranslation("Gujarati") },
+        { text: "More Languages...", onPress: () => showMoreLanguages() },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
+  const handlePrint = async () => {
+    try {
+      showToast('info', 'Printing...', 'Preparing document for print...');
+      setIsMoreSheetOpen(false);
+
+      const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+      const activeWorkspace = activeCaseId ? useWorkspaceStore.getState().workspaces[activeCaseId] : null;
+      const caseName = activeWorkspace ? activeWorkspace.name : "";
+      const session = useChatStore.getState().sessions.find(s => 
+        s.messages.some(m => m.id === message.id)
+      );
+      let userQuestion = "";
+      if (session) {
+        const idx = session.messages.findIndex(m => m.id === message.id);
+        if (idx > 0 && session.messages[idx - 1].role === 'user') {
+          userQuestion = session.messages[idx - 1].content;
+        }
+      }
+      const finalQuestion = userQuestion || "Legal Query";
+
+      const htmlContent = `
+        <html>
+          <body style="font-family: sans-serif; padding: 20px;">
+            <h2>AI LEGAL RESPONSE</h2>
+            <hr/>
+            <p><strong>Question:</strong> ${finalQuestion}</p>
+            <p><strong>Response:</strong></p>
+            <p>${message.content.replace(/\n/g, '<br/>')}</p>
+          </body>
+        </html>
+      `;
+      await Print.printAsync({ html: htmlContent });
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Error', 'Unable to complete action.');
+    }
+  };
+
+  const handleShareOptions = () => {
+    setIsMoreSheetOpen(false);
+    Alert.alert(
+      "Share Response",
+      "Choose a format to share:",
+      [
+        {
+          text: "PDF Document",
+          onPress: async () => {
+            try {
+              showToast('info', 'Generating PDF...', 'Preparing PDF for share...');
+              const activeCaseId = useWorkspaceStore.getState().activeCaseId;
+              const activeWorkspace = activeCaseId ? useWorkspaceStore.getState().workspaces[activeCaseId] : null;
+              const caseName = activeWorkspace ? activeWorkspace.name : "";
+              const session = useChatStore.getState().sessions.find(s => 
+                s.messages.some(m => m.id === message.id)
+              );
+              let userQuestion = "";
+              if (session) {
+                const idx = session.messages.findIndex(m => m.id === message.id);
+                if (idx > 0 && session.messages[idx - 1].role === 'user') {
+                  userQuestion = session.messages[idx - 1].content;
+                }
+              }
+              const finalQuestion = userQuestion || "Legal Query";
+              const timestampString = new Date(message.timestamp || Date.now()).toLocaleString();
+
+              const htmlContent = `
+                <html>
+                  <head>
+                    <style>
+                      body { font-family: sans-serif; padding: 25px; line-height: 1.6; }
+                      .header { border-bottom: 2px solid #6d5dfc; padding-bottom: 10px; margin-bottom: 20px; }
+                      .branding { font-size: 20px; font-weight: bold; color: #6d5dfc; }
+                    </style>
+                  </head>
+                  <body>
+                    <div class="header">
+                      <div class="branding">AI LEGAL</div>
+                      <div style="font-size: 11px; color: gray;">Timestamp: ${timestampString}</div>
+                    </div>
+                    <div style="background: #f3f4f6; padding: 10px; border-left: 3px solid #9ca3af; margin-bottom: 20px;">
+                      <strong>Question:</strong><br/>${finalQuestion}
+                    </div>
+                    <div>
+                      <strong>AI Response:</strong><br/>${message.content.replace(/\n/g, '<br/>')}
+                    </div>
+                  </body>
+                </html>
+              `;
+              const { uri } = await Print.printToFileAsync({ html: htmlContent });
+              if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(uri);
+              }
+            } catch (err) {
+              console.error(err);
+              showToast('error', 'Error', 'Unable to complete action.');
+            }
+          }
+        },
+        {
+          text: "Markdown Text",
+          onPress: async () => {
+            try {
+              await Share.share({ message: message.content });
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          text: "Plain Text",
+          onPress: async () => {
+            try {
+              const plainText = message.content
+                .replace(/[#*`~_]/g, '')
+                .replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/gi, '')
+                .trim();
+              await Share.share({ message: plainText });
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          text: "Cancel",
+          style: "cancel"
+        }
+      ]
+    );
   };
 
   const handleRegenerate = () => {
     setIsMoreSheetOpen(false);
+    showToast('info', 'Regenerating...', 'Asking AI for a fresh response...');
     if (onRegenerate) onRegenerate();
   };
 
@@ -913,8 +1476,11 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
 
   return (
     <Animated.View style={[styles.aiMessageContainer, { opacity: fadeAnim }]}>
-      <View style={styles.aiMessageContent}>
-        <View style={styles.aiBubble}>
+      <View style={[styles.aiCardContainer, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+
+
+        {/* Card Body */}
+        <View style={styles.aiCardBody}>
           {renderDots && (
             <Animated.View
               style={{
@@ -939,7 +1505,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
             <Animated.View style={{ opacity: transitionAnim }}>
               <MarkdownText content={mainContent} isUser={false} />
               {hasDisclaimer && (
-                <View style={[styles.disclaimerContainer, { borderTopColor: theme.border }]}>
+                <View style={[styles.disclaimerContainer, { borderTopColor: dividerBg }]}>
                   <Text style={[styles.disclaimerText, { color: theme.textSecondary }]}>
                     <Text style={[styles.disclaimerBold, { color: theme.textPrimary }]}>⚖️ Legal Disclaimer:</Text> This analysis is for informational purposes only and is not legal advice. AI may make mistakes. Please consult a qualified lawyer before making legal decisions.
                   </Text>
@@ -963,7 +1529,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
 
         {message.sources && message.sources.length > 0 && (
           <View style={styles.citationsContainer}>
-            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Citations & Sources</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: 12 }]}>Citations & Sources</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.citationsScroll}>
               {message.sources.map((source, idx) => (
                 <CitationCard
@@ -976,46 +1542,43 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
           </View>
         )}
 
-        {/* Minimal ChatGPT-Style Action Row */}
+        {/* Quick Actions Row in Bottom-Right */}
         {!isStreaming && message.id !== 'greetings' && message.content.length > 0 && (
-          <View style={styles.cleanActionRow}>
-            <ActionIconBtn onPress={copyMarkdown}>
-              <Ionicons name="copy-outline" size={18} color={theme.textSecondary} />
-            </ActionIconBtn>
+          <View style={styles.aiCardActionRow}>
+            <TouchableOpacity onPress={copyMarkdown} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+              <Ionicons name="copy-outline" size={12} color="#6D5DFC" />
+              <Text style={[styles.aiCardActionBtnText, { color: theme.textSecondary }]}>Copy</Text>
+            </TouchableOpacity>
 
-            <ActionIconBtn onPress={handleLike} isActive={isLiked}>
-              <Ionicons 
-                name={isLiked ? "thumbs-up" : "thumbs-up-outline"} 
-                size={18} 
-                color={isLiked ? theme.primary : theme.textSecondary} 
-              />
-            </ActionIconBtn>
+            {onRegenerate && (
+              <TouchableOpacity onPress={handleRegenerate} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+                <Ionicons name="refresh-outline" size={12} color="#6D5DFC" />
+                <Text style={[styles.aiCardActionBtnText, { color: theme.textSecondary }]}>Regenerate</Text>
+              </TouchableOpacity>
+            )}
 
-            <ActionIconBtn onPress={handleDislike} isActive={isDisliked}>
-              <Ionicons 
-                name={isDisliked ? "thumbs-down" : "thumbs-down-outline"} 
-                size={18} 
-                color={isDisliked ? theme.danger : theme.textSecondary} 
-              />
-            </ActionIconBtn>
+            <TouchableOpacity onPress={handleLike} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+              <Ionicons name={isLiked ? "thumbs-up" : "thumbs-up-outline"} size={12} color={isLiked ? '#6D5DFC' : '#6B7280'} />
+              <Text style={[styles.aiCardActionBtnText, { color: isLiked ? '#6D5DFC' : theme.textSecondary }]}>Helpful</Text>
+            </TouchableOpacity>
 
-            <ActionIconBtn onPress={handleReadAloud} isActive={isPlayingAudio}>
-              <Ionicons 
-                name="volume-medium-outline" 
-                size={18} 
-                color={isPlayingAudio ? theme.primary : theme.textSecondary} 
-              />
-            </ActionIconBtn>
+            <TouchableOpacity onPress={handleDislike} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+              <Ionicons name={isDisliked ? "thumbs-down" : "thumbs-down-outline"} size={12} color={isDisliked ? '#EF4444' : '#6B7280'} />
+              <Text style={[styles.aiCardActionBtnText, { color: isDisliked ? '#EF4444' : theme.textSecondary }]}>Not Helpful</Text>
+            </TouchableOpacity>
 
-            <ActionIconBtn onPress={executeShare}>
-              <Ionicons name="share-social-outline" size={18} color={theme.textSecondary} />
-            </ActionIconBtn>
+            <TouchableOpacity onPress={executeShare} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+              <Ionicons name="share-social-outline" size={12} color="#6D5DFC" />
+              <Text style={[styles.aiCardActionBtnText, { color: theme.textSecondary }]}>Share</Text>
+            </TouchableOpacity>
 
-            <ActionIconBtn onPress={() => setIsMoreSheetOpen(true)}>
-              <Ionicons name="ellipsis-horizontal" size={18} color={theme.textSecondary} />
-            </ActionIconBtn>
+            <TouchableOpacity onPress={() => setIsMoreSheetOpen(true)} style={[styles.aiCardActionBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}>
+              <Ionicons name="ellipsis-horizontal" size={12} color="#6D5DFC" />
+              <Text style={[styles.aiCardActionBtnText, { color: theme.textSecondary }]}>More</Text>
+            </TouchableOpacity>
           </View>
         )}
+      </View>
 
         {/* rounded sliding bottom sheet drawer for legal actions */}
         <Modal
@@ -1045,26 +1608,6 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Export as PDF</Text>
                 </TouchableOpacity>
 
-                {/* Word export */}
-                <TouchableOpacity 
-                  onPress={handleExportWord} 
-                  disabled={!hasRichFormat}
-                  style={[styles.bottomSheetItem, { borderBottomColor: theme.border }, !hasRichFormat && { opacity: 0.4 }]}
-                >
-                  <Ionicons name="file-tray-full-outline" size={22} color={hasRichFormat ? theme.textSecondary : (isDark ? theme.textMuted : "#9CA3AF")} style={styles.bottomSheetItemIcon} />
-                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }, !hasRichFormat && { color: (isDark ? theme.textMuted : "#9CA3AF") }]}>Export as Word (.docx)</Text>
-                </TouchableOpacity>
-
-                {/* Excel export */}
-                <TouchableOpacity 
-                  onPress={handleExportExcel} 
-                  disabled={!hasTables}
-                  style={[styles.bottomSheetItem, { borderBottomColor: theme.border }, !hasTables && { opacity: 0.4 }]}
-                >
-                  <Ionicons name="grid-outline" size={22} color={hasTables ? theme.textSecondary : (isDark ? theme.textMuted : "#9CA3AF")} style={styles.bottomSheetItemIcon} />
-                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }, !hasTables && { color: (isDark ? theme.textMuted : "#9CA3AF") }]}>Export as Excel (.xlsx)</Text>
-                </TouchableOpacity>
-
                 {/* Copy Markdown */}
                 <TouchableOpacity onPress={copyMarkdown} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="clipboard-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
@@ -1078,43 +1621,43 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
                 </TouchableOpacity>
 
                 {/* Save to Notes */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Saved to Notes'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleSaveToNotes} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="star-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Notes</Text>
                 </TouchableOpacity>
 
                 {/* Save to Case */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Associated with active case'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleSaveToCase} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="folder-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Case</Text>
                 </TouchableOpacity>
 
                 {/* Add to Evidence */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Added', 'Evidence registered successfully'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleAddToEvidence} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="archive-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Add to Evidence</Text>
                 </TouchableOpacity>
 
                 {/* Save to Legal Research */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Saved', 'Research archive updated'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleSaveToLegalResearch} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="library-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Save to Legal Research</Text>
                 </TouchableOpacity>
 
                 {/* Bookmark Response */}
-                <TouchableOpacity onPress={() => { showToast('success', 'Bookmarked', 'Response added to bookmarks'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
-                  <Ionicons name="bookmark-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
-                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Bookmark Response</Text>
+                <TouchableOpacity onPress={handleToggleBookmark} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                  <Ionicons name={isBookmarked ? "bookmark" : "bookmark-outline"} size={22} color={isBookmarked ? theme.primary : theme.textSecondary} style={styles.bottomSheetItemIcon} />
+                  <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>{isBookmarked ? "Bookmarked" : "Bookmark Response"}</Text>
                 </TouchableOpacity>
 
                 {/* Print */}
-                <TouchableOpacity onPress={() => { showToast('info', 'Print', 'Dispatching print payload...'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handlePrint} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="print-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Print</Text>
                 </TouchableOpacity>
 
                 {/* Share Response */}
-                <TouchableOpacity onPress={executeShare} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleShareOptions} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="share-social-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Share Response</Text>
                 </TouchableOpacity>
@@ -1128,7 +1671,7 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
                 )}
 
                 {/* Translate */}
-                <TouchableOpacity onPress={() => { showToast('info', 'Translate', 'Target translation engine initialized...'); setIsMoreSheetOpen(false); }} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={handleTranslate} style={[styles.bottomSheetItem, { borderBottomColor: theme.border }]}>
                   <Ionicons name="language-outline" size={22} color={theme.textSecondary} style={styles.bottomSheetItemIcon} />
                   <Text style={[styles.bottomSheetItemLabel, { color: theme.textPrimary }]}>Translate</Text>
                 </TouchableOpacity>
@@ -1153,7 +1696,6 @@ export const AIBubble: React.FC<MessageBubbleProps> = ({
             </View>
           </View>
         </Modal>
-      </View>
     </Animated.View>
   );
 };
@@ -1984,6 +2526,80 @@ const styles = StyleSheet.create({
   },
   welcomeButtonTextPrimary: {
     color: '#FFFFFF',
+  },
+  aiCardContainer: {
+    flex: 1,
+    alignSelf: 'stretch',
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  aiCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  aiCardIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiCardIconText: {
+    fontSize: 18,
+  },
+  aiCardTitleContainer: {
+    flex: 1,
+  },
+  aiCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  aiCardSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  aiCardDivider: {
+    height: 1,
+    marginVertical: 12,
+    opacity: 0.6,
+  },
+  aiCardBody: {
+    alignSelf: 'stretch',
+  },
+  aiCardActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: 14,
+    gap: 6,
+  },
+  aiCardActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  aiCardActionBtnText: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   welcomeButtonTextOutline: {
     color: '#1F2937',

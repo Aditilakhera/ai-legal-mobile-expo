@@ -224,7 +224,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from 'react-native';
 
 export interface PageHeaderProps {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   leftAction?: React.ReactNode;
   rightActions?: React.ReactNode[];
@@ -268,9 +268,13 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
         {leftAction ? <View style={{ marginRight: 10 }}>{leftAction}</View> : null}
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary }} numberOfLines={1}>
-            {title}
-          </Text>
+          {typeof title === 'string' ? (
+            <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary }} numberOfLines={1}>
+              {title}
+            </Text>
+          ) : (
+            title
+          )}
           {subtitle ? (
             <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 1, fontWeight: '500' }} numberOfLines={1}>
               {subtitle}

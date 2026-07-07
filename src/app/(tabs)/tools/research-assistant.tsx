@@ -18,6 +18,7 @@ import {
   Share,
   Animated,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -870,6 +871,38 @@ export default function ResearchAssistantScreen() {
       console.warn('Failed to delete session:', err);
       showToast('error', 'Delete Failed', 'Could not delete conversation.');
     }
+  };
+
+  const handleClearAllConfirm = () => {
+    Alert.alert(
+      "Clear History",
+      "Are you sure you want to permanently delete all chat history? This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const currentSessions = [...historySessions];
+              setHistorySessions([]);
+              setSessionId(null);
+              setMessages([]);
+              
+              for (const session of currentSessions) {
+                ChatService.deleteSession(session.sessionId).catch(() => {});
+              }
+              showToast('success', 'History Cleared', 'All conversation logs removed.');
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleRenameConfirm = async (sId: string) => {
@@ -2016,6 +2049,21 @@ Overall legal stance is robust. We recommend initiating negotiation talks early 
             <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
               <View style={styles.drawerHeader}>
                 <Text style={styles.drawerTitle}>Chat Logs History</Text>
+                {filteredHistorySessions.length > 0 && (
+                  <TouchableOpacity
+                    onPress={handleClearAllConfirm}
+                    style={{
+                      marginLeft: 'auto',
+                      marginRight: 16,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6,
+                      backgroundColor: '#EF444415',
+                    }}
+                  >
+                    <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: 'bold' }}>Clear All</Text>
+                  </TouchableOpacity>
+                )}
                 <Pressable onPress={() => setIsHistoryOpen(false)}>
                   <Ionicons name="close" size={24} color="#475569" />
                 </Pressable>

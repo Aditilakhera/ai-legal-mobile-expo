@@ -12,6 +12,8 @@ export const gujarati = {
     continueWorking: "કામ ચાલુ રાખો",
     quickActions: "ઝડપી ક્રિયાઓ",
     newCase: "નવો કેસ",
+    newCaseTitle: "નવો કેસ",
+    productGuide: "પ્રોડક્ટ માર્ગદર્શિકા",
     aiLegalAssistant: "AI કાનૂની સહાયક",
   },
   cases: {
@@ -207,8 +209,8 @@ export const gujarati = {
     noNotes: 'કોઈ નોંધ નથી',
   },
   assistant: {
-    placeholder: 'કોઈપણ કાનૂની પ્રશ્ન પૂછો...',
-    welcomeSubtitle: 'કોઈપણ કાનૂની પ્રશ્ન પૂછો',
+    placeholder: 'પ્રશ્ન પૂછો...',
+    welcomeSubtitle: 'પ્રશ્ન પૂછો',
     thinking: 'AI વિચારી રહ્યું છે...',
     retry: 'ફરી પ્રયાસ કરો',
     welcome: 'AI કેસ સહાયકમાં આપનું સ્વાગત છે',

@@ -102,12 +102,16 @@ export function useChat() {
    */
   const deleteChatSession = async (sessionId: string) => {
     setError(null);
+    // Remove locally first so the UI updates instantly
+    deleteSession(sessionId);
     try {
-      await ChatService.deleteSession(sessionId);
-      deleteSession(sessionId);
+      const localSession = sessions.find((s) => s.sessionId === sessionId);
+      const isLocalOnly = !localSession || (!localSession._id && !localSession.createdAt);
+      if (!isLocalOnly) {
+        await ChatService.deleteSession(sessionId);
+      }
     } catch (err: any) {
-      console.error('[useChat] deleteSession error:', err);
-      setError(err.message || 'Failed to delete session.');
+      console.warn('[useChat] deleteSession remote warning:', err);
     }
   };
 

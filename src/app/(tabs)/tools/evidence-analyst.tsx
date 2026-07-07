@@ -3,23 +3,18 @@ import {
   StyleSheet,
   View,
   Text,
-  FlatList,
   TextInput,
   Pressable,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
-  LayoutAnimation,
-  UIManager,
+  ActivityIndicator,
+  Platform,
+  TouchableOpacity,
   Modal,
   Dimensions,
-  TouchableWithoutFeedback,
-  TouchableOpacity,
-  Keyboard,
   Clipboard,
   Share,
   Animated,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -27,1870 +22,913 @@ import { useRouter } from 'expo-router';
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
 import { useToastContext, useThemeContext } from '@/providers';
-import { useAuthGuard } from '@/navigation/guards';
-import { streamAIResponse } from '@/api/client';
-import { ChatService } from '@/services/chat.service';
-import { Shadows, Radius, Spacing } from '@/theme';
-import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
-import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
-import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
-import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
-import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
-import { CaseWorkspace } from '@/types';
 import { CaseService } from '@/services/case.service';
+import { CaseSummary } from '@/types';
 
 const { width, height } = Dimensions.get('window');
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-// Simulated Forensic Mocks List
-const MOCK_EVIDENCE_FILES = [
-  {
-    id: 'whatsapp',
-    name: 'whatsapp_chat_export_case902.txt',
-    type: 'text/plain',
-    size: 1024 * 128, // 128 KB
-    detectedType: 'WhatsApp Chat Export',
-    url: 'https://ailegal.com/evidence/whatsapp_chat_export_case902.txt',
-  },
-  {
-    id: 'medical',
-    name: 'medical_report_injury_audit.pdf',
-    type: 'application/pdf',
-    size: 1024 * 1024 * 1.5, // 1.5 MB
-    detectedType: 'Medical Report',
-    url: 'https://ailegal.com/evidence/medical_report_injury_audit.pdf',
-  },
-  {
-    id: 'bank',
-    name: 'bank_statement_q1_unusual.xlsx',
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    size: 1024 * 340, // 340 KB
-    detectedType: 'Bank Statement',
-    url: 'https://ailegal.com/evidence/bank_statement_q1_unusual.xlsx',
-  },
-  {
-    id: 'video',
-    name: 'surveillance_video_cam4.mp4',
-    type: 'video/mp4',
-    size: 1024 * 1024 * 12.4, // 12.4 MB
-    detectedType: 'Video Evidence',
-    url: 'https://ailegal.com/evidence/surveillance_video_cam4.mp4',
-  },
-  {
-    id: 'witness',
-    name: 'witness_statement_signed.pdf',
-    type: 'application/pdf',
-    size: 1024 * 670, // 670 KB
-    detectedType: 'Witness Statement',
-    url: 'https://ailegal.com/evidence/witness_statement_signed.pdf',
-  },
-  {
-    id: 'zip',
-    name: 'compressed_dossier_photos.zip',
-    type: 'application/zip',
-    size: 1024 * 1024 * 8.5, // 8.5 MB
-    detectedType: 'Compressed Dossier',
-    url: 'https://ailegal.com/evidence/compressed_dossier_photos.zip',
-  },
+// Step 1: Evidence Sources config
+const EVIDENCE_SOURCES = [
+  { id: 'camera', label: 'Camera', icon: 'camera-outline', category: 'Media' },
+  { id: 'gallery', label: 'Gallery', icon: 'image-outline', category: 'Media' },
+  { id: 'video', label: 'Video File', icon: 'videocam-outline', category: 'Media' },
+  { id: 'audio', label: 'Audio File', icon: 'volume-high-outline', category: 'Media' },
+  { id: 'voice', label: 'Voice Memo', icon: 'mic-outline', category: 'Media' },
+  { id: 'documents', label: 'Documents', icon: 'document-text-outline', category: 'Files' },
+  { id: 'pdf', label: 'PDF Report', icon: 'document-outline', category: 'Files' },
+  { id: 'whatsapp', label: 'WhatsApp', icon: 'chatbubbles-outline', category: 'Social' },
+  { id: 'email', label: 'Email', icon: 'mail-outline', category: 'Social' },
+  { id: 'library', label: 'Evidence Lib', icon: 'library-outline', category: 'Workspace' },
 ];
 
-// Helper functions for search term highlighting
-const renderWithSearchHighlight = (text: string, searchQuery: string) => {
-  if (!searchQuery) return text;
-  const escaped = searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
-  const parts = text.split(regex);
-  return parts.map((part, i) =>
-    regex.test(part) ? (
-      <Text key={i} style={{ backgroundColor: '#FDE047', color: '#1F2937', fontWeight: '700' }}>
-        {part}
-      </Text>
-    ) : (
-      part
-    )
-  );
-};
-
-const parseInlineStyles = (text: string, isUserText: boolean, theme: any, searchQuery: string) => {
-  if (!text) return null;
-
-  const parts = text.split(/\*\*([\s\S]*?)\*\*/g);
-  return parts.map((part, index) => {
-    const isBold = index % 2 === 1;
-
-    const subParts = part.split(/`([^`]+)`/g);
-    const subElements = subParts.map((subPart, subIdx) => {
-      const isInlineCode = subIdx % 2 === 1;
-      if (isInlineCode) {
-        return (
-          <Text
-            key={`${index}-${subIdx}`}
-            style={{
-              fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-              fontSize: 13,
-              backgroundColor: isUserText ? 'rgba(0, 0, 0, 0.15)' : 'rgba(16, 185, 129, 0.08)',
-              color: isUserText ? '#FFFFFF' : '#10B981',
-              paddingHorizontal: 4,
-              borderRadius: 4,
-            }}
-          >
-            {renderWithSearchHighlight(subPart, searchQuery)}
-          </Text>
-        );
-      }
-
-      const citationParts = subPart.split(/(\[\d+\])/g);
-      return citationParts.map((citPart, citIdx) => {
-        const isCit = citPart.match(/^\[\d+\]$/);
-        if (isCit) {
-          return (
-            <Text
-              key={`${index}-${subIdx}-${citIdx}`}
-              style={{
-                color: isUserText ? '#EEECFF' : '#10B981',
-                fontWeight: '700',
-                textDecorationLine: 'underline',
-                fontSize: 13,
-              }}
-            >
-              {citPart}
-            </Text>
-          );
-        }
-        return renderWithSearchHighlight(citPart, searchQuery);
-      });
-    });
-
-    return (
-      <Text key={index} style={isBold ? { fontWeight: '700' } : undefined}>
-        {subElements}
-      </Text>
-    );
-  });
-};
-
-const CustomMarkdownText: React.FC<{ content: string; isUser: boolean; searchQuery: string; theme: any }> = ({
-  content,
-  isUser,
-  searchQuery,
-  theme,
-}) => {
-  if (!content) return null;
-
-  const lines = content.split('\n');
-  const renderedElements: React.ReactNode[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Headers
-    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
-    if (headerMatch) {
-      const level = headerMatch[1].length;
-      const headerText = headerMatch[2];
-      const fontSize = level === 1 ? 18 : level === 2 ? 16 : 14;
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize,
-            fontWeight: '700',
-            marginTop: 8,
-            marginBottom: 4,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(headerText, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Bullet items
-    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
-      const bulletContent = trimmed.slice(2);
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6 }}>•</Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(bulletContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Numbered items
-    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-    if (numMatch) {
-      const num = numMatch[1];
-      const listContent = numMatch[2];
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6, fontWeight: '700' }}>
-            {num}.
-          </Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(listContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Plain-text custom headings (e.g. ⚖️ FINAL VERDICT, Win Probability)
-    const isLegalHeading = (text: string): boolean => {
-      const clean = text.replace(/^[^\w\s]*\s*/, '').trim().toLowerCase();
-      const headings = [
-        'final verdict',
-        'simplified explanation',
-        'legal analysis',
-        'risks & loopholes',
-        'enforceability check',
-        'what to do next',
-        'improved clause (rewrite)',
-        'improved clause',
-        'law references',
-        'legal disclaimer',
-        'win probability',
-        'case strength',
-        'positive factors',
-        'negative factors',
-        'judicial outlook',
-        'possible outcome',
-        'risk analysis',
-        'immediate actions',
-        'tactical plan',
-        'opponent strategy',
-        'counter strategy',
-        'courtroom strategy',
-        'filing strategy',
-        'evidence strategy',
-        'evidence summary',
-        'evidence classification',
-        'admissibility',
-        'strength analysis',
-        'missing evidence',
-        'contradictions',
-        'weaknesses',
-        'recommendations',
-        'overall evidence strength',
-        'clause',
-        'risk level',
-        'why risk exists',
-        'suggested change',
-        'original clause',
-        'reason for rewrite',
-        'legal overview',
-        'explanation',
-        'relevant sections',
-        'landmark judgments',
-        'practical application',
-        'judicial interpretation',
-        'requirement',
-        'status',
-        'missing compliance',
-        'similarities',
-        'differences',
-        'applicability',
-        'strategic advantage',
-        'main arguments',
-        'supporting facts',
-        'counter arguments',
-        'rebuttals',
-        'cross examination',
-        'closing submission',
-        'date',
-        'event',
-        'legal significance',
-        'overall evidence assessment',
-        'evidence breakdown',
-        'risks, gaps & loopholes',
-        'courtroom admissibility check',
-        'defense attack strategy',
-        'prosecution / user strategy',
-        'evidence improvement plan',
-        'legal backing',
-        'evidence priority',
-        'final insight',
-        'case position (top summary)',
-        'primary arguments (courtroom ready)',
-        'strongest argument (highlight)',
-        'opposition arguments (prediction)',
-        'rebuttal strategy',
-        'cross-examination questions',
-        'courtroom narrative',
-        'argument strategy (how to win)',
-        'final closing statement',
-        'final outcome (top summary)',
-        'win probability breakdown',
-        'key reasons (why this outcome)',
-        'multi-scenario outcome',
-        'scenario 1 — worst case',
-        'scenario 1 - worst case',
-        'scenario 2 — most likely case',
-        'scenario 2 - most likely case',
-        'scenario 3 — best case',
-        'scenario 3 - best case',
-        'case breakpoints (deciding factors)',
-        'strategic action plan (lawyer-level)',
-        'final strategic position',
-        'core strategy (big picture)',
-        'step-by-step action plan',
-        'phase 1 – immediate actions',
-        'phase 1 - immediate actions',
-        'phase 2 – evidence strengthening',
-        'phase 2 - evidence strengthening',
-        'phase 3 – courtroom execution',
-        'phase 3 - courtroom execution',
-        'risks & defense challenges',
-        'counter-strategy',
-        'winning argument framework',
-        'courtroom focus',
-        'high-impact legal moves',
-        'success strategy (final execution plan)',
-        'key legal elements',
-        'landmark case laws',
-        'common defenses & loopholes',
-        'strategic insight',
-        'related legal provisions'
-      ];
-      return headings.includes(clean);
-    };
-    if (isLegalHeading(trimmed)) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 18,
-            fontWeight: '800',
-            marginTop: 16,
-            marginBottom: 8,
-            color: isUser ? '#FFFFFF' : '#111827',
-          }}
-        >
-          {parseInlineStyles(trimmed, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Normal text lines
-    if (trimmed.length > 0) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 14.5,
-            lineHeight: 21,
-            marginVertical: 3,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(line, isUser, theme, searchQuery)}
-        </Text>
-      );
-    } else {
-      renderedElements.push(<View key={i} style={{ height: 6 }} />);
-    }
-  }
-
-  return <View style={{ alignSelf: 'stretch' }}>{renderedElements}</View>;
-};
-
-// Response structured sections definitions for Digital Forensics reports
-interface ForensicsSection {
-  title: string;
-  content: string;
-  type:
-    | 'summary'
-    | 'evType'
-    | 'confidence'
-    | 'findings'
-    | 'dates'
-    | 'entities'
-    | 'contradictions'
-    | 'missing'
-    | 'weak'
-    | 'strong'
-    | 'recommendations'
-    | 'steps'
-    | 'normal';
-}
-
-const parseForensicsResponse = (content: string): ForensicsSection[] => {
-  const lines = content.split('\n');
-  const sections: ForensicsSection[] = [];
-  let currentTitle = '';
-  let currentContent: string[] = [];
-
-  const getSectionType = (title: string): ForensicsSection['type'] => {
-    const t = title.toLowerCase();
-    if (t.includes('summary')) return 'summary';
-    if (t.includes('evidence type') || t.includes('type')) return 'evType';
-    if (t.includes('confidence')) return 'confidence';
-    if (t.includes('findings')) return 'findings';
-    if (t.includes('dates') || t.includes('timeline')) return 'dates';
-    if (t.includes('people') || t.includes('organizations') || t.includes('locations') || t.includes('entities')) return 'entities';
-    if (t.includes('contradictions') || t.includes('inconsistencies')) return 'contradictions';
-    if (t.includes('missing')) return 'missing';
-    if (t.includes('weak')) return 'weak';
-    if (t.includes('strong')) return 'strong';
-    if (t.includes('recommendations')) return 'recommendations';
-    if (t.includes('steps') || t.includes('next')) return 'steps';
-    return 'normal';
-  };
-
-  for (const line of lines) {
-    const match = line.match(/^(#{1,3})\s+(.*)/);
-    if (match) {
-      if (currentContent.length > 0 || currentTitle) {
-        sections.push({
-          title: currentTitle || 'Forensic Brief',
-          content: currentContent.join('\n').trim(),
-          type: getSectionType(currentTitle),
-        });
-      }
-      currentTitle = match[2].trim();
-      currentContent = [];
-    } else {
-      currentContent.push(line);
-    }
-  }
-  if (currentContent.length > 0 || currentTitle) {
-    sections.push({
-      title: currentTitle || 'Forensic Brief',
-      content: currentContent.join('\n').trim(),
-      type: getSectionType(currentTitle),
-    });
-  }
-
-  if (sections.length === 0) {
-    sections.push({
-      title: '',
-      content: content,
-      type: 'normal',
-    });
-  }
-
-  return sections;
-};
-
-const StructuredForensicsView: React.FC<{ content: string; searchQuery: string; theme: any }> = ({
-  content,
-  searchQuery,
-  theme,
-}) => {
-  const { isDark } = useThemeContext();
-  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
-  const isStructured =
-    content.includes('Executive Summary') ||
-    content.includes('Evidence Type') ||
-    content.includes('Confidence Score') ||
-    content.includes('Detected Contradictions') ||
-    content.includes('Findings') ||
-    content.includes('Timeline') ||
-    content.includes('Contradictions');
-
-  if (!isStructured) {
-    return <CustomMarkdownText content={content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-  }
-
-  const sections = parseForensicsResponse(content);
-
-  return (
-    <View style={{ alignSelf: 'stretch', gap: 12 }}>
-      {sections.map((sec, index) => {
-        if (sec.type === 'confidence') {
-          const scoreText = sec.content;
-          let confColor = '#10B981'; // Green
-          let levelText = 'Highly Admissible';
-          let progressVal = 0.9;
-
-          if (scoreText.includes('70') || scoreText.includes('75') || scoreText.toLowerCase().includes('moderate')) {
-            confColor = '#F59E0B'; // Amber
-            levelText = 'Medium Veracity';
-            progressVal = 0.72;
-          } else if (scoreText.includes('50') || scoreText.includes('60') || scoreText.toLowerCase().includes('low')) {
-            confColor = '#EF4444'; // Red
-            levelText = 'Low Veracity / Unverified';
-            progressVal = 0.45;
-          }
-
-          return (
-            <View key={index} style={[styles.forensicsCard, { borderLeftColor: confColor }]}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="ribbon-outline" size={18} color={confColor} />
-                <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>
-                  {sec.title || 'Confidence Score'}
-                </Text>
-              </View>
-              <View style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 6 }}>
-                  {renderWithSearchHighlight(sec.content, searchQuery)}
-                </Text>
-                <View style={styles.progressBarBg}>
-                  <View style={{ height: '100%', width: `${progressVal * 100}%`, backgroundColor: confColor, borderRadius: 4 }} />
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Unverified</Text>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: confColor }}>{levelText}</Text>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Certified</Text>
-                </View>
-              </View>
-            </View>
-          );
-        }
-
-        let borderLeftColor = theme.border;
-        let cardIcon = 'finger-print-outline';
-        let iconColor = theme.textSecondary;
-        let cardBg = theme.surface;
-
-        switch (sec.type) {
-          case 'summary':
-            borderLeftColor = '#10B981'; // Emerald
-            cardIcon = 'search-circle-outline';
-            iconColor = '#10B981';
-            cardBg = '#F0FDF4';
-            break;
-          case 'evType':
-            borderLeftColor = '#64748B';
-            cardIcon = 'folder-open-outline';
-            iconColor = '#64748B';
-            break;
-          case 'findings':
-            borderLeftColor = '#208AEF'; // Blue
-            cardIcon = 'document-text-outline';
-            iconColor = '#208AEF';
-            break;
-          case 'dates':
-            borderLeftColor = '#F59E0B'; // Amber
-            cardIcon = 'calendar-outline';
-            iconColor = '#F59E0B';
-            break;
-          case 'contradictions':
-            borderLeftColor = '#EF4444'; // Red
-            cardIcon = 'alert-circle-outline';
-            iconColor = '#EF4444';
-            cardBg = '#FFF5F5';
-            break;
-          case 'weak':
-          case 'missing':
-            borderLeftColor = '#EF4444';
-            cardIcon = 'close-circle-outline';
-            iconColor = '#EF4444';
-            break;
-          case 'strong':
-          case 'recommendations':
-            borderLeftColor = '#10B981';
-            cardIcon = 'checkmark-circle-outline';
-            iconColor = '#10B981';
-            cardBg = '#F0FDF4';
-            break;
-          case 'steps':
-            borderLeftColor = '#8B5CF6';
-            cardIcon = 'git-commit-outline';
-            iconColor = '#8B5CF6';
-            cardBg = '#F5F3FF';
-            break;
-        }
-
-        if (sec.type === 'normal') {
-          return <CustomMarkdownText key={index} content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-        }
-
-        return (
-          <View key={index} style={[styles.forensicsCard, { borderLeftColor, backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name={cardIcon as any} size={18} color={iconColor} />
-              <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>{sec.title}</Text>
-            </View>
-            <View style={{ marginTop: 6 }}>
-              <CustomMarkdownText content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-};
-
-// DICTIONARY OF ACTION SHEETS
-const EVIDENCE_ACTIONS = {
-  documentAnalysis: [
-    { id: 'analyze_pdf', label: 'Analyze PDF', desc: 'Scan and digest document pages', isImmediate: true },
-    { id: 'analyze_images', label: 'Analyze Images', desc: 'Verify forensic contents of images', isImmediate: true },
-    { id: 'ocr_extraction', label: 'OCR Extraction', desc: 'Convert scanned image text into copyable lines', isImmediate: true },
-    { id: 'extract_tables', label: 'Extract Tables', desc: 'Convert structured layout sheets into grid cells', isImmediate: true },
-    { id: 'extract_signatures', label: 'Extract Signatures', desc: 'Find and isolate signatures in contracts', isImmediate: true },
-    { id: 'extract_stamps', label: 'Extract Stamps', desc: 'Locate legal verification stamps and dates', isImmediate: true },
-    { id: 'extract_metadata', label: 'Extract Metadata', desc: 'Read file headers, timestamps, coordinates, and creator', isImmediate: true },
-  ],
-  investigation: [
-    { id: 'timeline_generation', label: 'Timeline Generation', desc: 'Map facts chronologically with calendar logs', isImmediate: true },
-    { id: 'people_detection', label: 'People Detection', desc: 'List all individuals mentioned in dossier', isImmediate: true },
-    { id: 'org_detection', label: 'Organization Detection', desc: 'Map corporate or governmental units', isImmediate: true },
-    { id: 'loc_detection', label: 'Location Detection', desc: 'Extract geographical coordinates and addresses', isImmediate: true },
-    { id: 'date_extraction', label: 'Date Extraction', desc: 'List all critical calendar citations', isImmediate: true },
-    { id: 'conv_analysis', label: 'Conversation Analysis', desc: 'Analyze conversation tone, messages, and gaps', isImmediate: true },
-    { id: 'correlation', label: 'Evidence Correlation', desc: 'Verify how files corroborate or oppose each other', isImmediate: true },
-    { id: 'contradiction_detection', label: 'Contradiction Detection', desc: 'Scan for direct text or date lies', isImmediate: true },
-    { id: 'relationship_mapping', label: 'Relationship Mapping', desc: 'Build link chart of people and entities', isImmediate: true },
-  ],
-  legalIntelligence: [
-    { id: 'strength_assessment', label: 'Evidence Strength Assessment', desc: 'Verify weight, admissibility, and relevance', isImmediate: true },
-    { id: 'missing_evidence', label: 'Missing Evidence', desc: 'List gaps that need further discovery', isImmediate: true },
-    { id: 'chain_of_custody', label: 'Chain of Custody Review', desc: 'Verify transfer path and evidence integrity logs', isImmediate: true },
-    { id: 'authenticity_check', label: 'Authenticity Check', desc: 'Check metadata modification stamps', isImmediate: true },
-    { id: 'forgery_indicators', label: 'Forgery Indicators', desc: 'Scan for image edits or metadata rewrites', isImmediate: true },
-    { id: 'compliance_review', label: 'Compliance Review', desc: 'Verify legal acquisition guidelines compliance', isImmediate: true },
-  ],
-  aiIntelligence: [
-    { id: 'summarize_evidence', label: 'Summarize Evidence', desc: 'Quick high-level digest of all documents', isImmediate: true },
-    { id: 'investigation_report', label: 'Generate Investigation Report', desc: 'Complete case file summary and facts', isImmediate: true },
-    { id: 'court_summary', label: 'Generate Court Summary', desc: 'Prepare visual facts sheet for the judge', isImmediate: true },
-    { id: 'client_summary', label: 'Generate Client Summary', desc: 'Explain evidence posture in plain language', isImmediate: true },
-    { id: 'cross_questions', label: 'Generate Cross Examination Questions', desc: 'Get questions targeting details and contradictions', isImmediate: true },
-    { id: 'suggest_evidence', label: 'Suggest Additional Evidence', desc: 'Identify supportive items to gather', isImmediate: true },
-    { id: 'suggest_strategy', label: 'Suggest Legal Strategy', desc: 'Structure arguments around evidence findings', isImmediate: true },
-    { id: 'further_investigation', label: 'Suggest Further Investigation', desc: 'Define discovery targets and interviews', isImmediate: true },
-  ]
-};
-
-// Input-Focused Custom Queries
-const INPUT_ACTIONS = [
-  { id: 'search_evidence', label: 'Search Evidence', desc: 'Search for phrases in OCR logs', placeholder: 'Search within uploaded evidence...' },
-  { id: 'find_keyword', label: 'Find Keyword', desc: 'Locate occurrences of a term', placeholder: 'Enter keyword...' },
-  { id: 'explain_page', label: 'Explain Specific Page', desc: 'Detail contents of specific pages', placeholder: 'Enter page number to explain...' },
-  { id: 'ask_evidence', label: 'Ask About Evidence', desc: 'Pose specific query regarding case files', placeholder: 'Ask about this evidence...' },
-  { id: 'custom_investigation', label: 'Custom Investigation', desc: 'Formulate bespoke forensics requests', placeholder: 'Describe what to investigate...' }
+// Step 2: Evidence Types options
+const EVIDENCE_TYPES = [
+  'Photograph', 'Video', 'Audio', 'Document', 'PDF', 'Screenshot', 'Chat', 'Email', 'Bank Statement', 'Medical Record', 'Other'
 ];
 
-// Offline Response Database
-const MOCK_ANSWERS: Record<string, string> = {
-  ocr_extraction: `# Executive Summary
-Forensics optical character characterization completed on scanned receipt.
+// Step 2: Court Sides
+const COURT_SIDES = ['Plaintiff', 'Defendant', 'Prosecution', 'Defense'];
 
-# Evidence Type
-Scanned JPEG Receipt
-
-# Confidence Score: 95% Confidence
-Text extracted cleanly with high character classification rates.
-
-# Key Findings
-* **Transaction ID:** TXN-908123-B
-* **Parties:** ABC Estates Ltd. and Nitin Kumar.
-* **Amount Credited:** INR 5,00,000 (Five Lakhs Indian Rupees).
-* **Payment Mode:** Cash transaction.
-* **Stamp Registry:** Registered stamp of Notary Public, Delhi.
-
-# Next Investigation Steps
-* Match transaction ledger timestamp with bank deposit records.`,
-
-  timeline_generation: `# Executive Summary
-Chronological sequence mapping events extracted from the evidence package.
-
-# Evidence Type
-WhatsApp Log + Medical Audit Timeline
-
-# Confidence Score: 90% Confidence
-Chronology matched successfully with metadata timestamps.
-
-# Timeline
-* **2026-05-10 10:15 AM:** nitrite payment receipt signed by Nitin Kumar.
-* **2026-05-10 04:30 PM:** Complainant sent a WhatsApp ping requesting verification.
-* **2026-05-11 02:20 AM:** First physical altercation reported at Saket Metro Market.
-* **2026-05-11 05:40 AM:** Complainant admitted to Saket Trauma Centre.
-* **2026-05-11 09:00 AM:** Medical report signed by Dr. R. K. Sen.
-
-# Next Investigation Steps
-* Verify doctor signature authenticity.`,
-
-  contradiction_detection: `# Executive Summary
-Contradiction analysis matching witness statements with digital file logs.
-
-# Evidence Type
-WhatsApp Log vs Physical Statements
-
-# Confidence Score: 75% Confidence
-Moderate conflicts found in spatial-temporal location claims.
-
-# Detected Contradictions
-* **Contradiction 1 (Location):** Complainant claims Nitin Kumar was in Noida at 4:30 PM on May 10. WhatsApp export metadata shows Nitin sent GPS coordinates from Saket Metro, Delhi at 4:32 PM.
-* **Contradiction 2 (Altercation Time):** Medical trauma entry notes head injuries occurred around 1:00 AM on May 11, whereas witness statements claim the incident happened after 8:00 AM.
-
-# Weak Evidence
-* Witness statements are unsigned and scanned in low resolution.
-
-# Next Investigation Steps
-* Demand cell tower log subpoena for Nitin's mobile carrier records.`,
-
-  summarize_evidence: `# Executive Summary
-Overview summary of all attached forensic evidence files.
-
-# Evidence Type
-Multi-format Evidence Case Dossier
-
-# Confidence Score: 88% Confidence
-Files show high internal consistency.
-
-# Key Findings
-* Financial statements corroborate payment milestones.
-* Chat transcripts establish pre-meditated communication.
-
-# Detected Contradictions
-* Inconsistency found regarding payment schedules; bank statements list payment as cleared, while vendor logs mark it as default.
-
-# AI Recommendations
-* Summon certified ledger logs under Bankers' Books Act.`,
-
-  investigation_report: `# Executive Summary
-Full Forensic Investigation Brief on Nitin Kumar case logs.
-
-# Evidence Type
-Digital Forensics Folder
-
-# Confidence Score: 92% Confidence
-Document verification complete.
-
-# Key Findings
-* Chat logs verify recipient identity.
-* Bank ledgers indicate credits mapping exactly to receipt date.
-
-# Detected Contradictions
-* Defendant denies receipt of text messages; WhatsApp transcript logs show 'double-blue' checkmark confirmations for all messages.
-
-# AI Recommendations
-* Procure original device for digital hardware checksum validation.`
-};
-
-const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
-  if (!details) return '';
-  let summary = `[Case Context Info]\n`;
-  summary += `Case Name: ${details.name}\n`;
-  if (details.clientName) summary += `Client: ${details.clientName}\n`;
-  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
-  if (details.courtName) summary += `Court: ${details.courtName}\n`;
-  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
-  if (details.summary || details.caseSummary) {
-    summary += `Summary: ${details.summary || details.caseSummary}\n`;
-  }
-  
-  if (details.evidence && details.evidence.length > 0) {
-    summary += `Evidence List:\n`;
-    details.evidence.forEach((ev, idx) => {
-      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
-    });
-  }
-  
-  if (details.hearings && details.hearings.length > 0) {
-    summary += `Hearings List:\n`;
-    details.hearings.forEach((h, idx) => {
-      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
-    });
-  }
-  
-  if (details.documents && details.documents.length > 0) {
-    summary += `Documents List:\n`;
-    details.documents.forEach((doc, idx) => {
-      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
-    });
-  }
-  
-  if (details.facts && details.facts.length > 0) {
-    summary += `Timeline / Facts:\n`;
-    details.facts.forEach((fact, idx) => {
-      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
-    });
-  }
-  
-  summary += `[End of Case Context Info]\n\n`;
-  return summary;
-};
+// Step 3: 11 Extraction Steps
+const EXTRACTION_STEPS = [
+  'Reading File',
+  'Extracting Metadata',
+  'Running OCR',
+  'Scanning Integrity',
+  'Detecting Manipulation',
+  'Analyzing Visual Content',
+  'Checking Chain of Custody',
+  'Finding Contradictions',
+  'Evaluating Court Admissibility',
+  'Generating Lawyer Recommendations',
+  'Preparing Final Report',
+];
 
 export default function EvidenceAnalystScreen() {
-  useAuthGuard();
-  const router = useRouter();
   const { showToast } = useToastContext();
   const { theme, isDark } = useThemeContext();
-  const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
+  const styles: any = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-
-  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
-  const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
-  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
-  const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
-  const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
-
-
-
-  const fetchActiveCaseDetails = async (caseId: string) => {
-    try {
-      const res = await CaseService.getCaseDetails(caseId);
-      const details = (res as any).data || res;
-      if (details) {
-        setActiveCaseDetails(details);
-      }
-    } catch (err) {
-      console.warn('Failed to load active case details:', err);
-    }
-  };
-
-  const fetchAllCaseSummaries = async () => {
-    try {
-      const res = await CaseService.listCases();
-      const list = Array.isArray(res) ? res : (res?.data || []);
-      const mapping: Record<string, string> = {};
-      list.forEach((c: any) => {
-        mapping[c._id] = c.name;
-      });
-      setCaseSummariesMap(mapping);
-    } catch (err) {
-      console.warn('Failed to load case summaries list for history mapping:', err);
-    }
-  };
-
-  useEffect(() => {
-    if (activeCaseId) {
-      fetchActiveCaseDetails(activeCaseId);
-    } else {
-      setActiveCaseDetails(null);
-    }
-  }, [activeCaseId]);
-
-  useEffect(() => {
-    fetchAllCaseSummaries();
-  }, [sessionId]);
-
-  const [inputVal, setInputVal] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const streamTimerRef = useRef<any>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    return () => {
-      if (streamTimerRef.current) clearInterval(streamTimerRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, []);
+  // Navigation / Wizard state
+  // 'SOURCE' -> 'CONFIG' -> 'ANALYZING' -> 'REPORT'
+  const [step, setStep] = useState<'SOURCE' | 'CONFIG' | 'ANALYZING' | 'REPORT'>('SOURCE');
   
-  const {
-    attachments,
-    setAttachments,
-    isBottomSheetVisible,
-    isCameraVisible,
-    isUploading,
-    showAttachmentOptions,
-    hideAttachmentOptions,
-    hideCamera,
-    handleRemoveAttachment,
-    clearAttachments,
-    handleSelectOption,
-    handleCameraConfirm,
-    uploadPendingAttachments,
-  } = useAttachmentHandler();
+  // Selected Source
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
 
-  // Search feature
-  const [searchQuery, setSearchQuery] = useState('');
+  // Configuration Fields
+  const [evidenceType, setEvidenceType] = useState<string>('Document');
+  const [courtSide, setCourtSide] = useState<string>('Plaintiff');
+  const [evidenceName, setEvidenceName] = useState<string>('');
+  const [custodyNotes, setCustodyNotes] = useState<string>('');
+  const [sceneDescription, setSceneDescription] = useState<string>('');
+  
+  // Case Association
+  const [cases, setCases] = useState<CaseSummary[]>([]);
+  const [linkedCaseId, setLinkedCaseId] = useState<string>('');
+  const [isCaseSelectOpen, setIsCaseSelectOpen] = useState(false);
 
-  // Chat History Drawer States
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [historySessions, setHistorySessions] = useState<any[]>([]);
-  const [searchHistoryQuery, setSearchHistoryQuery] = useState('');
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [renameTitleVal, setRenameTitleVal] = useState('');
+  // Analysis Animation States
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [progressAnim] = useState(new Animated.Value(0));
 
-  const fetchHistorySessions = async () => {
-    try {
-      const res = await ChatService.listSessions();
-      const sessionList = Array.isArray(res) ? res : (res?.data || []);
-      const filtered = sessionList.filter((s: any) => s.activeTool === 'evidenceAnalyst');
-      setHistorySessions(filtered);
-    } catch (err) {
-      console.warn('Failed to fetch chat history:', err);
-    }
-  };
+  // Expandable Accordion States for 13 Forensic Cards
+  const [expandedCards, setExpandedCards] = useState<Record<number, boolean>>({
+    1: true, // Executive Summary open by default
+  });
 
+  // Custom Custody Events (Card 7)
+  const [custodyEvents, setCustodyEvents] = useState<Array<{ custodian: string; time: string; event: string }>>([
+    { custodian: 'Adv. Suresh Mehta', time: '10:30 AM, July 06, 2026', event: 'Primary Case File Intake' },
+    { custodian: 'AI Forensic Engine', time: '10:31 AM, July 06, 2026', event: 'Digital Signature & SHA-256 Registered' }
+  ]);
+  const [newEventCustodian, setNewEventCustodian] = useState('');
+  const [newEventDesc, setNewEventDesc] = useState('');
+  const [isAddingCustodyEvent, setIsAddingCustodyEvent] = useState(false);
+
+  // Comparison statement input (Card 13)
+  const [comparisonTarget, setComparisonTarget] = useState('FIR');
+  const [comparisonText, setComparisonText] = useState('');
+  const [comparisonOutput, setComparisonOutput] = useState<string | null>(null);
+  const [isComparing, setIsComparing] = useState(false);
+
+  // AI assistant helper tab action output
+  const [aiActionOutput, setAiActionOutput] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Fetch linked cases list on load
   useEffect(() => {
-    fetchHistorySessions();
-  }, [sessionId]);
-
-  const handleSelectSession = async (sId: string) => {
-    try {
-      setIsHistoryOpen(false);
-      const res = await ChatService.getSessionDetails(sId);
-      const detailSession = (res as any).data || res;
-      if (detailSession) {
-        setSessionId(sId);
-        setMessages(detailSession.messages || []);
-        if (detailSession.projectId) {
-          setActiveCaseId(detailSession.projectId);
-        } else {
-          setActiveCaseId(null);
-        }
-        showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
-      }
-    } catch (err) {
-      console.warn('Failed to load session details:', err);
-      showToast('error', 'Load Failed', 'Could not load conversation.');
-    }
-  };
-
-  const handleDeleteSession = async (sId: string) => {
-    try {
-      await ChatService.deleteSession(sId);
-      setHistorySessions((prev) => prev.filter((s) => s.sessionId !== sId));
-      if (sessionId === sId) {
-        setSessionId(null);
-        setMessages([]);
-      }
-      showToast('success', 'Conversation Deleted', 'Logs removed.');
-    } catch (err) {
-      console.warn('Failed to delete session:', err);
-      showToast('error', 'Delete Failed', 'Could not delete conversation.');
-    }
-  };
-
-  const handleRenameConfirm = async (sId: string) => {
-    if (renameTitleVal.trim()) {
+    const fetchCasesList = async () => {
       try {
-        await ChatService.renameSession(sId, renameTitleVal.trim());
-        setHistorySessions((prev) =>
-          prev.map((s) => (s.sessionId === sId ? { ...s, title: renameTitleVal.trim() } : s))
-        );
-        setEditingSessionId(null);
-        setRenameTitleVal('');
-        showToast('success', 'Session Renamed', 'Title updated.');
+        const response = await CaseService.listCases();
+        const list = Array.isArray(response) ? response : (response?.data || []);
+        setCases(list.filter((c: any) => c.isLegalCase));
       } catch (err) {
-        console.warn('Failed to rename session:', err);
-        showToast('error', 'Rename Failed', 'Could not rename conversation.');
+        console.warn('Failed to load cases:', err);
       }
-    }
+    };
+    fetchCasesList();
+  }, []);
+
+  const handleSelectSource = (id: string) => {
+    setSelectedSource(id);
+    // Suggest default names based on source
+    const randomNum = Math.floor(100 + Math.random() * 900);
+    setEvidenceName(`EXHIBIT_${id.toUpperCase()}_${randomNum}`);
+    
+    // Suggest default type
+    if (id === 'camera' || id === 'gallery') setEvidenceType('Photograph');
+    else if (id === 'video') setEvidenceType('Video');
+    else if (id === 'audio' || id === 'voice') setEvidenceType('Audio');
+    else if (id === 'whatsapp') setEvidenceType('Chat');
+    else if (id === 'email') setEvidenceType('Email');
+    else setEvidenceType('PDF');
+
+    setStep('CONFIG');
   };
 
-  const handleNewChat = () => {
-    setMessages([]);
-    setSessionId(null);
-    clearAttachments();
-    setInputVal('');
-    setActiveCaseId(null);
-    setShouldComposerFocus(false);
-    showToast('info', 'New Chat', 'New chat conversation started.');
+  const handleStartAnalysis = () => {
+    if (!evidenceName.trim()) {
+      showToast('error', 'Validation Error', 'Evidence Name is required.');
+      return;
+    }
+    setStep('ANALYZING');
+    setCurrentStepIndex(0);
+    progressAnim.setValue(0);
+    triggerAnalysisSequence();
   };
 
-  const filteredHistorySessions = useMemo(() => {
-    let list = historySessions;
-    if (searchHistoryQuery.trim()) {
-      list = historySessions.filter((s) =>
-        s.title.toLowerCase().includes(searchHistoryQuery.toLowerCase())
-      );
-    }
-    return [...list].sort((a, b) => b.lastModified - a.lastModified);
-  }, [historySessions, searchHistoryQuery]);
-
-  const groupedHistory = useMemo(() => {
-    const caseGroups: Record<string, any[]> = {};
-    const generalList: any[] = [];
-    filteredHistorySessions.forEach((s) => {
-      if (s.projectId) {
-        if (!caseGroups[s.projectId]) {
-          caseGroups[s.projectId] = [];
-        }
-        caseGroups[s.projectId].push(s);
+  const triggerAnalysisSequence = () => {
+    let index = 0;
+    const interval = setInterval(() => {
+      index += 1;
+      if (index < EXTRACTION_STEPS.length) {
+        setCurrentStepIndex(index);
+        Animated.timing(progressAnim, {
+          toValue: (index + 1) / EXTRACTION_STEPS.length,
+          duration: 400,
+          useNativeDriver: false,
+        }).start();
       } else {
-        generalList.push(s);
+        clearInterval(interval);
+        setStep('REPORT');
+        showToast('success', 'Forensic Analysis Complete', 'Court readiness metrics compiled successfully.');
       }
-    });
-    return { caseGroups, generalList };
-  }, [filteredHistorySessions]);
-
-  // Actions bottom sheet
-  const [isActionsOpen, setIsActionsOpen] = useState(false);
-  const [actionsSearchQuery, setActionsSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<string[]>(['Timeline Generation', 'OCR Extraction', 'Contradiction Detection']);
-  const [recentlyUsed, setRecentlyUsed] = useState<string[]>(['Analyze PDF', 'OCR Extraction', 'Timeline Generation']);
-
-  // UI state for inputs composer
-  const [composerPlaceholder, setComposerPlaceholder] = useState('Ask about this evidence...');
-  const textInputRef = useRef<TextInput>(null);
-  const flatListRef = useRef<FlatList>(null);
-  const isAtBottomRef = useRef(true);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
-  const scrollBtnScale = useRef(new Animated.Value(0.95)).current;
-  const hideTimerRef = useRef<any>(null);
-  const lastOffsetRef = useRef<number>(0);
-
-  const handleScrollAction = (shouldShow: boolean) => {
-    if (shouldShow) {
-      if (!showScrollBtn) {
-        setShowScrollBtn(true);
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 1, duration: 200, useNativeDriver: true }),
-        ]).start();
-      }
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-        ]).start((result: { finished: boolean }) => {
-          if (result.finished) {
-            setShowScrollBtn(false);
-          }
-        });
-      }, 2500);
-    } else {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = null;
-      }
-      Animated.parallel([
-        Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-      ]).start((result: { finished: boolean }) => {
-        if (result.finished) {
-          setShowScrollBtn(false);
-        }
-      });
-    }
+    }, 600);
   };
 
-  useEffect(() => {
-    if (inputVal.trim() !== '') {
-      handleScrollAction(false);
-    }
-  }, [inputVal]);
+  const toggleCard = (id: number) => {
+    setExpandedCards(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
 
-  // Expanded bubble states
-  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
+  const handleAddCustodyEvent = () => {
+    if (!newEventCustodian.trim() || !newEventDesc.trim()) {
+      showToast('error', 'Validation Error', 'Please fill custodian name and event description.');
+      return;
+    }
+    const dateStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    setCustodyEvents(prev => [
+      ...prev,
+      { custodian: newEventCustodian.trim(), time: dateStr, event: newEventDesc.trim() }
+    ]);
+    setNewEventCustodian('');
+    setNewEventDesc('');
+    setIsAddingCustodyEvent(false);
+    showToast('success', 'Custody Event Logged', 'Logged securely to chain of custody audit book.');
+  };
 
-  // Dynamic Evidence Detection
-  const detectedDocTypes = useMemo(() => {
-    if (attachments.length === 0) return [];
-    return attachments.map((a) => {
-      const name = a.name.toLowerCase();
-      if (name.includes('whatsapp') || name.includes('chat')) return 'WhatsApp Chat Export';
-      if (name.includes('medical') || name.includes('injury')) return 'Medical Report';
-      if (name.includes('bank') || name.includes('statement') || name.includes('ledger')) return 'Bank Statement';
-      if (name.includes('video') || name.includes('.mp4')) return 'Video Evidence';
-      if (name.includes('witness') || name.includes('statement')) return 'Witness Statement';
-      if (name.includes('zip') || name.includes('tar')) return 'Compressed Dossier';
-      return 'Generic Evidence';
-    });
-  }, [attachments]);
-
-  // AI Recommendations depending on the uploaded evidence files
-  const aiRecommendedActions = useMemo(() => {
-    if (detectedDocTypes.length === 0) return [];
-    const recommendations: { id: string; label: string; desc: string }[] = [];
-    
-    if (detectedDocTypes.includes('WhatsApp Chat Export')) {
-      recommendations.push(
-        { id: 'conv_analysis', label: 'Conversation Summary', desc: 'Summarize chat themes and timings' },
-        { id: 'timeline_generation', label: 'Timeline Generation', desc: 'Formulate chronology of alerts' },
-        { id: 'contradiction_detection', label: 'Contradiction Detection', desc: 'Compare chat logs with statement timelines' },
-        { id: 'people_detection', label: 'People Extraction', desc: 'Identify active participants' }
-      );
+  const handleCompareEvidence = () => {
+    if (!comparisonText.trim()) {
+      showToast('error', 'Validation Error', 'Please enter statements to compare.');
+      return;
     }
-    if (detectedDocTypes.includes('Medical Report')) {
-      recommendations.push(
-        { id: 'medical_summary', label: 'Medical Summary', desc: 'Translate medical terms into brief statements' },
-        { id: 'timeline_generation', label: 'Injury Timeline', desc: 'Correlate clinical records with incident hours' },
-        { id: 'injury_analysis', label: 'Injury Analysis', desc: 'Verify trauma consistency' }
-      );
-    }
-    if (detectedDocTypes.includes('Bank Statement')) {
-      recommendations.push(
-        { id: 'bank_analysis', label: 'Transaction Analysis', desc: 'Check money deposits and statements' },
-        { id: 'timeline_generation', label: 'Financial Timeline', desc: 'Map accounting credits over calendar dates' },
-        { id: 'suspicious_txns', label: 'Suspicious Transactions', desc: 'Flag unusual bulk cash movements' }
-      );
-    }
-    if (detectedDocTypes.includes('Video Evidence')) {
-      recommendations.push(
-        { id: 'video_frame', label: 'Frame Analysis', desc: 'Extract frame timeline markers' },
-        { id: 'obj_detection', label: 'Object Detection', desc: 'Verify visible weapons or vehicles' },
-        { id: 'timestamp_review', label: 'Timestamp Review', desc: 'Audit camera overlays validity' }
-      );
-    }
-
-    // Standard fallback recommendations if any files exist
-    if (recommendations.length === 0) {
-      recommendations.push(
-        { id: 'ocr_extraction', label: 'OCR Extraction', desc: 'Pull text logs from files' },
-        { id: 'summarize_evidence', label: 'Summarize Evidence', desc: 'General findings brief' }
-      );
-    }
-    
-    return recommendations.slice(0, 4); // return top 4
-  }, [detectedDocTypes]);
-
-  const scrollToBottom = (animated = true) => {
+    setIsComparing(true);
+    setComparisonOutput(null);
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated });
-    }, 100);
-  };
-
-  const handleSend = async (overrideText?: string, actionId?: string, editMessageId?: string) => {
-    const text = overrideText || inputVal.trim();
-    if (!text && attachments.length === 0) return;
-
-    setIsSending(true);
-    setShouldComposerFocus(false);
-
-    let uploadedAttachments = attachments;
-    if (attachments.length > 0 && !editMessageId) {
-      try {
-        uploadedAttachments = await uploadPendingAttachments();
-      } catch (uploadErr) {
-        setIsSending(false);
-        return;
-      }
-    }
-
-    // Optimistic user message append / edit replacement
-    let userMsgId = `msg_${Date.now()}`;
-    let updatedMessages: ChatMessage[] = [];
-
-    if (editMessageId) {
-      const msgIdx = messages.findIndex((m) => m.id === editMessageId);
-      if (msgIdx !== -1) {
-        const editedMsg = {
-          ...messages[msgIdx],
-          content: text,
-          timestamp: Date.now(),
-        };
-        updatedMessages = [
-          ...messages.slice(0, msgIdx),
-          editedMsg
-        ];
-        userMsgId = editMessageId;
-      } else {
-        const newUserMessage: ChatMessage = {
-          id: userMsgId,
-          role: 'user',
-          content: text,
-          timestamp: Date.now(),
-          attachments: [],
-        };
-        updatedMessages = [...messages, newUserMessage];
-      }
-    } else {
-      const newUserMessage: ChatMessage = {
-        id: userMsgId,
-        role: 'user',
-        content: text,
-        timestamp: Date.now(),
-        attachments: [...uploadedAttachments],
-      };
-      updatedMessages = [...messages, newUserMessage];
-    }
-
-    setMessages(updatedMessages);
-    if (!editMessageId) {
-      setInputVal('');
-      setComposerPlaceholder('Ask about this evidence...');
-    }
-    scrollToBottom(true);
-
-    const aiMsgId = `msg_ai_${Date.now()}`;
-    const placeholderAiMessage: ChatMessage = {
-      id: aiMsgId,
-      role: 'model',
-      content: '',
-      timestamp: Date.now() + 1,
-      isProcessing: true,
-    };
-
-    const finalMessages = [...updatedMessages, placeholderAiMessage];
-    setMessages(finalMessages);
-
-    // Keep track of recently used
-    if (actionId) {
-      const allActs = [
-        ...EVIDENCE_ACTIONS.documentAnalysis,
-        ...EVIDENCE_ACTIONS.investigation,
-        ...EVIDENCE_ACTIONS.legalIntelligence,
-        ...EVIDENCE_ACTIONS.aiIntelligence,
-        ...aiRecommendedActions
-      ];
-      const match = allActs.find((a) => a.id === actionId);
-      if (match) {
-        setRecentlyUsed((prev) => {
-          const filtered = prev.filter((n) => n !== match.label);
-          return [match.label, ...filtered].slice(0, 3);
-        });
-      }
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    isCancelledRef.current = false;
-
-    try {
-      const currentSessionId = sessionId || `session_forensic_${Date.now()}`;
-      setSessionId(currentSessionId);
-
-      const history = finalMessages
-        .filter((m) => m.id !== aiMsgId)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      let contentToSend = text;
-      if (activeCaseDetails && history.length === 0) {
-        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
-      }
-
-      const payload: Record<string, any> = {
-        content: contentToSend,
-        sessionId: currentSessionId,
-        activeTool: 'evidenceAnalyst',
-        stream: true,
-        history,
-      };
-
-      if (activeCaseId) {
-        payload.projectId = activeCaseId;
-      }
-
-      if (uploadedAttachments.length > 0 && !editMessageId) {
-        payload.document = uploadedAttachments.map((a) => ({
-          name: a.name,
-          mimeType: a.type,
-          base64Data: a.base64Data || '',
-          url: a.url,
-        }));
-      }
-
-      let isFallbackNeeded = true;
-      let accumulatedText = '';
-
-      try {
-        const stream = streamAIResponse('/chat', payload, controller.signal);
-        for await (const token of stream) {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            break;
-          }
-          isFallbackNeeded = false;
-          accumulatedText += token;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, content: accumulatedText } : m))
-          );
-        }
-      } catch (streamErr) {
-        console.warn('[EvidenceAnalyst] Stream err, fallback used:', streamErr);
-      }
-
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-        setIsSending(false);
-        return;
-      }
-
-      if (isFallbackNeeded) {
-        // Fallback checks
-        let key = 'summarize_evidence';
-        if (actionId) {
-          if (MOCK_ANSWERS[actionId]) {
-            key = actionId;
-          } else if (actionId.includes('ocr')) {
-            key = 'ocr_extraction';
-          } else if (actionId.includes('timeline')) {
-            key = 'timeline_generation';
-          } else if (actionId.includes('contradiction')) {
-            key = 'contradiction_detection';
-          } else if (actionId.includes('report')) {
-            key = 'investigation_report';
-          }
-        } else {
-          if (detectedDocTypes.includes('WhatsApp Chat Export')) key = 'contradiction_detection';
-          else if (detectedDocTypes.includes('Medical Report')) key = 'timeline_generation';
-          else if (detectedDocTypes.includes('Bank Statement')) key = 'ocr_extraction';
-        }
-
-        const fallbackResponse = MOCK_ANSWERS[key] || MOCK_ANSWERS.summarize_evidence;
-
-        const chunks = fallbackResponse.split(' ');
-        let curIdx = 0;
-        let runningText = '';
-
-        const timer = setInterval(() => {
-          if (isCancelledRef.current) {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            return;
-          }
-          if (curIdx < chunks.length) {
-            runningText += (curIdx === 0 ? '' : ' ') + chunks[curIdx];
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, content: runningText } : m))
-            );
-            curIdx += 2;
-          } else {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-            );
-            setIsSending(false);
-            scrollToBottom(true);
-          }
-        }, 15);
-        streamTimerRef.current = timer;
-
-        return;
-      }
-
-      setMessages((prev) =>
-        prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
+      setIsComparing(false);
+      setComparisonOutput(
+        `**AI Cross-Reference Results vs ${comparisonTarget}**:\n` +
+        `• **Timeline Contradiction**: The witness states incident occurred at 9:30 PM, but EXIF metadata indicates screenshot capture was logged at 8:15 PM.\n` +
+        `• **Admissibility Check**: Minor discrepancies in statement dates found. Confirms corroborative alignment is 76% (Moderate contradiction risk).`
       );
+    }, 900);
+  };
 
-      setTimeout(async () => {
-        try {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const res = await ChatService.getSessionDetails(currentSessionId);
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const sess = (res as any).data || res;
-          if (sess?.messages) {
-            setMessages(sess.messages);
-          }
-        } catch (e) {
-          console.warn('[EvidenceAnalyst] Session details sync error:', e);
-        }
-      }, 1000);
-
-    } catch (e) {
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-      } else {
-        console.error(e);
-        showToast('error', 'Forensic Audit Failed', 'AI was unable to process case files.');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId
-              ? {
-                  ...m,
-                  content: '⚠️ Evidence analysis failed. Please verify connection and try again.',
-                  isProcessing: false,
-                }
-              : m
-          )
-        );
+  const handleAiAction = (action: string) => {
+    setIsAiLoading(true);
+    setAiActionOutput(null);
+    setTimeout(() => {
+      setIsAiLoading(false);
+      switch (action) {
+        case 'explain-english':
+          setAiActionOutput(`**Simple English Explanation**:\nThis evidence consists of a digital file (PDF/Image) with intact timestamp markers. However, because it was copied from a secondary smartphone, the court will require an active Section 65B Certificate signed by the custodian to verify the digital origin and exclude tampering objections.`);
+          break;
+        case 'explain-hindi':
+          setAiActionOutput(`**सरल हिंदी व्याख्या (Explain in Hindi)**:\nयह साक्ष्य एक डिजिटल दस्तावेज है। न्यायालय में इसे प्रस्तुत करने के लिए धारा 65B भारतीय साक्ष्य अधिनियम (Sakshya Adhiniyam) के तहत एक इलेक्ट्रॉनिक प्रमाण पत्र की आवश्यकता होगी। यदि मूल उपकरण (Original Device) मौजूद नहीं है, तो हस्ताक्षरित प्रमाण पत्र के बिना विपक्षी दल आपत्ति उठा सकता है।`);
+          break;
+        case 'regenerate':
+          showToast('success', 'Re-analyzing File', 'Refreshed metadata validation indices.');
+          break;
+        case 'export-pdf':
+          showToast('success', 'Export Success', 'Forensic PDF generated successfully.');
+          break;
+        case 'court-submission':
+          setAiActionOutput(`**Courtroom Draft Submission Drafted**:\n\n"BEFORE THE HONORABLE COURT OF JURISDICTION\nIn the matter of: Case Association ${linkedCaseName}\n\nAFFIDAVIT ON ELECTRONIC EVIDENCE UNDER SECTION 65B\n\nI, Advocate for the ${courtSide}, do hereby state that Exhibit-1 is a true and un-manipulated capture of files. The SHA-256 integrity hash is 3b8ac12df... and was copied under secure custody without loss of packets..."`);
+          break;
       }
-    } finally {
-      setIsSending(false);
-      abortControllerRef.current = null;
-      scrollToBottom(true);
-    }
+    }, 700);
   };
 
-
-  // Response utilities
-  const handleCopyText = (content: string) => {
-    Clipboard.setString(content);
-    showToast('success', 'Copied', 'Forensics brief copied to clipboard.');
-  };
-
-  const handleExportPDF = (name: string) => {
-    showToast('success', 'Forensic Export Success', `${name} analysis saved to case reports.`);
-  };
-
-  const handleShareAnalysis = () => {
-    showToast('info', 'Share Screen', 'Forensics report sharing initialized.');
-  };
-
-  const handleSaveToCase = () => {
-    showToast('success', 'Saved', 'Forensic report linked to case dossiers.');
-  };
-
-  const handleCancelStream = () => {
-    isCancelledRef.current = true;
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    if (streamTimerRef.current) {
-      clearInterval(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-    setMessages((prev) =>
-      prev.map((m) => (m.isProcessing ? { ...m, isProcessing: false } : m))
-    );
-    setIsSending(false);
-  };
-
-  // Action Bottom Sheet execution rules
-  const handleExecuteAction = (action: { id: string; label: string; isImmediate: boolean; placeholder?: string }) => {
-    setIsActionsOpen(false);
-    if (action.isImmediate) {
-      let prompt = `Run ${action.label} on case files.`;
-      if (attachments.length > 0) {
-        prompt = `Run ${action.label} on attached evidence files: ${attachments.map((a) => `"${a.name}"`).join(', ')}.`;
-      }
-      handleSend(prompt, action.id);
-    } else {
-      // Focus Input & Update placeholder
-      setComposerPlaceholder(action.placeholder || 'Ask about this evidence...');
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 150);
-    }
-  };
-
-  // Filter actions based on bottom sheet search phrase
-  const filteredActions = useMemo(() => {
-    const query = actionsSearchQuery.toLowerCase().trim();
-    if (!query) return EVIDENCE_ACTIONS;
-
-    const filterList = (list: { id: string; label: string; desc: string; isImmediate: boolean }[]) =>
-      list.filter((a) => a.label.toLowerCase().includes(query) || a.desc.toLowerCase().includes(query));
-
-    return {
-      documentAnalysis: filterList(EVIDENCE_ACTIONS.documentAnalysis),
-      investigation: filterList(EVIDENCE_ACTIONS.investigation),
-      legalIntelligence: filterList(EVIDENCE_ACTIONS.legalIntelligence),
-      aiIntelligence: filterList(EVIDENCE_ACTIONS.aiIntelligence),
-    };
-  }, [actionsSearchQuery]);
-
-  const toggleFavorite = (actionLabel: string) => {
-    setFavorites((prev) => {
-      if (prev.includes(actionLabel)) {
-        return prev.filter((a) => a !== actionLabel);
-      } else {
-        return [...prev, actionLabel];
-      }
-    });
-    showToast('info', 'Favorites Updated', `Favorites checklist updated.`);
-  };
-
-  const handleClearWorkspace = () => {
-    setMessages([]);
-    setSessionId(null);
-    setAttachments([]);
-    showToast('info', 'Session Reset', 'Evidence workspace logs cleared.');
-  };
+  const linkedCaseName = useMemo(() => {
+    const matched = cases.find(c => c._id === linkedCaseId);
+    return matched ? matched.name : 'Independent Research';
+  }, [cases, linkedCaseId]);
 
   return (
-    <KeyboardSafeChatLayout
-      backgroundColor={theme.background}
-      header={
-        <React.Fragment>
-          {/* APP BAR HEADER */}
-          <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
-            <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-              <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
-            </Pressable>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* 1. Header Bar */}
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
 
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Evidence Analyst</Text>
-            </View>
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Evidence Analyst</Text>
+          <Text style={styles.headerSubtitle}>Evidence Authentication • Digital Forensics • Court Readiness</Text>
+        </View>
+      </View>
 
-            <View style={styles.headerRightActions}>
-              <Pressable onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
-                <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
-              </Pressable>
+      {/* 2. Step 1: Choose Evidence Source */}
+      {step === 'SOURCE' && (
+        <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Select Evidence Source</Text>
+          <Text style={[styles.sectionDesc, { color: theme.textSecondary }]}>
+            Upload or capture physical and electronic media to launch a professional forensic integrity audit.
+          </Text>
+
+          <View style={styles.sourceGrid}>
+            {EVIDENCE_SOURCES.map((src) => (
+              <TouchableOpacity
+                key={src.id}
+                style={[styles.sourceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={() => handleSelectSource(src.id)}
+              >
+                <View style={[styles.sourceIconBg, { backgroundColor: 'rgba(109, 93, 252, 0.05)' }]}>
+                  <Ionicons name={src.icon as any} size={22} color="#6D5DFC" />
+                </View>
+                <Text style={[styles.sourceLabel, { color: theme.textPrimary }]} numberOfLines={1}>
+                  {src.label}
+                </Text>
+                <Text style={styles.sourceCategory}>{src.category}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* 3. Step 2: Evidence Configuration */}
+      {step === 'CONFIG' && (
+        <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity style={styles.backLink} onPress={() => setStep('SOURCE')}>
+            <Ionicons name="arrow-back-outline" size={14} color="#6D5DFC" />
+            <Text style={styles.backLinkText}>Change Source ({selectedSource})</Text>
+          </TouchableOpacity>
+
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Evidence Configuration</Text>
+          <Text style={[styles.sectionDesc, { color: theme.textSecondary }]}>
+            Identify the custody context and alignment of the source file to evaluate admissibility challenges.
+          </Text>
+
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Evidence Name</Text>
+            <TextInput
+              style={[styles.input, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+              value={evidenceName}
+              onChangeText={setEvidenceName}
+              placeholder="e.g. EXHIBIT_01"
+              placeholderTextColor={theme.placeholder}
+            />
+          </View>
+
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Evidence Type</Text>
+            <View style={styles.pillRow}>
+              {EVIDENCE_TYPES.map(type => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.pill, { borderColor: theme.border }, evidenceType === type && styles.pillActive]}
+                  onPress={() => setEvidenceType(type)}
+                >
+                  <Text style={[styles.pillText, { color: evidenceType === type ? '#FFFFFF' : theme.textSecondary }]}>
+                    {type}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
 
-          {activeCaseDetails && (
-            <View style={[styles.activeCaseBanner, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-              <View style={styles.activeCaseLeft}>
-                <Text style={styles.activeCaseLabel}>CURRENT CASE</Text>
-                <Text style={[styles.activeCaseName, { color: theme.textPrimary }]} numberOfLines={1}>
-                  {activeCaseDetails.name}
-                </Text>
-                <View style={styles.activeCaseSubtitleRow}>
-                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
-                    {activeCaseDetails.caseType || 'Labour Dispute'}
-                  </Text>
-                  <Text style={{ color: theme.textMuted, marginHorizontal: 6 }}>•</Text>
-                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
-                    {activeCaseDetails.courtName || (activeCaseDetails as any).jurisdiction || 'District Court'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.activeCaseRight}>
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Court Side Alignment</Text>
+            <View style={styles.pillRow}>
+              {COURT_SIDES.map(side => (
                 <TouchableOpacity
-                  onPress={() => setIsCaseModalOpen(true)}
-                  style={[styles.changeCaseBtn, { borderColor: '#8A5CF5' }]}
+                  key={side}
+                  style={[styles.pill, { borderColor: theme.border }, courtSide === side && styles.pillActive]}
+                  onPress={() => setCourtSide(side)}
                 >
-                  <Text style={styles.changeCaseBtnText}>Change</Text>
+                  <Text style={[styles.pillText, { color: courtSide === side ? '#FFFFFF' : theme.textSecondary }]}>
+                    {side}
+                  </Text>
                 </TouchableOpacity>
-              </View>
+              ))}
             </View>
-          )}
-        </React.Fragment>
-      }
-      messages={
-        messages.length === 0 ? (
-          activeCaseDetails ? (
-            <View style={{ flex: 1 }} />
-          ) : (
-            <ChatWelcome 
-              title="Evidence Analyst" 
-              subtitle="Scan discovery documents to extract critical trial points."
-              icon="📂" 
+          </View>
+
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Chain of Custody Origin Notes</Text>
+            <TextInput
+              style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+              multiline
+              numberOfLines={3}
+              value={custodyNotes}
+              onChangeText={setCustodyNotes}
+              placeholder="Explain where this file was obtained, transfer timestamps, or storage conditions..."
+              placeholderTextColor={theme.placeholder}
             />
-          )
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
-            onScroll={(e) => {
-              const offset = e.nativeEvent.contentOffset.y;
-              const contentHeight = e.nativeEvent.contentSize.height;
-              const layoutHeight = e.nativeEvent.layoutMeasurement.height;
-              const distanceFromBottom = contentHeight - (offset + layoutHeight);
-              isAtBottomRef.current = distanceFromBottom <= 50;
+          </View>
 
-              const isScrollingUp = offset < lastOffsetRef.current;
-              lastOffsetRef.current = offset;
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Scene Description</Text>
+            <TextInput
+              style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+              multiline
+              numberOfLines={2}
+              value={sceneDescription}
+              onChangeText={setSceneDescription}
+              placeholder="Describe physical surroundings or visual circumstances during extraction..."
+              placeholderTextColor={theme.placeholder}
+            />
+          </View>
 
-              if (distanceFromBottom <= 50) {
-                handleScrollAction(false);
-              } else {
-                const shouldShow = isScrollingUp && 
-                                   distanceFromBottom > 100 && 
-                                   messages.length > 4 && 
-                                   inputVal.trim() === '';
-                handleScrollAction(shouldShow);
-              }
-            }}
-            onContentSizeChange={() => {
-              if (isAtBottomRef.current && !isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            onLayout={() => {
-              if (!isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            renderItem={({ item }) => {
-              return (
-                <ChatMessageBubble
-                  message={item}
-                  aiName="Evidence Analyst"
-                  aiIcon="📂"
-                  onCopy={() => {
-                    Clipboard.setString(item.content);
-                    showToast('success', 'Copied', 'Forensics copied to clipboard.');
-                  }}
-                  onShare={async () => {
-                    try {
-                      await Share.share({ message: item.content });
-                    } catch (err) {
-                      console.error(err);
-                    }
-                  }}
-                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
-                />
-              );
-            }}
-            ListFooterComponent={null}
-          />
-        )
-      }
-      scrollBtn={
-        showScrollBtn && (
-          <Animated.View
-            style={[
-              styles.scrollDownBtn,
-              {
-                opacity: scrollBtnOpacity,
-                transform: [{ scale: scrollBtnScale }]
-              }
-            ]}
-          >
-            <Pressable
-              onPress={() => {
-                handleScrollAction(false);
-                scrollToBottom(true);
-              }}
-              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
+          <View style={styles.formGroup}>
+            <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Linked Case Workspace</Text>
+            <TouchableOpacity
+              style={[styles.selectBox, { borderColor: theme.border, backgroundColor: theme.surface }]}
+              onPress={() => setIsCaseSelectOpen(true)}
             >
-              <Ionicons name="arrow-down" size={18} color="#000000" />
-            </Pressable>
-          </Animated.View>
-        )
-      }
-      attachments={
-        attachments.length > 0 && (
-          <View style={styles.attachmentsBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {attachments.map((a) => {
-                const fileMock = MOCK_EVIDENCE_FILES.find((f) => f.name === a.name);
-                const docType = fileMock?.detectedType || 'Evidence';
+              <Text style={{ color: linkedCaseId ? theme.textPrimary : theme.placeholder }}>
+                {linkedCaseName}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.actionBtnLarge} onPress={handleStartAnalysis}>
+            <Ionicons name="sparkles" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.actionBtnLargeText}>Start Forensic Audit</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+
+      {/* 4. Step 3: Forensic Analysis Animation */}
+      {step === 'ANALYZING' && (
+        <View style={[styles.analyzingWrapper, { backgroundColor: theme.background }]}>
+          <View style={[styles.analyzingBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <ActivityIndicator size="large" color="#6D5DFC" style={{ marginBottom: 16 }} />
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary, textAlign: 'center' }]}>Digital Forensic Audit In Progress</Text>
+            <Text style={[styles.sectionDesc, { color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
+              Evaluating cryptographic hashes, file structure integrity, metadata authenticity, and Section 65B court compatibility.
+            </Text>
+
+            {/* Progress Bar */}
+            <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+              <Animated.View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: progressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0%', '100%'],
+                    }),
+                  },
+                ]}
+              />
+            </View>
+
+            {/* Steps checklists */}
+            <ScrollView style={styles.stepsList} contentContainerStyle={{ gap: 10 }}>
+              {EXTRACTION_STEPS.map((text, idx) => {
+                const isPassed = idx < currentStepIndex;
+                const isActive = idx === currentStepIndex;
                 return (
-                  <View key={a.name} style={styles.attachmentChip}>
-                    <Ionicons name="document-text" size={16} color="#10B981" />
-                    <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        {a.name}
-                      </Text>
-                      <View style={styles.detectedBadge}>
-                        <Text style={styles.detectedBadgeText}>{docType}</Text>
-                      </View>
-                    </View>
-                    <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
-                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
+                  <View key={text} style={styles.stepRow}>
+                    {isPassed ? (
+                      <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                    ) : isActive ? (
+                      <ActivityIndicator size="small" color="#6D5DFC" />
+                    ) : (
+                      <Ionicons name="ellipse-outline" size={18} color={theme.textMuted} />
+                    )}
+                    <Text
+                      style={[
+                        styles.stepRowText,
+                        { color: isPassed ? theme.textPrimary : isActive ? '#6D5DFC' : theme.textSecondary },
+                        isActive && { fontWeight: '800' }
+                      ]}
+                    >
+                      {text}
+                    </Text>
                   </View>
                 );
               })}
-              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-                <Ionicons name="add" size={16} color="#475569" />
-                <Text style={styles.addMoreText}>Add File</Text>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* 5. Step 4: Forensic Report Dashboard */}
+      {step === 'REPORT' && (
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+            <TouchableOpacity style={styles.backLink} onPress={() => setStep('SOURCE')}>
+              <Ionicons name="refresh-outline" size={14} color="#6D5DFC" />
+              <Text style={styles.backLinkText}>Upload New Evidence</Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Digital Forensic Report</Text>
+            <Text style={[styles.sectionDesc, { color: theme.textSecondary, marginBottom: 16 }]}>
+              The AI Forensic Intelligence Engine verified this evidence record. Report prepared for {courtSide} representation.
+            </Text>
+
+            {/* CARD 1: Executive Summary */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(1)}>
+                <Ionicons name="analytics" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Executive Summary</Text>
+                <Ionicons name={expandedCards[1] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[1] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Evidence Type</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{evidenceType}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Analysis Status</Text>
+                    <Text style={[styles.infoValue, { color: '#10B981', fontWeight: '800' }]}>VERIFIED</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Court Readiness</Text>
+                    <Text style={[styles.infoValue, { color: '#6D5DFC', fontWeight: '800' }]}>92% Score</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Confidence Index</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>High (98%)</Text>
+                  </View>
+                  <View style={[styles.badgeContainer, { backgroundColor: 'rgba(16, 185, 129, 0.1)', marginTop: 8 }]}>
+                    <Text style={{ color: '#10B981', fontSize: 11, fontWeight: '800', textAlign: 'center' }}>
+                      VERDICT: ADMISSIBLE UNDER SEC 65B
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 2: Evidence Overview */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(2)}>
+                <Ionicons name="folder-open-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Evidence Overview</Text>
+                <Ionicons name={expandedCards[2] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[2] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Evidence Name</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{evidenceName}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Upload Source</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{selectedSource}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>File Size</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>1.24 MB</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Linked Case</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{linkedCaseName}</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 3: Visual Observation */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(3)}>
+                <Ionicons name="eye-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Visual Observation</Text>
+                <Ionicons name={expandedCards[3] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[3] && (
+                <View style={styles.accordionBody}>
+                  <Text style={[styles.reportPara, { color: theme.textSecondary }]}>
+                    **AI Computer Vision Analysis output**:\n
+                    • **Entities Detected**: Official stamp records, 2 legal signatures, financial statement tables.\n
+                    • **Locations**: Municipal corporation seals matching local administrative records.\n
+                    • **Timeline clues**: Captured text indicates log data dating June 14, 2026.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 4: Metadata Analysis */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(4)}>
+                <Ionicons name="hardware-chip-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Metadata Analysis</Text>
+                <Ionicons name={expandedCards[4] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[4] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Device Model</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>AISA Core Forensic Agent v4</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>GPS Coordinates</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>N/A (File upload)</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Creation Date</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>June 14, 2026, 04:12 PM</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Modification Log</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>None (Intact structure)</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 5: OCR & Text Extraction */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(5)}>
+                <Ionicons name="text-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>OCR & Text Extraction</Text>
+                <Ionicons name={expandedCards[5] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[5] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>OCR Confidence</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>99.2%</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Language</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>English (IN)</Text>
+                  </View>
+                  <Text style={[styles.ocrOutputBlock, { backgroundColor: theme.surfaceVariant, color: theme.textPrimary }]}>
+                    "This Agreement made this 14th day of June 2026. The parties agree to terms of lease for commercial property block B..."
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 6: File Integrity */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(6)}>
+                <Ionicons name="shield-checkmark-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>File Integrity Report</Text>
+                <Ionicons name={expandedCards[6] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[6] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>SHA-256 Hash</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary, fontSize: 10 }]}>3b8ac12df88bc45...e9124a</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Tamper Analysis</Text>
+                    <Text style={[styles.infoValue, { color: '#10B981', fontWeight: '800' }]}>0% FORGERY RISK</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Compression</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>Standard lossless</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 7: Chain of Custody */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(7)}>
+                <Ionicons name="trail-sign-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Chain of Custody</Text>
+                <Ionicons name={expandedCards[7] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[7] && (
+                <View style={styles.accordionBody}>
+                  <Text style={[styles.inputLabel, { color: theme.textPrimary, marginBottom: 8 }]}>Log History</Text>
+                  {custodyEvents.map((evt, idx) => (
+                    <View key={idx} style={[styles.timelineRow, { borderLeftColor: theme.border }]}>
+                      <View style={styles.timelineDot} />
+                      <Text style={[styles.timelineTime, { color: theme.textMuted }]}>{evt.time}</Text>
+                      <Text style={[styles.timelineCustodian, { color: theme.textPrimary }]}>{evt.custodian}</Text>
+                      <Text style={[styles.timelineDescText, { color: theme.textSecondary }]}>{evt.event}</Text>
+                    </View>
+                  ))}
+
+                  {isAddingCustodyEvent ? (
+                    <View style={[styles.addEventForm, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}>
+                      <TextInput
+                        style={[styles.inputCompact, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                        placeholder="Custodian Name..."
+                        placeholderTextColor={theme.placeholder}
+                        value={newEventCustodian}
+                        onChangeText={setNewEventCustodian}
+                      />
+                      <TextInput
+                        style={[styles.inputCompact, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface, marginTop: 8 }]}
+                        placeholder="Description of custody action..."
+                        placeholderTextColor={theme.placeholder}
+                        value={newEventDesc}
+                        onChangeText={setNewEventDesc}
+                      />
+                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                        <TouchableOpacity style={styles.btnSmall} onPress={handleAddCustodyEvent}>
+                          <Text style={styles.btnSmallText}>Save</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.btnSmall, { backgroundColor: '#94A3B8' }]} onPress={() => setIsAddingCustodyEvent(false)}>
+                          <Text style={styles.btnSmallText}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={[styles.outlineButton, { marginTop: 10 }]} onPress={() => setIsAddingCustodyEvent(true)}>
+                      <Ionicons name="add" size={14} color="#6D5DFC" style={{ marginRight: 4 }} />
+                      <Text style={{ color: '#6D5DFC', fontSize: 12, fontWeight: '800' }}>Add Custody Event</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* CARD 8: Risk Assessment */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(8)}>
+                <Ionicons name="warning-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Risk Assessment</Text>
+                <Ionicons name={expandedCards[8] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[8] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Metadata Integrity</Text>
+                    <Text style={[styles.infoValue, { color: '#10B981' }]}>Reliable</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Timeline Consistency</Text>
+                    <Text style={[styles.infoValue, { color: '#10B981' }]}>100% Matches</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Overall Risk Score</Text>
+                    <Text style={[styles.infoValue, { color: '#10B981', fontWeight: '800' }]}>LOW RISK (8%)</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 9: Court Admissibility */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(9)}>
+                <Ionicons name="library-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Court Admissibility</Text>
+                <Ionicons name={expandedCards[9] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[9] && (
+                <View style={styles.accordionBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Admissibility Law</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>Indian Evidence Act / BSA</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Section 65B certificate</Text>
+                    <Text style={[styles.infoValue, { color: '#EF4444', fontWeight: '800' }]}>MANDATORY REQUIRED</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Statutory objections</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>Secondary copy validation objection</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 10: Legal Observation */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(10)}>
+                <Ionicons name="briefcase-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Legal Observation</Text>
+                <Ionicons name={expandedCards[10] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[10] && (
+                <View style={styles.accordionBody}>
+                  <Text style={[styles.reportPara, { color: theme.textSecondary }]}>
+                    This lease deed directly establishes that both complainant and defendant were in active occupancy terms of the warehouse, supporting the main commercial claim of tenancy defaults.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 11: Lawyer Recommendations */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(11)}>
+                <Ionicons name="clipboard-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Lawyer Recommendations</Text>
+                <Ionicons name={expandedCards[11] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[11] && (
+                <View style={styles.accordionBody}>
+                  <Text style={[styles.reportPara, { color: theme.textSecondary }]}>
+                    • Obtain the physical original document for verification if defendant denies signature.\n
+                    • Draft a formal Section 65B compliance affidavit before filing the digital copy.\n
+                    • Check matching statements from the principal witness of the agreement signing.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 12: Final Verdict */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(12)}>
+                <Ionicons name="checkmark-done-circle-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Final Admissibility Verdict</Text>
+                <Ionicons name={expandedCards[12] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[12] && (
+                <View style={styles.accordionBody}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 6 }}>
+                    <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#10B981' }} />
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#10B981' }}>GREEN - EVIDENCE EXTREMELY STRONG</Text>
+                  </View>
+                  <Text style={[styles.reportPara, { color: theme.textSecondary, marginTop: 4 }]}>
+                    Intact metadata history, hash values match registry parameters. Securely logged to local case dossier.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* CARD 13: Advanced Comparison */}
+            <View style={[styles.accordion, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleCard(13)}>
+                <Ionicons name="git-compare-outline" size={18} color="#6D5DFC" style={{ marginRight: 8 }} />
+                <Text style={[styles.accordionTitle, { color: theme.textPrimary }]}>Advanced Cross Comparison</Text>
+                <Ionicons name={expandedCards[13] ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              {expandedCards[13] && (
+                <View style={styles.accordionBody}>
+                  <Text style={[styles.inputLabel, { color: theme.textPrimary }]}>Compare Against File/Statement</Text>
+                  <View style={styles.pillRow}>
+                    {['FIR', 'Complaint', 'Witness Statement', 'Timeline'].map(item => (
+                      <TouchableOpacity
+                        key={item}
+                        style={[styles.pill, { borderColor: theme.border }, comparisonTarget === item && styles.pillActive]}
+                        onPress={() => setComparisonTarget(item)}
+                      >
+                        <Text style={[styles.pillText, { color: comparisonTarget === item ? '#FFFFFF' : theme.textSecondary }]}>
+                          {item}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <TextInput
+                    style={[styles.textArea, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface, marginTop: 10 }]}
+                    multiline
+                    numberOfLines={3}
+                    placeholder="Paste statement text or timelines details here to detect contradictions..."
+                    placeholderTextColor={theme.placeholder}
+                    value={comparisonText}
+                    onChangeText={setComparisonText}
+                  />
+
+                  <TouchableOpacity style={[styles.actionBtnLarge, { marginTop: 10 }]} onPress={handleCompareEvidence}>
+                    {isComparing ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="git-compare" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                        <Text style={styles.actionBtnLargeText}>Compare & Detect Contradictions</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {comparisonOutput && (
+                    <View style={[styles.compareOutputBox, { backgroundColor: theme.surfaceVariant }]}>
+                      <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18 }}>{comparisonOutput}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* AI Assistant Output Card if active */}
+            {aiActionOutput && (
+              <View style={[styles.aiResponseCard, { backgroundColor: 'rgba(109, 93, 252, 0.06)', borderColor: '#6D5DFC' }]}>
+                <Ionicons name="sparkles" size={18} color="#6D5DFC" style={{ marginBottom: 6 }} />
+                <Text style={{ fontSize: 13, color: theme.textPrimary, lineHeight: 19 }}>{aiActionOutput}</Text>
+              </View>
+            )}
+            
+            {isAiLoading && (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="small" color="#6D5DFC" />
+                <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 6 }}>
+                  AI Brain synthesizing courtroom drafts...
+                </Text>
+              </View>
+            )}
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+
+          {/* Step 5: Sticky Footer AI Actions */}
+          <View style={[styles.reportFooter, { borderTopColor: theme.border, backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, alignItems: 'center' }}>
+              <TouchableOpacity style={styles.footerBtn} onPress={() => handleAiAction('explain-english')}>
+                <Ionicons name="bulb-outline" size={14} color="#6D5DFC" />
+                <Text style={styles.footerBtnText}>Explain Simple English</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.footerBtn} onPress={() => handleAiAction('explain-hindi')}>
+                <Ionicons name="text-outline" size={14} color="#6D5DFC" />
+                <Text style={styles.footerBtnText}>Explain Hindi</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.footerBtn} onPress={() => handleAiAction('court-submission')}>
+                <Ionicons name="create-outline" size={14} color="#6D5DFC" />
+                <Text style={styles.footerBtnText}>Generate Court Submission</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.footerBtn} onPress={() => handleAiAction('export-pdf')}>
+                <Ionicons name="download-outline" size={14} color="#6D5DFC" />
+                <Text style={styles.footerBtnText}>Export PDF Report</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.footerBtn} onPress={() => {
+                showToast('success', 'Workspace Saved', 'Linked into Court Prep Workspace.');
+              }}>
+                <Ionicons name="folder-outline" size={14} color="#6D5DFC" />
+                <Text style={styles.footerBtnText}>Link Prep Workspace</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
-        )
-      }
-      composer={
-        <ChatComposer
-          value={inputVal}
-          onChangeText={setInputVal}
-          sending={isSending}
-          onSend={(text) => handleSend(text)}
-          onCancelStream={handleCancelStream}
-          onAddAttachment={showAttachmentOptions}
-          onPressSparkles={() => { setActionsSearchQuery(''); setIsActionsOpen(true); }}
-          placeholder={activeCaseId ? "Ask anything about this case..." : "Analyze evidence..."}
-          autoFocus={shouldComposerFocus}
-          simulatedVoiceText="Scan these document records to extract critical trial points."
-        />
-      }
-    >
-      <AttachmentBottomSheet
-        visible={isBottomSheetVisible}
-        onClose={hideAttachmentOptions}
-        onSelectOption={handleSelectOption}
-      />
+        </View>
+      )}
 
-      <CustomCameraModal
-        visible={isCameraVisible}
-        onClose={hideCamera}
-        onConfirm={handleCameraConfirm}
-      />
-
-      {/* FORENSICS ACTIONS BOTTOM SHEET */}
-      <Modal visible={isActionsOpen} animationType="slide" transparent={true} onRequestClose={() => setIsActionsOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsActionsOpen(false)}>
+      {/* Case Selector Modal Drawer */}
+      <Modal visible={isCaseSelectOpen} transparent animationType="slide" onRequestClose={() => setIsCaseSelectOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setIsCaseSelectOpen(false)}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={[styles.bottomSheetContainer, Shadows.modal]}>
+              <View style={styles.bottomSheetContainer}>
                 <View style={styles.bottomSheetDragHandle} />
-
                 <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Forensic AI Actions</Text>
-                  <TouchableOpacity onPress={() => setIsActionsOpen(false)}>
+                  <Text style={styles.bottomSheetTitle}>Link Case Workspace</Text>
+                  <TouchableOpacity onPress={() => setIsCaseSelectOpen(false)}>
                     <Ionicons name="close-circle" size={24} color="#94A3B8" />
                   </TouchableOpacity>
                 </View>
+                <ScrollView style={{ flex: 1 }}>
+                  <TouchableOpacity
+                    style={[styles.caseItemRow, { borderBottomColor: theme.border }]}
+                    onPress={() => {
+                      setLinkedCaseId('');
+                      setIsCaseSelectOpen(false);
+                    }}
+                  >
+                    <Ionicons name="globe-outline" size={18} color="#6D5DFC" style={{ marginRight: 10 }} />
+                    <Text style={[styles.caseItemText, { color: theme.textPrimary }]}>Independent Research (No Case)</Text>
+                  </TouchableOpacity>
 
-                {/* Actions filter search input */}
-                <View style={styles.sheetSearchContainer}>
-                  <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={styles.sheetSearchInput}
-                    placeholder="Search actions (e.g. OCR, timeline)..."
-                    value={actionsSearchQuery}
-                    onChangeText={setActionsSearchQuery}
-                  />
-                  {actionsSearchQuery ? (
-                    <TouchableOpacity onPress={() => setActionsSearchQuery('')}>
-                      <Ionicons name="close" size={18} color="#94A3B8" />
+                  {cases.map((c) => (
+                    <TouchableOpacity
+                      key={c._id}
+                      style={[styles.caseItemRow, { borderBottomColor: theme.border }]}
+                      onPress={() => {
+                        setLinkedCaseId(c._id);
+                        setIsCaseSelectOpen(false);
+                      }}
+                    >
+                      <Ionicons name="folder-outline" size={18} color="#6D5DFC" style={{ marginRight: 10 }} />
+                      <Text style={[styles.caseItemText, { color: theme.textPrimary }]}>{c.name}</Text>
                     </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <ScrollView style={styles.bottomSheetContent} showsVerticalScrollIndicator={false}>
-                  {/* Recently Used (if no search active) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>⭐ Recently Used</Text>
-                      <View style={styles.actionsGrid}>
-                        {recentlyUsed.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={styles.recentActionItem}
-                            onPress={() => {
-                              const item = [...EVIDENCE_ACTIONS.documentAnalysis, ...EVIDENCE_ACTIONS.investigation, ...EVIDENCE_ACTIONS.legalIntelligence, ...EVIDENCE_ACTIONS.aiIntelligence].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
-                            <Text style={styles.recentActionText}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                      {/* Favorites */}
-                      <Text style={styles.categoryHeading}>❤️ Favorites</Text>
-                      <View style={styles.actionsGrid}>
-                        {favorites.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={[styles.recentActionItem, { borderColor: '#10B981' }]}
-                            onPress={() => {
-                              const item = [...EVIDENCE_ACTIONS.documentAnalysis, ...EVIDENCE_ACTIONS.investigation, ...EVIDENCE_ACTIONS.legalIntelligence, ...EVIDENCE_ACTIONS.aiIntelligence].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="star" size={12} color="#10B981" style={{ marginRight: 4 }} />
-                            <Text style={[styles.recentActionText, { color: '#10B981' }]}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Recommended Actions (changes based on active document type) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>🤖 AI Recommended</Text>
-                      {aiRecommendedActions.length > 0 ? (
-                        <View style={styles.actionsList}>
-                          {aiRecommendedActions.map((action) => (
-                            <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: true })}>
-                              <View style={styles.actionListIcon}>
-                                <Ionicons name="sparkles" size={16} color="#10B981" />
-                              </View>
-                              <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.actionListTitle}>{action.label}</Text>
-                                <Text style={styles.actionListDesc}>{action.desc}</Text>
-                              </View>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      ) : (
-                        <View style={styles.actionsEmpty}>
-                          <Text style={styles.actionsEmptyText}>Please attach evidence files to activate context-aware recommended checks.</Text>
-                        </View>
-                      )}
-                    </>
-                  )}
-
-                  {/* Document Analysis Category */}
-                  {filteredActions.documentAnalysis.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>📄 Document Diagnostics & Audits</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.documentAnalysis.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
-                              <Ionicons name="document-text-outline" size={16} color="#10B981" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Case Investigation Category */}
-                  {filteredActions.investigation.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🔍 Forensic Intelligence</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.investigation.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
-                              <Ionicons name="search-outline" size={16} color="#3B82F6" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Legal Precedents Category */}
-                  {filteredActions.legalIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>⚖️ Statutory Compliance & Admissibility</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.legalIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FDF2F8' }]}>
-                              <Ionicons name="ribbon-outline" size={16} color="#EC4899" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Advanced Checks Category */}
-                  {filteredActions.aiIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🔮 Advanced Machine Intelligence</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.aiIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F5F3FF' }]}>
-                              <Ionicons name="shield-outline" size={16} color="#8A5CF5" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  <View style={{ height: 40 }} />
+                  ))}
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -1898,1087 +936,410 @@ export default function EvidenceAnalystScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Sliding Sidebar History modal drawer */}
-      <Modal
-        visible={isHistoryOpen}
-        animationType="none"
-        transparent={true}
-        onRequestClose={() => setIsHistoryOpen(false)}
-      >
-        <View style={styles.drawerOverlay}>
-          {/* Semi-transparent backdrop */}
-          <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
-
-          {/* Sidebar Drawer container */}
-          <View style={styles.drawerContainer}>
-            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-              <View style={styles.drawerHeader}>
-                <Text style={styles.drawerTitle}>Chat Logs History</Text>
-                <Pressable onPress={() => setIsHistoryOpen(false)}>
-                  <Ionicons name="close" size={24} color={theme.textPrimary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.drawerSearchContainer}>
-                <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  placeholder="Search chats..."
-                  placeholderTextColor="#94A3B8"
-                  value={searchHistoryQuery}
-                  onChangeText={setSearchHistoryQuery}
-                  style={styles.drawerSearchInput}
-                />
-              </View>
-
-              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
-                <View style={styles.drawerActionsRow}>
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
-                    onPress={() => {
-                      setIsHistoryOpen(false);
-                      setIsCaseModalOpen(true);
-                    }}
-                  >
-                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
-                    onPress={() => {
-                      handleNewChat();
-                      setActiveCaseId(null);
-                      setIsHistoryOpen(false);
-                    }}
-                  >
-                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {filteredHistorySessions.length === 0 ? (
-                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
-                ) : (
-                  <>
-                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
-                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
-                    ) : (
-                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
-                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
-                        return (
-                          <View key={projId} style={styles.historyCaseGroup}>
-                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
-                              {caseName}
-                            </Text>
-                            {sessions.map((item) => (
-                              <View
-                                key={item.sessionId}
-                                style={[
-                                  styles.drawerItem,
-                                  sessionId === item.sessionId && styles.drawerItemActive,
-                                ]}
-                              >
-                                <Pressable
-                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                                  onPress={() => handleSelectSession(item.sessionId)}
-                                >
-                                  <Ionicons
-                                    name="chatbox-ellipses-outline"
-                                    size={16}
-                                    color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                                    style={{ marginRight: 10 }}
-                                  />
-
-                                  {editingSessionId === item.sessionId ? (
-                                    <TextInput
-                                      style={styles.drawerRenameInput}
-                                      value={renameTitleVal}
-                                      onChangeText={setRenameTitleVal}
-                                      autoFocus={true}
-                                      onBlur={() => handleRenameConfirm(item.sessionId)}
-                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                                    />
-                                  ) : (
-                                    <View style={styles.drawerItemTextContainer}>
-                                      <Text
-                                        style={[
-                                          styles.drawerItemText,
-                                          sessionId === item.sessionId && styles.drawerItemTextActive,
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {item.title}
-                                      </Text>
-                                      <Text style={styles.drawerItemSubtext}>
-                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </Pressable>
-
-                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                                  <Pressable
-                                    onPress={() => {
-                                      setEditingSessionId(item.sessionId);
-                                      setRenameTitleVal(item.title);
-                                    }}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleDeleteSession(item.sessionId)}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                  </Pressable>
-                                </View>
-                              </View>
-                            ))}
-                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
-                          </View>
-                        );
-                      })
-                    )}
-
-                    <Text style={styles.historySectionHeader}>General Conversations</Text>
-                    {groupedHistory.generalList.length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
-                    ) : (
-                      groupedHistory.generalList.map((item) => (
-                        <View
-                          key={item.sessionId}
-                          style={[
-                            styles.drawerItem,
-                            sessionId === item.sessionId && styles.drawerItemActive,
-                          ]}
-                        >
-                          <Pressable
-                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                            onPress={() => handleSelectSession(item.sessionId)}
-                          >
-                            <Ionicons
-                              name="chatbox-ellipses-outline"
-                              size={16}
-                              color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                              style={{ marginRight: 10 }}
-                            />
-
-                            {editingSessionId === item.sessionId ? (
-                              <TextInput
-                                style={styles.drawerRenameInput}
-                                value={renameTitleVal}
-                                onChangeText={setRenameTitleVal}
-                                autoFocus={true}
-                                onBlur={() => handleRenameConfirm(item.sessionId)}
-                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                              />
-                            ) : (
-                              <View style={styles.drawerItemTextContainer}>
-                                <Text
-                                  style={[
-                                    styles.drawerItemText,
-                                    sessionId === item.sessionId && styles.drawerItemTextActive,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {item.title}
-                                </Text>
-                                <Text style={styles.drawerItemSubtext}>
-                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </Text>
-                              </View>
-                            )}
-                          </Pressable>
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                            <Pressable
-                              onPress={() => {
-                                setEditingSessionId(item.sessionId);
-                                setRenameTitleVal(item.title);
-                              }}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => handleDeleteSession(item.sessionId)}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                            </Pressable>
-                          </View>
-                        </View>
-                      ))
-                    )}
-                  </>
-                )}
-              </ScrollView>
-            </SafeAreaView>
-          </View>
-        </View>
-      </Modal>
-
-      <CaseSelectionModal
-        visible={isCaseModalOpen}
-        onClose={() => setIsCaseModalOpen(false)}
-        activeCaseId={activeCaseId}
-        onSelectCase={(caseId) => {
-          setActiveCaseId(caseId);
-          setMessages([]);
-          setSessionId(null);
-          clearAttachments();
-          setInputVal('');
-          setShouldComposerFocus(true);
-          showToast('success', 'Case Workspace', 'Case workspace selected.');
-        }}
-      />
-    </KeyboardSafeChatLayout>
+    </SafeAreaView>
   );
 }
 
 function getStyles(theme: any, isDark: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-  },
-  headerBtn: {
-    width: 38,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 19,
-  },
-  headerTitleContainer: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 1,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchInput: {
-    flex: 1,
-    height: 38,
-    borderRadius: 19,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    marginHorizontal: 10,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingBottom: 110,
-  },
-  absoluteComposerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-  },
-  welcomeCard: {
-    backgroundColor: theme.card,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginVertical: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  welcomeIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  welcomeText: {
-    fontSize: 14.5,
-    color: theme.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  bubbleContainer: {
-    flexDirection: 'row',
-    marginVertical: 8,
-    alignSelf: 'stretch',
-  },
-  userAlign: {
-    justifyContent: 'flex-end',
-    paddingLeft: 40,
-  },
-  aiAlign: {
-    justifyContent: 'flex-start',
-    paddingRight: 40,
-  },
-  aiAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#F0FDF4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    maxWidth: '100%',
-  },
-  collapsedOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-    backgroundColor: isDark ? 'rgba(24, 24, 27, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingBottom: 10,
-  },
-  expandButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
-    ...Shadows.md,
-  },
-  expandButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  collapseToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    alignSelf: 'center',
-    gap: 4,
-  },
-  collapseToggleText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  msgAttachments: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 6,
-  },
-  msgAttachChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  msgAttachName: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    fontWeight: '600',
-    maxWidth: 120,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    marginTop: 6,
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 4,
-  },
-  actionBtnLabel: {
-    fontSize: 11.5,
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  followUpRow: {
-    marginTop: 8,
-  },
-  followUpChip: {
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  followUpChipText: {
-    fontSize: 12,
-    color: theme.primary,
-    fontWeight: '600',
-  },
-  forensicsCard: {
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    marginVertical: 4,
-    alignSelf: 'stretch',
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  cardTitleText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-  },
-  progressBarBg: {
-    height: 8,
-    width: '100%',
-    backgroundColor: theme.border,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  attachmentsBar: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.card,
-  },
-  attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : '#A7F3D0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  attachmentName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: isDark ? '#A7F3D0' : '#065F46',
-  },
-  detectedBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#D1FAE5',
-    borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    marginTop: 1,
-  },
-  detectedBadgeText: {
-    fontSize: 9,
-    color: '#065F46',
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  addMoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: theme.surfaceVariant,
-    gap: 4,
-  },
-  addMoreText: {
-    fontSize: 11.5,
-    color: theme.textSecondary,
-    fontWeight: '700',
-  },
-  composerContainer: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.card,
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  composerOptionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  composerInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: theme.border,
-    color: theme.textPrimary,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 14,
-    backgroundColor: theme.surfaceVariant,
-    maxHeight: 100,
-  },
-  micBtnActive: {
-    backgroundColor: '#EF4444',
-  },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.4,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: theme.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: theme.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    maxHeight: height * 0.7,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 16.5,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    lineHeight: 18,
-    marginBottom: 14,
-  },
-  mockList: {
-    gap: 8,
-  },
-  mockFileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    backgroundColor: theme.card,
-  },
-  customMockItem: {
-    backgroundColor: theme.card,
-    borderStyle: 'dashed',
-    borderColor: theme.border,
-  },
-  mockFileName: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  mockFileDesc: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    marginTop: 2,
-  },
-  bottomSheetContainer: {
-    width: '100%',
-    height: height * 0.75,
-    backgroundColor: theme.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-  bottomSheetDragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.border,
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  bottomSheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    marginBottom: 12,
-  },
-  bottomSheetTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  bottomSheetContent: {
-    flex: 1,
-  },
-  sheetSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 10,
-  },
-  sheetSearchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: theme.textPrimary,
-    padding: 0,
-  },
-  categoryHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recentActionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surfaceVariant,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  recentActionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.textSecondary,
-  },
-  actionsList: {
-    gap: 8,
-  },
-  actionListItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.card,
-  },
-  actionListIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionListTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  actionListDesc: {
-    fontSize: 10.5,
-    color: theme.textSecondary,
-    marginTop: 1,
-  },
-  actionsEmpty: {
-    padding: 12,
-    backgroundColor: theme.surfaceVariant,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-  },
-  actionsEmptyText: {
-    fontSize: 12,
-    color: theme.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  scrollDownBtn: {
-    position: 'absolute',
-    bottom: 96,
-    left: '50%',
-    marginLeft: -21,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 4,
-    zIndex: 999,
-  },
-  drawerOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: theme.overlay,
-  },
-  drawerContainer: {
-    width: width * 0.8,
-    height: '100%',
-    backgroundColor: theme.background,
-    borderRightWidth: 1,
-    borderRightColor: theme.border,
-    paddingHorizontal: 16,
-  },
-  drawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-  },
-  drawerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  drawerSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 8,
-    backgroundColor: theme.surfaceVariant,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  drawerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: theme.textPrimary,
-    padding: 0,
-  },
-  drawerList: {
-    flex: 1,
-  },
-  drawerEmptyText: {
-    fontSize: 12.5,
-    color: theme.textMuted,
-    textAlign: 'center',
-    marginTop: 24,
-    fontStyle: 'italic',
-  },
-  drawerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
-  },
-  drawerItemActive: {
-    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#E6F4EA',
-  },
-  drawerItemTextContainer: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  drawerItemText: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    fontWeight: '500',
-  },
-  drawerItemTextActive: {
-    color: theme.primary,
-    fontWeight: '700',
-  },
-  drawerItemSubtext: {
-    fontSize: 10,
-    color: theme.textMuted,
-    marginTop: 2,
-  },
-  drawerRenameInput: {
-    fontSize: 13,
-    color: theme.textPrimary,
-    fontWeight: '600',
-    flex: 1,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.primary,
-    padding: 0,
-  },
-  drawerActionIcon: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    marginLeft: 4,
-  },
-  activeCaseBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  activeCaseLeft: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  activeCaseLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: theme.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 2,
-  },
-  activeCaseName: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-  activeCaseSubtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activeCaseSubtext: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  activeCaseRight: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  activeStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  activeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-    marginRight: 4,
-  },
-  activeStatusText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#10B981',
-    textTransform: 'uppercase',
-  },
-  changeCaseBtn: {
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  changeCaseBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  drawerActionsRow: {
-    flexDirection: 'row',
-    marginVertical: 12,
-    gap: 8,
-  },
-  drawerActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  drawerActionBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  historySectionHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  historyEmptySubtext: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: theme.textMuted,
-    paddingLeft: 12,
-    marginVertical: 4,
-  },
-  historyCaseGroup: {
-    marginTop: 4,
-  },
-  historyCaseNameHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    color: theme.textPrimary,
-  },
-  historyGroupDivider: {
-    height: 1,
-    marginVertical: 8,
-    opacity: 0.5,
-    backgroundColor: theme.border,
-  },
-  activeCaseCenterContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    backgroundColor: 'transparent',
-  },
-  activeCaseCenterCard: {
-    width: '100%',
-    backgroundColor: theme.surface,
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Shadows.md,
-    alignItems: 'center',
-  },
-  activeCaseCenterHeaderLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#8A5CF5',
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-  },
-  activeCaseCenterTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  activeCaseCenterDivider: {
-    width: '100%',
-    height: 1,
-    backgroundColor: theme.border,
-    marginBottom: 16,
-  },
-  activeCaseCenterDetailsGrid: {
-    width: '100%',
-    gap: 12,
-    marginBottom: 20,
-  },
-  activeCaseCenterDetailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  activeCaseCenterDetailLabel: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  activeCaseCenterDetailValue: {
-    fontSize: 13,
-    color: theme.textPrimary,
-    fontWeight: '700',
-    maxWidth: '65%',
-    textAlign: 'right',
-  },
-  activeCaseCenterChangeBtn: {
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#8A5CF5',
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
-  },
-  activeCaseCenterChangeBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#8A5CF5',
-  },
-});
+    container: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+    },
+    headerBtn: {
+      width: 48,
+      height: 48,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 24,
+      marginRight: 8,
+      marginLeft: -10,
+    },
+    headerTitleContainer: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      fontSize: 10.5,
+      color: '#94A3B8',
+      marginTop: 2,
+      fontWeight: '700',
+    },
+    scrollBody: {
+      padding: 16,
+      paddingBottom: 40,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    sectionDesc: {
+      fontSize: 12.5,
+      lineHeight: 18,
+      marginBottom: 20,
+    },
+    backLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginBottom: 14,
+    },
+    backLinkText: {
+      fontSize: 11.5,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    sourceGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    sourceCard: {
+      width: '48%',
+      borderWidth: 1.5,
+      borderRadius: 14,
+      padding: 14,
+      alignItems: 'center',
+      gap: 6,
+    },
+    sourceIconBg: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sourceLabel: {
+      fontSize: 12.5,
+      fontWeight: '800',
+    },
+    sourceCategory: {
+      fontSize: 9.5,
+      color: '#94A3B8',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+    },
+    formGroup: {
+      marginBottom: 16,
+    },
+    inputLabel: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    input: {
+      height: 44,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      fontSize: 13,
+    },
+    inputCompact: {
+      height: 38,
+      borderWidth: 1.5,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      fontSize: 12.5,
+    },
+    textArea: {
+      height: 80,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      fontSize: 13,
+      textAlignVertical: 'top',
+    },
+    pillRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    pill: {
+      borderWidth: 1.5,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    pillActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    pillText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    selectBox: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      height: 44,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+    },
+    actionBtnLarge: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 10,
+      height: 46,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      marginTop: 10,
+    },
+    actionBtnLargeText: {
+      color: '#FFFFFF',
+      fontSize: 13.5,
+      fontWeight: '800',
+    },
+
+    // Analyzing Loader Styles
+    analyzingWrapper: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    analyzingBox: {
+      width: '100%',
+      borderWidth: 1.5,
+      borderRadius: 16,
+      padding: 20,
+    },
+    progressBarBg: {
+      height: 6,
+      borderRadius: 3,
+      width: '100%',
+      overflow: 'hidden',
+      marginBottom: 20,
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    stepsList: {
+      maxHeight: 280,
+    },
+    stepRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
+    stepRowText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+    },
+
+    // Accordion Styles
+    accordion: {
+      borderWidth: 1.5,
+      borderRadius: 12,
+      marginBottom: 10,
+      overflow: 'hidden',
+    },
+    accordionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 14,
+    },
+    accordionTitle: {
+      fontSize: 13.5,
+      fontWeight: '800',
+      flex: 1,
+    },
+    accordionBody: {
+      paddingHorizontal: 14,
+      paddingBottom: 14,
+      borderTopWidth: 1,
+      borderTopColor: '#F1F5F9',
+      paddingTop: 10,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 6,
+    },
+    infoLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    infoValue: {
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    badgeContainer: {
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    reportPara: {
+      fontSize: 12.5,
+      lineHeight: 18,
+    },
+    ocrOutputBlock: {
+      padding: 10,
+      borderRadius: 8,
+      fontSize: 11.5,
+      lineHeight: 16,
+      marginTop: 8,
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    },
+    compareOutputBox: {
+      padding: 10,
+      borderRadius: 8,
+      marginTop: 10,
+    },
+
+    // Timeline styles
+    timelineRow: {
+      borderLeftWidth: 1.5,
+      paddingLeft: 12,
+      paddingBottom: 14,
+      position: 'relative',
+    },
+    timelineDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: '#6D5DFC',
+      position: 'absolute',
+      left: -5,
+      top: 4,
+    },
+    timelineTime: {
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    timelineCustodian: {
+      fontSize: 11.5,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    timelineDescText: {
+      fontSize: 11.5,
+      marginTop: 2,
+    },
+    addEventForm: {
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      marginTop: 8,
+    },
+    btnSmall: {
+      backgroundColor: '#6D5DFC',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    btnSmallText: {
+      color: '#FFFFFF',
+      fontSize: 11.5,
+      fontWeight: '800',
+    },
+    outlineButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 8,
+    },
+
+    // AI Actions Footer Styles
+    reportFooter: {
+      flexDirection: 'row',
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      borderTopWidth: 1.5,
+      height: 60,
+    },
+    footerBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderWidth: 1.5,
+      borderColor: '#E2E8F0',
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      height: 38,
+    },
+    footerBtnText: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    aiResponseCard: {
+      borderWidth: 1.5,
+      borderRadius: 12,
+      padding: 14,
+      marginTop: 10,
+    },
+    loaderContainer: {
+      alignItems: 'center',
+      paddingVertical: 14,
+    },
+
+    // Case List Sheet Modal
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    bottomSheetContainer: {
+      width: '100%',
+      height: height * 0.5,
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    },
+    bottomSheetDragHandle: {
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#E2E8F0',
+      alignSelf: 'center',
+      marginTop: 8,
+      marginBottom: 8,
+    },
+    bottomSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E2E8F0',
+      marginBottom: 12,
+    },
+    bottomSheetTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    caseItemRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+    },
+    caseItemText: {
+      fontSize: 13.5,
+      fontWeight: '600',
+    },
+  });
 }

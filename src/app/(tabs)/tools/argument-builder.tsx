@@ -7,11 +7,9 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   LayoutAnimation,
-  UIManager,
+  Platform,
   Modal,
   Dimensions,
   TouchableWithoutFeedback,
@@ -20,716 +18,383 @@ import {
   Clipboard,
   Share,
   Animated,
+  Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToastContext, useThemeContext } from '@/providers';
 import { useAuthGuard } from '@/navigation/guards';
 import { streamAIResponse } from '@/api/client';
 import { ChatService } from '@/services/chat.service';
 import { Shadows, Radius, Spacing } from '@/theme';
-import { ChatMessage, ChatAttachment } from '@/types';
-import { ChatMessageBubble, ChatComposer, ChatWelcome, KeyboardSafeChatLayout } from '@/components/ui/chat';
+import { ChatMessage, ChatAttachment, CaseWorkspace } from '@/types';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
 import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
-import { CaseWorkspace } from '@/types';
 import { CaseService } from '@/services/case.service';
 
 const { width, height } = Dimensions.get('window');
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-// Mock Case Inputs for upload simulator
-const MOCK_CASE_FILES = [
-  {
-    id: 'cheque',
-    name: 'plaint_for_cheque_bounce_suit.pdf',
-    type: 'application/pdf',
-    size: 1024 * 720,
-    detectedType: 'Cheque Bounce Case',
-    url: 'https://ailegal.com/cases/plaint_for_cheque_bounce_suit.pdf',
-  },
-  {
-    id: 'property',
-    name: 'written_statement_property_partition.docx',
-    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    size: 1024 * 1024 * 1.8,
-    detectedType: 'Property Dispute',
-    url: 'https://ailegal.com/cases/written_statement_property_partition.docx',
-  },
-  {
-    id: 'criminal',
-    name: 'fir_charge_sheet_ipc_323.pdf',
-    type: 'application/pdf',
-    size: 1024 * 1024 * 3.4,
-    detectedType: 'Criminal Case',
-    url: 'https://ailegal.com/cases/fir_charge_sheet_ipc_323.pdf',
-  },
-  {
-    id: 'consumer',
-    name: 'consumer_complaint_faulty_delivery.eml',
-    type: 'message/rfc822',
-    size: 1024 * 120,
-    detectedType: 'Consumer Dispute',
-    url: 'https://ailegal.com/cases/consumer_complaint_faulty_delivery.eml',
-  },
-];
-
-// Helper functions for search term highlighting
-const renderWithSearchHighlight = (text: string, searchQuery: string) => {
-  if (!searchQuery) return text;
-  const escaped = searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
-  const parts = text.split(regex);
-  return parts.map((part, i) =>
-    regex.test(part) ? (
-      <Text key={i} style={{ backgroundColor: '#FDE047', color: '#1F2937', fontWeight: '700' }}>
-        {part}
-      </Text>
-    ) : (
-      part
-    )
-  );
-};
-
-const parseInlineStyles = (text: string, isUserText: boolean, theme: any, searchQuery: string) => {
-  if (!text) return null;
-
-  const parts = text.split(/\*\*([\s\S]*?)\*\*/g);
-  return parts.map((part, index) => {
-    const isBold = index % 2 === 1;
-
-    const subParts = part.split(/`([^`]+)`/g);
-    const subElements = subParts.map((subPart, subIdx) => {
-      const isInlineCode = subIdx % 2 === 1;
-      if (isInlineCode) {
-        return (
-          <Text
-            key={`${index}-${subIdx}`}
-            style={{
-              fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-              fontSize: 13,
-              backgroundColor: isUserText ? 'rgba(0, 0, 0, 0.15)' : 'rgba(239, 68, 68, 0.08)',
-              color: isUserText ? '#FFFFFF' : '#EF4444',
-              paddingHorizontal: 4,
-              borderRadius: 4,
-            }}
-          >
-            {renderWithSearchHighlight(subPart, searchQuery)}
-          </Text>
-        );
-      }
-
-      const citationParts = subPart.split(/(\[\d+\])/g);
-      return citationParts.map((citPart, citIdx) => {
-        const isCit = citPart.match(/^\[\d+\]$/);
-        if (isCit) {
-          return (
-            <Text
-              key={`${index}-${subIdx}-${citIdx}`}
-              style={{
-                color: isUserText ? '#EEECFF' : '#EF4444',
-                fontWeight: '700',
-                textDecorationLine: 'underline',
-                fontSize: 13,
-              }}
-            >
-              {citPart}
-            </Text>
-          );
-        }
-        return renderWithSearchHighlight(citPart, searchQuery);
-      });
-    });
-
-    return (
-      <Text key={index} style={isBold ? { fontWeight: '700' } : undefined}>
-        {subElements}
-      </Text>
-    );
-  });
-};
-
-const CustomMarkdownText: React.FC<{ content: string; isUser: boolean; searchQuery: string; theme: any }> = ({
-  content,
-  isUser,
-  searchQuery,
-  theme,
-}) => {
-  if (!content) return null;
-
-  const lines = content.split('\n');
-  const renderedElements: React.ReactNode[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Headers
-    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
-    if (headerMatch) {
-      const level = headerMatch[1].length;
-      const headerText = headerMatch[2];
-      const fontSize = level === 1 ? 18 : level === 2 ? 16 : 14;
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize,
-            fontWeight: '700',
-            marginTop: 8,
-            marginBottom: 4,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(headerText, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Bullet items
-    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
-      const bulletContent = trimmed.slice(2);
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6 }}>•</Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(bulletContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Numbered items
-    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-    if (numMatch) {
-      const num = numMatch[1];
-      const listContent = numMatch[2];
-      renderedElements.push(
-        <View key={i} style={{ flexDirection: 'row', paddingLeft: 6, marginVertical: 2, alignItems: 'flex-start' }}>
-          <Text style={{ fontSize: 14, color: isUser ? '#FFFFFF' : theme.textPrimary, marginRight: 6, fontWeight: '700' }}>
-            {num}.
-          </Text>
-          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: isUser ? '#FFFFFF' : theme.textPrimary }}>
-            {parseInlineStyles(listContent, isUser, theme, searchQuery)}
-          </Text>
-        </View>
-      );
-      continue;
-    }
-
-    // Plain-text custom headings (e.g. ⚖️ FINAL VERDICT, Win Probability)
-    const isLegalHeading = (text: string): boolean => {
-      const clean = text.replace(/^[^\w\s]*\s*/, '').trim().toLowerCase();
-      const headings = [
-        'final verdict',
-        'simplified explanation',
-        'legal analysis',
-        'risks & loopholes',
-        'enforceability check',
-        'what to do next',
-        'improved clause (rewrite)',
-        'improved clause',
-        'law references',
-        'legal disclaimer',
-        'win probability',
-        'case strength',
-        'positive factors',
-        'negative factors',
-        'judicial outlook',
-        'possible outcome',
-        'risk analysis',
-        'immediate actions',
-        'tactical plan',
-        'opponent strategy',
-        'counter strategy',
-        'courtroom strategy',
-        'filing strategy',
-        'evidence strategy',
-        'evidence summary',
-        'evidence classification',
-        'admissibility',
-        'strength analysis',
-        'missing evidence',
-        'contradictions',
-        'weaknesses',
-        'recommendations',
-        'overall evidence strength',
-        'clause',
-        'risk level',
-        'why risk exists',
-        'suggested change',
-        'original clause',
-        'reason for rewrite',
-        'legal overview',
-        'explanation',
-        'relevant sections',
-        'landmark judgments',
-        'practical application',
-        'judicial interpretation',
-        'requirement',
-        'status',
-        'missing compliance',
-        'similarities',
-        'differences',
-        'applicability',
-        'strategic advantage',
-        'main arguments',
-        'supporting facts',
-        'counter arguments',
-        'rebuttals',
-        'cross examination',
-        'closing submission',
-        'date',
-        'event',
-        'legal significance',
-        'overall evidence assessment',
-        'evidence breakdown',
-        'risks, gaps & loopholes',
-        'courtroom admissibility check',
-        'defense attack strategy',
-        'prosecution / user strategy',
-        'evidence improvement plan',
-        'legal backing',
-        'evidence priority',
-        'final insight',
-        'case position (top summary)',
-        'primary arguments (courtroom ready)',
-        'strongest argument (highlight)',
-        'opposition arguments (prediction)',
-        'rebuttal strategy',
-        'cross-examination questions',
-        'courtroom narrative',
-        'argument strategy (how to win)',
-        'final closing statement',
-        'final outcome (top summary)',
-        'win probability breakdown',
-        'key reasons (why this outcome)',
-        'multi-scenario outcome',
-        'scenario 1 — worst case',
-        'scenario 1 - worst case',
-        'scenario 2 — most likely case',
-        'scenario 2 - most likely case',
-        'scenario 3 — best case',
-        'scenario 3 - best case',
-        'case breakpoints (deciding factors)',
-        'strategic action plan (lawyer-level)',
-        'final strategic position',
-        'core strategy (big picture)',
-        'step-by-step action plan',
-        'phase 1 – immediate actions',
-        'phase 1 - immediate actions',
-        'phase 2 – evidence strengthening',
-        'phase 2 - evidence strengthening',
-        'phase 3 – courtroom execution',
-        'phase 3 - courtroom execution',
-        'risks & defense challenges',
-        'counter-strategy',
-        'winning argument framework',
-        'courtroom focus',
-        'high-impact legal moves',
-        'success strategy (final execution plan)',
-        'key legal elements',
-        'landmark case laws',
-        'common defenses & loopholes',
-        'strategic insight',
-        'related legal provisions'
-      ];
-      return headings.includes(clean);
-    };
-    if (isLegalHeading(trimmed)) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 18,
-            fontWeight: '800',
-            marginTop: 16,
-            marginBottom: 8,
-            color: isUser ? '#FFFFFF' : '#111827',
-          }}
-        >
-          {parseInlineStyles(trimmed, isUser, theme, searchQuery)}
-        </Text>
-      );
-      continue;
-    }
-
-    // Normal text paragraph
-    if (trimmed.length > 0) {
-      renderedElements.push(
-        <Text
-          key={i}
-          style={{
-            fontSize: 14.5,
-            lineHeight: 21,
-            marginVertical: 3,
-            color: isUser ? '#FFFFFF' : theme.textPrimary,
-          }}
-        >
-          {parseInlineStyles(line, isUser, theme, searchQuery)}
-        </Text>
-      );
-    } else {
-      renderedElements.push(<View key={i} style={{ height: 6 }} />);
-    }
-  }
-
-  return <View style={{ alignSelf: 'stretch' }}>{renderedElements}</View>;
-};
-
-// Response structured sections definitions for Strategy report output
-interface StrategySection {
+// 12 Structured Sections for Court Preparation Workspace (Step 3)
+interface PrepSection {
+  id: string;
   title: string;
+  icon: string;
+  description: string;
   content: string;
-  type:
-    | 'overview'
-    | 'issues'
-    | 'laws'
-    | 'sections'
-    | 'judgments'
-    | 'arguments'
-    | 'evidence'
-    | 'weaknesses'
-    | 'counters'
-    | 'opponent'
-    | 'rebuttal'
-    | 'cross'
-    | 'convincing'
-    | 'oral'
-    | 'written'
-    | 'tips'
-    | 'probability'
-    | 'nextAction'
-    | 'normal';
+  confidence: number; // 0 to 100
+  why: string;
 }
 
-const parseStrategyResponse = (content: string): StrategySection[] => {
-  const lines = content.split('\n');
-  const sections: StrategySection[] = [];
-  let currentTitle = '';
-  let currentContent: string[] = [];
+// 6 Court Preparation Intelligence tools (Step 4)
+interface IntelligenceTool {
+  id: string;
+  title: string;
+  icon: string;
+  content: string;
+  description: string;
+}
 
-  const getSectionType = (title: string): StrategySection['type'] => {
-    const t = title.toLowerCase();
-    if (t.includes('overview') || t.includes('summary')) return 'overview';
-    if (t.includes('issues')) return 'issues';
-    if (t.includes('laws') || t.includes('acts')) return 'laws';
-    if (t.includes('sections')) return 'sections';
-    if (t.includes('judgments') || t.includes('decisions')) return 'judgments';
-    if (t.includes('arguments') || t.includes('strongest')) return 'arguments';
-    if (t.includes('evidence')) return 'evidence';
-    if (t.includes('weaknesses') || t.includes('gaps')) return 'weaknesses';
-    if (t.includes('counter') || t.includes('rebuttal')) return 'counters';
-    if (t.includes('opponent')) return 'opponent';
-    if (t.includes('cross') || t.includes('questions')) return 'cross';
-    if (t.includes('convincing')) return 'convincing';
-    if (t.includes('oral')) return 'oral';
-    if (t.includes('written')) return 'written';
-    if (t.includes('tips')) return 'tips';
-    if (t.includes('probability')) return 'probability';
-    if (t.includes('next best') || t.includes('action')) return 'nextAction';
-    return 'normal';
+const getSectionsForStyle = (style: string): PrepSection[] => {
+  const getExecSummary = (s: string) => {
+    switch(s) {
+      case 'Courtroom Style':
+        return `• Complainant respectfully submits that the case stands on solid statutory ground under Section 138.\n• Cheque signatures are admitted, automatically shifting the burden of proof to the accused under Section 139.\n• Statutory notice delivered on 14th May 2026 was ignored; no defense has been raised within the 15-day limitation period.`;
+      case 'Formal':
+        return `• Memorandum in support of the Complainant's statutory claim under the Negotiable Instruments Act, 1881.\n• Signatures on the subject instrument are admitted, triggering the operation of Section 139 presumptions.\n• Notice was served in compliance with due process on 14th May 2026, and no reply was registered.`;
+      case 'Judge Friendly':
+        return `• Straightforward Section 138 case for bounced cheque (INR 5,00,000).\n• Accused admits signature on the cheque.\n• Accused failed to reply to the demand notice. Presumption under Section 139 remains fully unrebutted.`;
+      case 'Senior Counsel Style':
+        return `• The defense is a legal impossibility; once signatures are admitted, the statutory presumption is absolute.\n• The accused's complete failure to reply to the legal notice demonstrates a total lack of any bonafide defense.\n• The Complainant seeks immediate conviction and directions for 20% interim compensation under Section 143A.`;
+      case 'Aggressive Litigation':
+        return `• Accused is guilty of deliberate default on a commercial obligation of INR 5,00,000.\n• Silence after receiving the notice is an admission of guilt. The defense has zero documentary evidence to rebut liability.\n• Stop-payment instructions are a transparent cover-up for insolvency. Complainant demands maximum criminal penalties.`;
+      case 'Neutral':
+        return `• Dispute concerning dishonour of Cheque No. 445210 for INR 5,00,000 due to insufficient funds.\n• Demand notice served on 14th May 2026. No payment or reply received within 15 days.\n• Compliance with Section 138 requirements is documented by postal records.`;
+      case 'Concise':
+        return `• Cheque: Bounced due to insufficient funds (INR 5,00,000).\n• Notice: Served 14 May 2026; no reply/payment received.\n• Presumption: Active under Sec 139 NI Act. Accused signature is admitted.`;
+      case 'Detailed':
+        return `• The Complainant Apex Logistics Corp seeks conviction of accused Nitin Kumar under Section 138 NI Act.\n• The dispute arose from invoices for commercial credit. Cheque No. 445210 issued in discharge of this debt bounced on 30th April 2026.\n• Notice delivered on 14th May 2026 was ignored. Under Section 139, the presumption of a legally enforceable debt holds absolute, as established in Rangappa v. Sri Mohan.`;
+      case 'Plain English':
+        return `• We are prosecuting a bounced cheque case. The customer gave us a Rs. 5,00,000 cheque that bounced due to low funds.\n• We sent a legal letter, but they did not reply or pay within the 15-day limit.\n• Because they signed the cheque, the law assumes they owe us the money unless they prove otherwise.`;
+      case 'Hindi Legal Drafting':
+        return `• शिकायतकर्ता आदरपूर्वक प्रस्तुत करता है कि मामला धारा 138 के तहत पूर्णतः स्थापित है।\n• चेक पर हस्ताक्षर स्वीकृत हैं, जिससे धारा 139 के तहत साबित करने का भार स्वतः आरोपी पर स्थानांतरित हो जाता है।\n• 14 मई 2026 को भेजे गए कानूनी नोटिस का 15 दिनों की सीमा के भीतर आरोपी द्वारा कोई जवाब नहीं दिया गया है।`;
+      default:
+        return `• Matter listed for tomorrow's hearing for admission/interim orders.\n• Primary focus remains establishing the statutory presumption under Section 139 of the Negotiable Instruments Act.`;
+    }
   };
 
-  for (const line of lines) {
-    const match = line.match(/^(#{1,3})\s+(.*)/);
-    if (match) {
-      if (currentContent.length > 0 || currentTitle) {
-        sections.push({
-          title: currentTitle || 'Litigation Strategy',
-          content: currentContent.join('\n').trim(),
-          type: getSectionType(currentTitle),
-        });
-      }
-      currentTitle = match[2].trim();
-      currentContent = [];
-    } else {
-      currentContent.push(line);
+  const getCaseOverview = (s: string) => {
+    switch(s) {
+      case 'Plain English':
+        return `• Complainant: Apex Logistics Corp\n• Accused: Nitin Kumar\n• Issue: Bounced cheque of Rs 5,00,000. Notice delivered on May 14, 2026. No payment made.`;
+      case 'Hindi Legal Drafting':
+        return `• शिकायतकर्ता: एपेक्स लॉजिस्टिक्स कॉर्प\n• आरोपी: नितिन कुमार (प्रोपराइटर)\n• विवाद: चेक नंबर 445210 राशि रु. 5,00,000 'अपर्याप्त निधि' के कारण बाउंस हुआ। नोटिस दिनांक 12 मई 2026 को भेजा गया।`;
+      case 'Concise':
+        return `• Apex Logistics Corp v. Nitin Kumar (Proprietor)\n• Cheque No: 445210 (INR 5,00,000)\n• Reason: Funds Insufficient\n• Status: Demand notice unpaid.`;
+      default:
+        return `• **Complainant**: Apex Logistics Corp\n• **Accused**: Nitin Kumar (Proprietor)\n• **Dispute**: Cheque No. 445210 for INR 5,00,000 bounced with reason "Funds Insufficient". Notice sent on 12th May 2026, received on 14th May 2026. No payment received.`;
     }
-  }
-  if (currentContent.length > 0 || currentTitle) {
-    sections.push({
-      title: currentTitle || 'Litigation Strategy',
-      content: currentContent.join('\n').trim(),
-      type: getSectionType(currentTitle),
-    });
-  }
+  };
 
-  if (sections.length === 0) {
-    sections.push({
-      title: '',
-      content: content,
-      type: 'normal',
-    });
-  }
+  const getMaterialFacts = (s: string) => {
+    switch(s) {
+      case 'Plain English':
+        return `1. Complainant gave credit services to the accused.\n2. Accused gave a cheque for Rs. 5,00,000 to clear the bill.\n3. Cheque bounced on April 30.\n4. Notice delivered on May 14. Accused did not reply.`;
+      case 'Hindi Legal Drafting':
+        return `1. शिकायतकर्ता ने आरोपी को लॉजिस्टिक्स सेवाओं के लिए व्यावसायिक ऋण प्रदान किया था।\n2. इस दायित्व के भुगतान के लिए आरोपी ने दिनांक 28 अप्रैल 2026 का चेक जारी किया।\n3. बैंक ने 30 अप्रैल 2026 को अपर्याप्त निधि के कारण चेक वापस कर दिया।\n4. मांग नोटिस 14 मई 2026 को सफलतापूर्वक प्राप्त कराया गया।`;
+      default:
+        return `1. Complainant advanced short-term commercial credit to the accused for logistics services.\n2. In discharge of this liability, the accused issued Cheque No. 445210 dated 28th April 2026.\n3. The bank returned the cheque dishonoured on 30th April 2026.\n4. Statutory Demand Notice served successfully on 14th May 2026.`;
+    }
+  };
 
-  return sections;
+  const getChronology = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `📅 **28 अप्रैल 2026**: नितिन कुमार द्वारा चेक जारी किया गया।\n📅 **30 अप्रैल 2026**: बैंक द्वारा चेक अनादरित लौटाया गया।\n📅 **12 मई 2026**: कानूनी नोटिस भेजा गया।\n📅 **14 मई 2026**: आरोपी को नोटिस प्राप्त हुआ।\n📅 **10 जून 2026**: शिकायत दर्ज कराई गई।`;
+      default:
+        return `📅 **28 Apr 2026**: Cheque issued by Nitin Kumar.\n📅 **30 Apr 2026**: Cheque presented & returned unpaid.\n📅 **12 May 2026**: Legal Notice dispatched via Registered Post.\n📅 **14 May 2026**: Notice delivered to accused address.\n📅 **29 May 2026**: Limitation period for payment expired.\n📅 **10 Jun 2026**: Complaint filed before Magistrate.`;
+    }
+  };
+
+  const getLegalIssues = (s: string) => {
+    switch(s) {
+      case 'Plain English':
+        return `1. Was the cheque issued for a real debt?\n2. Did the accused prove they do not owe the money?\n3. Do minor typing errors in credit invoices change the case?`;
+      case 'Hindi Legal Drafting':
+        return `1. क्या चेक वैध ऋण या दायित्व के भुगतान में जारी किया गया था?\n2. क्या आरोपी धारा 139 के तहत वैधानिक अनुमान को सफलतापूर्वक खंडित करने में सक्षम रहा है?\n3. क्या क्रेडिट चालान में मामूली विसंगतियाँ धारा 138 की कार्यवाही को अमान्य करती हैं?`;
+      default:
+        return `1. Whether the cheque was issued in discharge of a legally enforceable debt or liability?\n2. Whether the accused has successfully rebutted the statutory presumption under Section 139?\n3. Whether minor discrepancies in credit invoices invalidate the NI Act proceedings?`;
+    }
+  };
+
+  const getApplicableLaws = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `• **धारा 138, एनआई एक्ट**: अपर्याप्त निधि के लिए चेक बाउंस होना।\n• **धारा 139, एनआई एक्ट**: चेक धारक के पक्ष में वैधानिक अनुमान।\n• **धारा 27, सामान्य खंड अधिनियम**: डाक द्वारा नोटिस तामील का अनुमान।`;
+      default:
+        return `• **Section 138, NI Act**: Dishonour of cheque for insufficiency of funds.\n• **Section 139, NI Act**: Presumption in favour of holder of cheque.\n• **Section 118, NI Act**: Presumptions as to negotiable instruments.\n• **Section 27, General Clauses Act**: Presumption of service via post.`;
+    }
+  };
+
+  const getJudgments = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `• **रंगप्पा बनाम श्री मोहन (2010) 11 SCC 441**\n*सिद्धांत*: धारा 139 के तहत अनुमान में कानूनी रूप से लागू होने योग्य ऋण का अस्तित्व शामिल है।\n• **सम्पैली सत्यनारायण राव बनाम इसरो (2016)**\n*सिद्धांत*: सुरक्षा चेक भी धारा 138 के अंतर्गत दायित्व आकर्षित करता है।`;
+      default:
+        return `• **Rangappa v. Sri Mohan (2010) 11 SCC 441**\n*Ratio*: Presumption mandated by Section 139 includes the existence of a legally enforceable debt.\n• **Sampelly Satyanarayana Rao v. ISRO (2016)**\n*Ratio*: Dishonour of a security cheque issued against credit facilities attracts Section 138 liability once the debt matures.`;
+    }
+  };
+
+  const getWrittenArgs = (s: string) => {
+    switch(s) {
+      case 'Courtroom Style':
+        return `• Complainant submits that signatures are admitted, invoking Section 139's statutory presumption.\n• No stop-payment or theft report was filed. The security cheque argument must fail in law.\n• Accused has failed to place any positive evidence to rebut the debt.`;
+      case 'Plain English':
+        return `• The customer admits they signed the cheque, so they must prove they don't owe the money.\n• They never filed a police report claiming the cheque was stolen or lost.\n• Without proof, the customer must be held responsible under the law.`;
+      case 'Hindi Legal Drafting':
+        return `• आरोपी ने चेक पर हस्ताक्षर स्वीकार किए हैं; धारा 139 का अनुमान लागू होता है।\n• चोरी या खोने की कोई पुलिस शिकायत दर्ज नहीं कराई गई है। सुरक्षा चेक का तर्क अमान्य है।\n• आरोपी ऋण के अस्तित्व का खंडन करने के लिए कोई सकारात्मक सबूत पेश करने में विफल रहा है।`;
+      default:
+        return `• Accused does not dispute signatures on the cheque; execution is admitted.\n• Once signatures are admitted, court must draw Section 139 presumption.\n• The defense of "stolen cheque" or "misplaced security" is unsupported by any police complaint or stop-payment instruction.`;
+    }
+  };
+
+  const getCounterArgs = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `• **बचाव पक्ष का तर्क**: चेक केवल सुरक्षा के रूप में जारी किया गया था, कोई वास्तविक ऋण देय नहीं था।\n• **बचाव पक्ष का तर्क**: आरोपी का पता बदलने के कारण कानूनी नोटिस कभी तामील नहीं हुआ।`;
+      default:
+        return `• **Defense claim**: Cheque was issued purely as security, and there was no actual outstanding debt.\n• **Defense claim**: The notice was never served on the accused as they relocated.`;
+    }
+  };
+
+  const getRebuttals = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `• **सुरक्षा चेक बचाव का उत्तर**: सम्पैली निर्णय का संदर्भ लें। परिपक्व ऋण सुरक्षा चेक पर भी दायित्व आकर्षित करता है।\n• **नोटिस तामील बचाव का उत्तर**: डाक रसीद और ट्रैक रिपोर्ट पेश करें। धारा 27 का लाभ लें।`;
+      default:
+        return `• **To Security Cheque Defense**: Cite *Sampelly*. The debt became due when goods were delivered under invoice. Security cheques are not immune.\n• **To Service Defense**: Produce postal receipt & tracking report showing "Delivered". Cite Section 27 of the General Clauses Act.`;
+    }
+  };
+
+  const getEvidenceMapping = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `• **दस्तावेज**: मूल चेक संख्या 445210 (प्रदर्श P-1, पृष्ठ 12)\n• **दस्तावेज**: बैंक रिटर्न मेमो दिनांक 30 अप्रैल (प्रदर्श P-2, पृष्ठ 14)\n• **दस्तावेज**: डाक रसीद और ट्रैकिंग रिपोर्ट (प्रदर्श P-3, पृष्ठ 15)`;
+      default:
+        return `• **Argument**: Execution and delivery of cheque\n  - *Evidence*: Original Cheque No. 445210 (Exhibit P-1, Page 12)\n• **Argument**: Dishonour confirmation\n  - *Evidence*: Bank Return Memo dated 30th April (Exhibit P-2, Page 14)\n• **Argument**: Demand and Post Service\n  - *Evidence*: Consignment Receipt & Postal Tracking (Exhibit P-3, Page 15)`;
+    }
+  };
+
+  const getPrayer = (s: string) => {
+    switch(s) {
+      case 'Hindi Legal Drafting':
+        return `शिकायतकर्ता आदरपूर्वक प्रार्थना करता है कि:\n1. आरोपी को धारा 138 के तहत दोषी ठहराया जाए और सजा दी जाए।\n2. आरोपी को चेक राशि का दोगुना (रु. 10,00,000) मुआवजा देने का निर्देश दिया जाए।`;
+      default:
+        return `Complainant prays that this Hon'ble Court be pleased to:\n1. Summon, try and convict the Accused under Section 138 of NI Act.\n2. Direct the Accused to pay double the cheque amount (INR 10,00,000) as fine/compensation to the Complainant.`;
+    }
+  };
+
+  return [
+    {
+      id: 'exec-summary',
+      title: '1. Executive Summary',
+      icon: 'briefcase-outline',
+      description: 'Short hearing brief and primary highlights.',
+      content: getExecSummary(style),
+      confidence: 95,
+      why: 'Required to grab the Judge\'s attention in the first 10 seconds.',
+    },
+    {
+      id: 'case-overview',
+      title: '2. Case Overview',
+      icon: 'eye-outline',
+      description: 'High-level dispute summary and parties involved.',
+      content: getCaseOverview(style),
+      confidence: 90,
+      why: 'Ensures the court has the correct facts and parties registered instantly.',
+    },
+    {
+      id: 'material-facts',
+      title: '3. Material Facts',
+      icon: 'list-circle-outline',
+      description: 'Chronological summary of critical case facts.',
+      content: getMaterialFacts(style),
+      confidence: 88,
+      why: 'Establishes clear cause of action matching statutory timelines.',
+    },
+    {
+      id: 'chronology',
+      title: '4. Chronology of Events',
+      icon: 'calendar-outline',
+      description: 'Visual event sequence mapping.',
+      content: getChronology(style),
+      confidence: 94,
+      why: 'Essential to prove the suit is filed within the strict statutory period.',
+    },
+    {
+      id: 'legal-issues',
+      title: '5. Legal Issues',
+      icon: 'help-circle-outline',
+      description: 'Core questions placed before the court.',
+      content: getLegalIssues(style),
+      confidence: 85,
+      why: 'Frames the battlefield. Forces the defense to answer specific queries.',
+    },
+    {
+      id: 'applicable-laws',
+      title: '6. Applicable Laws',
+      icon: 'book-outline',
+      description: 'Acts, Sections, and Procedural Codes.',
+      content: getApplicableLaws(style),
+      confidence: 92,
+      why: 'Forms the statutory foundation of the prosecution strategy.',
+    },
+    {
+      id: 'judgments',
+      title: '7. Relevant Judgments',
+      icon: 'ribbon-outline',
+      description: 'Landmark binding Supreme Court & High Court rulings.',
+      content: getJudgments(style),
+      confidence: 91,
+      why: 'Blocks opposing attempts to raise standard security cheque defenses.',
+    },
+    {
+      id: 'written-args',
+      title: '8. Written Arguments',
+      icon: 'document-text-outline',
+      description: 'Formal written arguments, authorities, and logic.',
+      content: getWrittenArgs(style),
+      confidence: 87,
+      why: 'Provides a copy-pasteable brief to submit directly to the bench.',
+    },
+    {
+      id: 'counter-args',
+      title: '9. Counter Arguments',
+      icon: 'shield-outline',
+      description: 'Predicted arguments from opposing counsel.',
+      content: getCounterArgs(style),
+      confidence: 80,
+      why: 'Prevents courtroom surprises by anticipating opposing counsel maneuvers.',
+    },
+    {
+      id: 'rebuttals',
+      title: '10. Rebuttal Strategy',
+      icon: 'reload-circle-outline',
+      description: 'Ready-to-use responses to block counter arguments.',
+      content: getRebuttals(style),
+      confidence: 89,
+      why: 'Gives the litigator immediate legal weaponry during oral replies.',
+    },
+    {
+      id: 'evidence-mapping',
+      title: '11. Evidence Mapping',
+      icon: 'attach-outline',
+      description: 'Correlating arguments to document pages and exhibits.',
+      content: getEvidenceMapping(style),
+      confidence: 94,
+      why: 'The absolute hallmark of an experienced litigator: clean references to the file.',
+    },
+    {
+      id: 'prayer',
+      title: '12. Relief / Prayer',
+      icon: 'gift-outline',
+      description: 'Drafted final prayer for relief.',
+      content: getPrayer(style),
+      confidence: 96,
+      why: 'Ensures the court passes orders granting the exact remedy sought.',
+    },
+  ];
 };
 
-const StructuredStrategyView: React.FC<{ content: string; searchQuery: string; theme: any }> = ({
-  content,
-  searchQuery,
-  theme,
-}) => {
-  const { isDark } = useThemeContext();
-  const styles = React.useMemo(() => getStyles(theme, isDark), [theme, isDark]);
-  const isStructured =
-    content.includes('Case Overview') ||
-    content.includes('Strongest Arguments') ||
-    content.includes('Winning Probability') ||
-    content.includes('Opponent Strategy') ||
-    content.includes('Rebuttal') ||
-    content.includes('Judgments');
+const getIntelligenceDataForStyle = (style: string): IntelligenceTool[] => {
+  const getOralNotes = (s: string) => {
+    switch (s) {
+      case 'Plain English':
+        return `"Your Honour, we filed this cheque bounce complaint under Section 138. The customer signed the cheque. Under the Rangappa case, the court must assume they owe the money. They did not prove otherwise, so they should be punished."`;
+      case 'Hindi Legal Drafting':
+        return `"महोदय, शिकायतकर्ता ने धारा 138 के तहत यह शिकायत दर्ज की है। चेक पर आरोपी के हस्ताक्षर स्वीकृत हैं। रंगप्पा बनाम श्री मोहन मामले के तहत, ऋण का वैधानिक अनुमान तुरंत लागू होता है। आरोपी इसे खंडित करने में विफल रहा है, अतः उसे दंडित किया जाना चाहिए।"`;
+      case 'Concise':
+        return `"Complainant case under Sec 138 NI Act. Signatures admitted. Sec 139 presumption active (ref: Rangappa). Burden shifts to defense. No rebuttal evidence. Request conviction."`;
+      default:
+        return `"My Lord, the complainant has filed this complaint under Section 138. The signatures on the cheque are admitted. Under the landmark judgment of Rangappa v. Sri Mohan, the presumption of a legally enforceable debt is triggered immediately. The burden is entirely on the accused to rebut this with cogent evidence, which they have completely failed to do. I respectfully submit that the accused be convicted."`;
+    }
+  };
 
-  if (!isStructured) {
-    return <CustomMarkdownText content={content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-  }
+  const getJudgeQuestions = (s: string) => {
+    switch (s) {
+      case 'Hindi Legal Drafting':
+        return `**प्रश्न**: "काउंसिल, ऋण का मुख्य आधार दिखाने वाला अनुबंध कहाँ है?"\n\n**उत्तर**: "महोदय, लेनदेन बही खातों और चालान से प्रमाणित है जो प्रदर्श P-5 के रूप में संलग्न हैं। चूंकि हस्ताक्षर स्वीकृत हैं, धारा 139 के तहत ऋण माना जाएगा।"`;
+      default:
+        return `**Question**: "Counsel, where is the written loan agreement or invoice to show the underlying contract?"\n\n**Suggested Answer**: "My Lord, the transaction is backed by commercial ledger accounts and invoices for services delivered, which are annexed as Exhibit P-5. Furthermore, since cheque signatures are admitted, the debt is presumed under Section 139 NI Act."`;
+    }
+  };
 
-  const sections = parseStrategyResponse(content);
+  const getOpponentStrat = (s: string) => {
+    return `• They will attempt to exploit minor invoice date gaps to claim the debt was not due on 28th April.\n• They will focus on cross-examining complainant\'s witness on the specific accounting terms of the credit facility.`;
+  };
 
-  return (
-    <View style={{ alignSelf: 'stretch', gap: 12 }}>
-      {sections.map((sec, index) => {
-        if (sec.type === 'probability') {
-          const scoreText = sec.content;
-          let probColor = '#EF4444'; // Red
-          let progressVal = 0.4;
-          let levelText = 'Low Probability';
+  const getWeaknessAnalysis = (s: string) => {
+    return `• **Vulnerability**: Lack of separate signed promissory note.\n  - *Risk Level*: Moderate\n  - *Improvement*: Rely on the signed delivery challans and invoices signed by their warehouse manager.`;
+  };
 
-          const matchNum = scoreText.match(/(\d+)\%/);
-          if (matchNum) {
-            const p = parseInt(matchNum[1]);
-            progressVal = p / 100;
-            if (p >= 75) {
-              probColor = '#10B981'; // Green
-              levelText = 'Strong Position';
-            } else if (p >= 50) {
-              probColor = '#F59E0B'; // Amber
-              levelText = 'Moderate Outlook';
-            }
-          } else if (scoreText.toLowerCase().includes('high')) {
-            probColor = '#10B981';
-            progressVal = 0.82;
-            levelText = 'Strong Position';
-          }
+  const getWinningStrat = (s: string) => {
+    return `• **Primary**: Pin down the accused in cross-examination on their failure to stop payment or file a police complaint for the supposedly "misplaced" cheque.\n• **Alternative**: Push for immediate 20% interim compensation under Section 143A of NI Act at the hearing.`;
+  };
 
-          return (
-            <View key={index} style={[styles.strategyCard, { borderLeftColor: probColor }]}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="bar-chart-outline" size={18} color={probColor} />
-                <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>
-                  {sec.title || 'Winning Probability'}
-                </Text>
-              </View>
-              <View style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 6 }}>
-                  {renderWithSearchHighlight(sec.content, searchQuery)}
-                </Text>
-                <View style={styles.progressBarBg}>
-                  <View style={{ height: '100%', width: `${progressVal * 100}%`, backgroundColor: probColor, borderRadius: 4 }} />
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Unfavorable</Text>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: probColor }}>{levelText}</Text>
-                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Highly Favorable</Text>
-                </View>
-              </View>
-            </View>
-          );
-        }
+  const getHearingChecklist = (s: string) => {
+    return `□ Original Cheque (Exhibit P-1) wrapped in secure envelope\n□ Bank Return Memo (Exhibit P-2)\n□ Certified copy of Ledger Statement\n□ Printed copies of *Rangappa* and *Sampelly* judgments\n□ Witness identification proof`;
+  };
 
-        let borderLeftColor = theme.border;
-        let cardIcon = 'git-commit-outline';
-        let iconColor = theme.textSecondary;
-        let cardBg = theme.surface;
-
-        switch (sec.type) {
-          case 'overview':
-            borderLeftColor = '#EF4444'; // Red
-            cardIcon = 'eye-outline';
-            iconColor = '#EF4444';
-            cardBg = '#FFF5F5';
-            break;
-          case 'issues':
-            borderLeftColor = '#64748B';
-            cardIcon = 'help-circle-outline';
-            iconColor = '#64748B';
-            break;
-          case 'laws':
-          case 'sections':
-            borderLeftColor = '#8A5CF5'; // Violet
-            cardIcon = 'book-outline';
-            iconColor = '#8A5CF5';
-            cardBg = '#F5F3FF';
-            break;
-          case 'judgments':
-            borderLeftColor = '#14B8A6'; // Teal
-            cardIcon = 'ribbon-outline';
-            iconColor = '#14B8A6';
-            cardBg = '#F0FDFA';
-            break;
-          case 'arguments':
-          case 'rebuttal':
-            borderLeftColor = '#10B981'; // Green
-            cardIcon = 'shield-checkmark-outline';
-            iconColor = '#10B981';
-            cardBg = '#F0FDF4';
-            break;
-          case 'weaknesses':
-            borderLeftColor = '#EF4444'; // Red
-            cardIcon = 'alert-circle-outline';
-            iconColor = '#EF4444';
-            cardBg = '#FFF5F5';
-            break;
-          case 'opponent':
-          case 'counters':
-            borderLeftColor = '#F59E0B'; // Amber
-            cardIcon = 'warning-outline';
-            iconColor = '#F59E0B';
-            cardBg = '#FFFBEB';
-            break;
-          case 'tips':
-            borderLeftColor = '#10B981';
-            cardIcon = 'bulb-outline';
-            iconColor = '#10B981';
-            break;
-          case 'nextAction':
-            borderLeftColor = '#8A5CF5';
-            cardIcon = 'arrow-forward-circle-outline';
-            iconColor = '#8A5CF5';
-            cardBg = '#F5F3FF';
-            break;
-        }
-
-        if (sec.type === 'normal') {
-          return <CustomMarkdownText key={index} content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />;
-        }
-
-        return (
-          <View key={index} style={[styles.strategyCard, { borderLeftColor, backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name={cardIcon as any} size={18} color={iconColor} />
-              <Text style={[styles.cardTitleText, { color: theme.textPrimary }]}>{sec.title}</Text>
-            </View>
-            <View style={{ marginTop: 6 }}>
-              <CustomMarkdownText content={sec.content} isUser={false} searchQuery={searchQuery} theme={theme} />
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-};
-
-// DICTIONARY OF ACTION SHEET ITEMS
-const STRATEGY_ACTIONS = {
-  courtroomStrategy: [
-    { id: 'build_strategy', label: 'Build Complete Case Strategy', desc: 'Step-by-step litigation plan and analysis', isImmediate: true },
-    { id: 'strongest_arguments', label: 'Generate Strongest Arguments', desc: 'Identify winning points based on law', isImmediate: true },
-    { id: 'opponent_weakness', label: 'Find Opponent Weakness', desc: 'Pinpoint gaps in opponent allegations', isImmediate: true },
-    { id: 'counter_arguments', label: 'Generate Counter Arguments', desc: 'Prepare rebuttals to opposing claims', isImmediate: true },
-    { id: 'court_strategy', label: 'Prepare Final Court Strategy', desc: 'Hearing preparation and strategy guidelines', isImmediate: true },
-    { id: 'winning_strategy', label: 'Generate Winning Strategy', desc: 'Isolate main target points to secure victory', isImmediate: true },
-  ],
-  courtPreparation: [
-    { id: 'oral_arguments', label: 'Generate Oral Arguments', desc: 'Speech scripts for opening/closing briefs', isImmediate: true },
-    { id: 'written_arguments', label: 'Prepare Written Arguments', desc: 'Formal written arguments drafting', isImmediate: true },
-    { id: 'cross_questions', label: 'Cross Examination Questions', desc: 'Questions to discredit opposing witnesses', isImmediate: true },
-    { id: 're_examination', label: 'Re-Examination Questions', desc: 'Restore credibility of own witnesses', isImmediate: true },
-    { id: 'convincing_points', label: 'Judge Convincing Points', desc: 'Target core ratios to align the bench', isImmediate: true },
-    { id: 'possible_judge_questions', label: 'Possible Judge Questions', desc: 'Anticipate hard questions from the bench', isImmediate: true },
-    { id: 'likely_opponent_questions', label: 'Likely Opponent Questions', desc: 'Prepare for opposing counsel cross questions', isImmediate: true },
-    { id: 'objection_suggestions', label: 'Objection Suggestions', desc: 'When and how to object during hearing', isImmediate: true },
-    { id: 'emergency_court_responses', label: 'Emergency Court Responses', desc: 'Pre-planned responses for unexpected challenges', isImmediate: true },
-  ],
-  legalIntelligence: [
-    { id: 'relevant_judgments', label: 'Relevant Judgments', desc: 'Find binding case laws and precedents', isImmediate: true },
-    { id: 'sc_decisions', label: 'Relevant Supreme Court Decisions', desc: 'Binding apex court rulings', isImmediate: true },
-    { id: 'hc_decisions', label: 'Relevant High Court Decisions', desc: 'Regional high court precedents', isImmediate: true },
-    { id: 'applicable_sections', label: 'Applicable Sections', desc: 'Statutes and procedural code sections', isImmediate: true },
-    { id: 'applicable_acts', label: 'Relevant Acts', desc: 'Identify core Bare Acts and statutory rules', isImmediate: true },
-    { id: 'legal_principles', label: 'Important Legal Principles', desc: 'Fundamental legal doctrines and maxims', isImmediate: true },
-    { id: 'latest_amendments', label: 'Latest Amendments', desc: 'Update acts with latest legislative changes', isImmediate: true },
-    { id: 'research_summary', label: 'Legal Research Summary', desc: 'Consolidated research brief on the issue', isImmediate: true },
-  ],
-  litigationIntelligence: [
-    { id: 'weakness_in_case', label: 'Weakness in My Case', desc: 'Honest audit of our case vulnerabilities', isImmediate: true },
-    { id: 'evidence_gaps', label: 'Evidence Gaps', desc: 'List missing links or corroboration checks', isImmediate: true },
-    { id: 'missing_documents', label: 'Missing Documents', desc: 'Identity records to summon or subpoena', isImmediate: true },
-    { id: 'missing_witnesses', label: 'Missing Witnesses', desc: 'Identify witnesses whose testimony is crucial', isImmediate: true },
-    { id: 'winning_probability', label: 'Winning Probability', desc: 'Calculate success rate and liability risks', isImmediate: true },
-    { id: 'case_improvements', label: 'Case Improvement Suggestions', desc: 'Actions to repair case weak points', isImmediate: true },
-    { id: 'settlement_possibility', label: 'Settlement Possibility', desc: 'Assess compromises or target settlement drafts', isImmediate: true },
-    { id: 'alternative_strategy', label: 'Alternative Legal Strategy', desc: 'Prepare backup arguments or fallback claims', isImmediate: true },
-  ],
-  courtSimulation: [
-    { id: 'sim_judge', label: 'AI becomes Judge', desc: 'AI roleplays as judge asking hard questions', isImmediate: false, placeholder: 'Practice speaking... AI Judge will evaluate: ' },
-    { id: 'sim_opp', label: 'AI becomes Opposing Counsel', desc: 'Practice presenting case against active AI counters', isImmediate: false, placeholder: 'Present arguments... Opposing Counsel will attack: ' },
-    { id: 'sim_cross', label: 'AI cross examines', desc: 'Practice handling cross questions for your witness', isImmediate: false, placeholder: 'State witness name or topic to practice cross examination: ' },
-    { id: 'sim_attack', label: 'AI attacks the case', desc: 'AI highlights and attacks the weakest point of your case', isImmediate: false, placeholder: 'Describe what point AI counsel should attack: ' },
-    { id: 'sim_questions', label: 'AI asks difficult court questions', desc: 'Practise answering direct questions', isImmediate: false, placeholder: 'Describe hearing topic for AI questions: ' },
-  ]
-};
-
-// Input-Focused Queries
-const INPUT_ACTIONS = [
-  { id: 'search_strategy', label: 'Search Strategy', desc: 'Search for phrases in case strategy logs', placeholder: 'Search within litigation files...' },
-  { id: 'find_precedents', label: 'Find Precedents', desc: 'Locate binding court cases', placeholder: 'Enter keyword to find precedents...' },
-  { id: 'custom_strategy', label: 'Custom Strategy', desc: 'Submit custom strategic litigation requests', placeholder: 'Describe the specific issue you want strategy for...' }
-];
-
-const getCaseMetadataSummary = (details: CaseWorkspace | null): string => {
-  if (!details) return '';
-  let summary = `[Case Context Info]\n`;
-  summary += `Case Name: ${details.name}\n`;
-  if (details.clientName) summary += `Client: ${details.clientName}\n`;
-  if (details.opponentName) summary += `Opponent: ${details.opponentName}\n`;
-  if (details.courtName) summary += `Court: ${details.courtName}\n`;
-  if (details.caseType) summary += `Case Type: ${details.caseType}\n`;
-  if (details.summary || details.caseSummary) {
-    summary += `Summary: ${details.summary || details.caseSummary}\n`;
-  }
-  
-  if (details.evidence && details.evidence.length > 0) {
-    summary += `Evidence List:\n`;
-    details.evidence.forEach((ev, idx) => {
-      summary += `- Evidence #${idx + 1}: ${(ev as any).title || ev.name || 'Untitled'} (${ev.type || 'General'}, Status: ${ev.status || 'Active'})\n`;
-    });
-  }
-  
-  if (details.hearings && details.hearings.length > 0) {
-    summary += `Hearings List:\n`;
-    details.hearings.forEach((h, idx) => {
-      summary += `- Hearing #${idx + 1}: Date: ${h.date || 'N/A'}, Purpose: ${h.purpose || 'N/A'}, Court: ${h.courtName || 'N/A'}\n`;
-    });
-  }
-  
-  if (details.documents && details.documents.length > 0) {
-    summary += `Documents List:\n`;
-    details.documents.forEach((doc, idx) => {
-      summary += `- Document #${idx + 1}: ${doc.name || 'Untitled'} (Type: ${doc.type || 'General'})\n`;
-    });
-  }
-  
-  if (details.facts && details.facts.length > 0) {
-    summary += `Timeline / Facts:\n`;
-    details.facts.forEach((fact, idx) => {
-      summary += `- Fact #${idx + 1} (${fact.date || 'N/A'}): ${fact.description || fact.title || 'N/A'}\n`;
-    });
-  }
-  
-  summary += `[End of Case Context Info]\n\n`;
-  return summary;
+  return [
+    {
+      id: 'oral-notes',
+      title: 'Oral Submission Notes',
+      icon: 'mic-outline',
+      description: 'Concise courtroom speaking notes.',
+      content: getOralNotes(style),
+    },
+    {
+      id: 'judge-questions',
+      title: 'Likely Judge Questions',
+      icon: 'help-buoy-outline',
+      description: 'Anticipate tough queries from the bench.',
+      content: getJudgeQuestions(style),
+    },
+    {
+      id: 'opponent-strat',
+      title: 'Opponent Strategy',
+      icon: 'skull-outline',
+      description: 'Opposition\'s primary target points.',
+      content: getOpponentStrat(style),
+    },
+    {
+      id: 'weakness-analysis',
+      title: 'Weakness Analysis',
+      icon: 'trending-down-outline',
+      description: 'Audit of case vulnerabilities.',
+      content: getWeaknessAnalysis(style),
+    },
+    {
+      id: 'winning-strat',
+      title: 'Winning Strategy',
+      icon: 'trophy-outline',
+      description: 'Step-by-step path to victory.',
+      content: getWinningStrat(style),
+    },
+    {
+      id: 'hearing-checklist',
+      title: 'Hearing Checklist',
+      icon: 'checkbox-outline',
+      description: 'Must-have items for tomorrow.',
+      content: getHearingChecklist(style),
+    },
+  ];
 };
 
 export default function ArgumentBuilderScreen() {
@@ -740,17 +405,169 @@ export default function ArgumentBuilderScreen() {
   const styles = useMemo(() => getStyles(theme, isDark), [theme, isDark]);
   const insets = useSafeAreaInsets();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Workflow steps:
+  // 1. 'source' - Choose source
+  // 2. 'analyzing' - Loading/AI Extraction
+  // 3. 'workspace' - Case Intelligence Dashboard + 12 Sections + Prep Intelligence
+  const [workspaceStep, setWorkspaceStep] = useState<'source' | 'analyzing' | 'workspace'>('source');
+  
+  // Active selected source option
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
 
+  // Case Selection & Context States
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [activeCaseDetails, setActiveCaseDetails] = useState<CaseWorkspace | null>(null);
-  const [shouldComposerFocus, setShouldComposerFocus] = useState(false);
   const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
   const [caseSummariesMap, setCaseSummariesMap] = useState<Record<string, string>>({});
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
+  // AI Refinement Panel Mode (Step 5)
+  const [refinementMode, setRefinementMode] = useState<string>('Courtroom Style');
+  const [isRefinementOpen, setIsRefinementOpen] = useState(false);
 
+  // Search filter query inside Workspace
+  const [workspaceSearch, setWorkspaceSearch] = useState('');
 
+  // Section Expansion state tracking
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    'exec-summary': true, // Auto-expand first one
+  });
+
+  // Active Intelligence Tool tab (Step 4)
+  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<string>('oral-notes');
+
+  // Generation status states
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+
+  // Actual generated data for the sections (Step 3)
+  const [sectionsData, setSectionsData] = useState<PrepSection[]>([]);
+
+  // Actual generated data for premium intelligence tools (Step 4)
+  const [intelligenceData, setIntelligenceData] = useState<IntelligenceTool[]>([]);
+
+  // AI Copilot states
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatReplies, setChatReplies] = useState<Array<{ sender: 'user' | 'ai'; text: string }>>([
+    {
+      sender: 'ai',
+      text: "I am the Court Prep Copilot. Ask me about courtroom prep, cross-examination questions, objections, witness strategies, or final oral arguments. I will reply using your active refinement style.",
+    },
+  ]);
+  const copilotScrollRef = useRef<ScrollView>(null);
+  const [sheetSize, setSheetSize] = useState<'collapsed' | 'expanded' | 'full'>('expanded');
+
+  // Overall Case Metrics (Step 2)
+  const [caseMetrics, setCaseMetrics] = useState({
+    strengthScore: 78,
+    riskLevel: 'Moderate',
+    evidenceStrength: 'Strong',
+    applicableActs: 'NI Act 1881, CrPC 1973',
+    relevantSections: 'Sec 138, Sec 139, Sec 141',
+    keyLegalIssues: 'Legally enforceable debt presumption shifts burden to accused.',
+    missingInfo: 'Original post receipt and loan agreement documents.',
+    deadlines: 'Filing rejoinder before 20th July 2026',
+    confidenceScore: 92,
+  });
+
+  // ==========================================
+  // CASE INTAKE WIZARD STATES (Step 1-6 Redesign)
+  // ==========================================
+  const [showIntakeWizard, setShowIntakeWizard] = useState(false);
+  const [intakeMethod, setIntakeMethod] = useState<'none' | 'manual' | 'voice' | 'ai-guided'>('none');
+  const [intakeStep, setIntakeStep] = useState(1);
+  
+  // Section 1: Basic Info
+  const [caseTitle, setCaseTitle] = useState('');
+  const [courtNameInput, setCourtNameInput] = useState('');
+  const [caseTypeInput, setCaseTypeInput] = useState('');
+  const [role, setRole] = useState<'Petitioner' | 'Respondent' | 'Plaintiff' | 'Defendant' | 'Complainant' | 'Accused'>('Petitioner');
+
+  // Section 2: Parties
+  const [petitionerName, setPetitionerName] = useState('');
+  const [respondentName, setRespondentName] = useState('');
+  const [advocateName, setAdvocateName] = useState('');
+
+  // Section 3: Case Facts
+  const [caseFactsText, setCaseFactsText] = useState('');
+
+  // Section 4: Important Dates
+  const [agreementDate, setAgreementDate] = useState('');
+  const [incidentDate, setIncidentDate] = useState('');
+  const [noticeDate, setNoticeDate] = useState('');
+  const [firDate, setFirDate] = useState('');
+  const [causeOfActionDate, setCauseOfActionDate] = useState('');
+  const [hearingDate, setHearingDate] = useState('');
+
+  // Section 5: Evidence Types Checkbox mapping
+  const [selectedEvidences, setSelectedEvidences] = useState<Record<string, boolean>>({
+    Agreement: false,
+    Emails: false,
+    WhatsAppChats: false,
+    Photographs: false,
+    Videos: false,
+    Audio: false,
+    BankStatements: false,
+    Witnesses: false,
+    MedicalRecords: false,
+    Other: false,
+  });
+
+  // Section 6: Relief Requested
+  const [selectedReliefs, setSelectedReliefs] = useState<Record<string, boolean>>({
+    Recovery: false,
+    Compensation: false,
+    Bail: false,
+    Divorce: false,
+    Injunction: false,
+    SpecificPerformance: false,
+  });
+  const [customRelief, setCustomRelief] = useState('');
+
+  // Voice Dictation Simulation States
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [voiceText, setVoiceText] = useState('');
+  const micAnimValue = useRef(new Animated.Value(1)).current;
+
+  // AI Guided Interview States
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [interviewAnswerInput, setInterviewAnswerInput] = useState('');
+  const [interviewHistory, setInterviewHistory] = useState<Array<{ role: 'ai' | 'user'; text: string }>>([]);
+
+  const interviewQuestions = [
+    { key: 'title', text: "Welcome to the AI Guided Case Interview. Let's start with the basics. What is the title or name of this case?" },
+    { key: 'what_happened', text: "Describe what happened. What is the core dispute or incident?" },
+    { key: 'when_did_it_happen', text: "When did this event or issue arise? Please specify any key dates." },
+    { key: 'parties', text: "Who are the primary parties involved? Please state their names and roles." },
+    { key: 'agreement', text: "Was there a written contract or agreement signed between the parties?" },
+    { key: 'evidence', text: "What evidence is currently in your possession (emails, WhatsApp logs, bank records)?" },
+    { key: 'payments', text: "Were there any payments or financial transactions associated with this claim?" },
+    { key: 'notice', text: "Have you dispatched or received a formal statutory legal notice?" },
+    { key: 'jurisdiction', text: "Which court has jurisdiction over this matter?" },
+    { key: 'relief', text: "What specific outcome or relief are you seeking from the court?" }
+  ];
+
+  // Attachment Handler
+  const {
+    attachments,
+    setAttachments,
+    isBottomSheetVisible,
+    isCameraVisible,
+    isUploading,
+    showAttachmentOptions,
+    hideAttachmentOptions,
+    hideCamera,
+    handleRemoveAttachment,
+    clearAttachments,
+    handleSelectOption,
+    handleCameraConfirm,
+    uploadPendingAttachments,
+  } = useAttachmentHandler();
+
+  // Load case details on active case change
   const fetchActiveCaseDetails = async (caseId: string) => {
     try {
       const res = await CaseService.getCaseDetails(caseId);
@@ -773,8 +590,77 @@ export default function ArgumentBuilderScreen() {
       });
       setCaseSummariesMap(mapping);
     } catch (err) {
-      console.warn('Failed to load case summaries list for history mapping:', err);
+      console.warn('Failed to load case summaries list:', err);
     }
+  };
+
+  useEffect(() => {
+    if (isAiAssistantOpen) {
+      setTimeout(() => {
+        copilotScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [chatReplies, isAiAssistantOpen]);
+
+  const handleSendChat = (textOverride?: string) => {
+    const textToSend = textOverride || chatInput;
+    if (!textToSend.trim()) return;
+
+    setChatReplies((prev) => [...prev, { sender: 'user', text: textToSend.trim() }]);
+    setChatInput('');
+    setIsAiThinking(true);
+    Keyboard.dismiss();
+
+    setTimeout(() => {
+      setIsAiThinking(false);
+      let replyText = "";
+      
+      const query = textToSend.toLowerCase();
+      
+      if (query.includes('predict') || query.includes('forecast') || query.includes('win probability')) {
+        replyText = "I am the Court Prep Copilot. For case predictions and win probabilities, please use the Litigation Predictor Copilot.";
+      } else if (query.includes('contract') || query.includes('clause') || query.includes('agreement review')) {
+        replyText = "I am the Court Prep Copilot. For contract clause analysis and agreement reviews, please use the Contract Review Copilot.";
+      } else {
+        switch (refinementMode) {
+          case 'Plain English':
+            replyText = "Today's hearing is about the bounced cheque of Rs. 5,00,000. Under the law, because Nitin Kumar signed the cheque, the judge assumes he owes the money. We will ask the judge to convict him and order him to pay Rs. 10,00,000 in compensation.";
+            break;
+          case 'Aggressive Litigation':
+            replyText = "Today's hearing is a critical opportunity to crush the defense's baseless excuses. The accused has admitted his signature, triggering the mandatory presumption of debt under Section 139. His failure to reply to the legal notice within the 15-day window is a fatal omission. We will aggressively demand immediate conviction and maximum double compensation.";
+            break;
+          case 'Courtroom Style':
+            replyText = "My Lord, the hearing scheduled for today concerns the statutory complaint under Section 138 of the NI Act. Given that signature execution is admitted, we respectfully submit that the legal presumption under Section 139 stands fully triggered. The burden of proof rests entirely on the defense, which has failed to present any rebuttal.";
+            break;
+          case 'Formal':
+            replyText = "The hearing scheduled for this date pertains to the formal complaint registered under Section 138 of the Negotiable Instruments Act. Signatures on the instrument being admitted, the statutory presumption under Section 139 is operational. In the absence of a legal notice reply, the respondent stands in default.";
+            break;
+          case 'Judge Friendly':
+            replyText = "Respected Court, today's hearing is a straightforward cheque bounce matter under Section 138. The cheque bounced due to insufficient funds. Signatures are admitted. No reply was sent to our legal notice. We pray for immediate conviction.";
+            break;
+          case 'Senior Counsel Style':
+            replyText = "Today's hearing presents a clear-cut legal scenario. By admitting the signatures, the defense has conceded the core fact, automatically activating the Section 139 presumption. Their complete silence during the statutory notice period leaves them with no viable defense. We will argue for immediate conviction and interim compensation under Section 143A.";
+            break;
+          case 'Neutral':
+            replyText = "The hearing is scheduled to address the complaint under Section 138 NI Act. The cheque of INR 5,00,000 bounced due to insufficient funds. Statutory notice was delivered on 14th May 2026. No reply or payment has been made.";
+            break;
+          case 'Concise':
+            replyText = "• Cheque bounce case under Sec 138.\n• Cheque signatures admitted.\n• Statutory presumption (Sec 139) is active.\n• Defense has failed to reply to notice.\n• Request conviction & compensation.";
+            break;
+          case 'Detailed':
+            replyText = "The hearing listed today is for the prosecution of complaint under Section 138 of the Negotiable Instruments Act. Complainant Apex Logistics Corp holds Cheque No. 445210 for INR 5,00,000 which bounced due to insufficient funds. The statutory demand notice was delivered on 14th May 2026. Under the precedent of Rangappa v. Sri Mohan, the court is mandated to presume a legally enforceable debt since the signatures are admitted. The defense has submitted no rebuttal.";
+            break;
+          case 'Hindi Legal Drafting':
+            replyText = "आज की सुनवाई एनआई एक्ट की धारा 138 के तहत दर्ज शिकायत के संबंध में है। चेक पर हस्ताक्षर आरोपी द्वारा स्वीकार किए गए हैं, जिससे धारा 139 के तहत ऋण का वैधानिक अनुमान पूर्णतः शिकायतकर्ता के पक्ष में लागू होता है। हम आरोपी को दोषी ठहराने और मुआवजे की मांग करेंगे।";
+            break;
+          default:
+            replyText = "My Lord, the complainant has filed this complaint under Section 138. The signatures on the cheque are admitted. The burden is entirely on the accused to rebut this with cogent evidence.";
+            break;
+        }
+      }
+
+      setChatReplies((prev) => [...prev, { sender: 'ai', text: replyText }]);
+    }, 800);
   };
 
   useEffect(() => {
@@ -788,1291 +674,1495 @@ export default function ArgumentBuilderScreen() {
   useEffect(() => {
     fetchAllCaseSummaries();
   }, [sessionId]);
-  const [inputVal, setInputVal] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const streamTimerRef = useRef<any>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
 
+  // Draft Autosave and Loading Logic
   useEffect(() => {
-    return () => {
-      if (streamTimerRef.current) clearInterval(streamTimerRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, []);
-  
-  const {
-    attachments,
-    setAttachments,
-    isBottomSheetVisible,
-    isCameraVisible,
-    isUploading,
-    showAttachmentOptions,
-    hideAttachmentOptions,
-    hideCamera,
-    handleRemoveAttachment,
-    clearAttachments,
-    handleSelectOption,
-    handleCameraConfirm,
-    uploadPendingAttachments,
-  } = useAttachmentHandler();
-
-  // Search feature
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Chat History Drawer States
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [historySessions, setHistorySessions] = useState<any[]>([]);
-  const [searchHistoryQuery, setSearchHistoryQuery] = useState('');
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [renameTitleVal, setRenameTitleVal] = useState('');
-
-  const fetchHistorySessions = async () => {
-    try {
-      const res = await ChatService.listSessions();
-      const sessionList = Array.isArray(res) ? res : (res?.data || []);
-      const filtered = sessionList.filter((s: any) => s.activeTool === 'argumentBuilder');
-      setHistorySessions(filtered);
-    } catch (err) {
-      console.warn('Failed to fetch chat history:', err);
+    if (showIntakeWizard) {
+      loadSavedDraft();
     }
-  };
+  }, [showIntakeWizard]);
 
+  // Auto-save form inputs whenever they change
   useEffect(() => {
-    fetchHistorySessions();
-  }, [sessionId]);
+    if (showIntakeWizard && intakeMethod !== 'none') {
+      saveIntakeDraft();
+    }
+  }, [
+    caseTitle,
+    courtNameInput,
+    caseTypeInput,
+    role,
+    petitionerName,
+    respondentName,
+    advocateName,
+    caseFactsText,
+    agreementDate,
+    incidentDate,
+    noticeDate,
+    firDate,
+    causeOfActionDate,
+    hearingDate,
+    selectedEvidences,
+    selectedReliefs,
+    customRelief,
+    voiceText,
+    interviewHistory,
+  ]);
 
-  const handleSelectSession = async (sId: string) => {
+  const saveIntakeDraft = async () => {
     try {
-      setIsHistoryOpen(false);
-      const res = await ChatService.getSessionDetails(sId);
-      const detailSession = (res as any).data || res;
-      if (detailSession) {
-        setSessionId(sId);
-        setMessages(detailSession.messages || []);
-        if (detailSession.projectId) {
-          setActiveCaseId(detailSession.projectId);
-        } else {
-          setActiveCaseId(null);
-        }
-        showToast('success', 'Conversation Loaded', 'Previous chat loaded.');
-      }
-    } catch (err) {
-      console.warn('Failed to load session details:', err);
-      showToast('error', 'Load Failed', 'Could not load conversation.');
-    }
-  };
-
-  const handleDeleteSession = async (sId: string) => {
-    try {
-      await ChatService.deleteSession(sId);
-      setHistorySessions((prev) => prev.filter((s) => s.sessionId !== sId));
-      if (sessionId === sId) {
-        setSessionId(null);
-        setMessages([]);
-      }
-      showToast('success', 'Conversation Deleted', 'Logs removed.');
-    } catch (err) {
-      console.warn('Failed to delete session:', err);
-      showToast('error', 'Delete Failed', 'Could not delete conversation.');
-    }
-  };
-
-  const handleRenameConfirm = async (sId: string) => {
-    if (renameTitleVal.trim()) {
-      try {
-        await ChatService.renameSession(sId, renameTitleVal.trim());
-        setHistorySessions((prev) =>
-          prev.map((s) => (s.sessionId === sId ? { ...s, title: renameTitleVal.trim() } : s))
-        );
-        setEditingSessionId(null);
-        setRenameTitleVal('');
-        showToast('success', 'Session Renamed', 'Title updated.');
-      } catch (err) {
-        console.warn('Failed to rename session:', err);
-        showToast('error', 'Rename Failed', 'Could not rename conversation.');
-      }
-    }
-  };
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setSessionId(null);
-    clearAttachments();
-    setInputVal('');
-    setActiveCaseId(null);
-    setShouldComposerFocus(false);
-    showToast('info', 'New Chat', 'New chat conversation started.');
-  };
-
-  const filteredHistorySessions = useMemo(() => {
-    let list = historySessions;
-    if (searchHistoryQuery.trim()) {
-      list = historySessions.filter((s) =>
-        s.title.toLowerCase().includes(searchHistoryQuery.toLowerCase())
-      );
-    }
-    return [...list].sort((a, b) => b.lastModified - a.lastModified);
-  }, [historySessions, searchHistoryQuery]);
-
-  const groupedHistory = useMemo(() => {
-    const caseGroups: Record<string, any[]> = {};
-    const generalList: any[] = [];
-    filteredHistorySessions.forEach((s) => {
-      if (s.projectId) {
-        if (!caseGroups[s.projectId]) {
-          caseGroups[s.projectId] = [];
-        }
-        caseGroups[s.projectId].push(s);
-      } else {
-        generalList.push(s);
-      }
-    });
-    return { caseGroups, generalList };
-  }, [filteredHistorySessions]);
-
-  // Actions bottom sheet
-  const [isActionsOpen, setIsActionsOpen] = useState(false);
-  const [actionsSearchQuery, setActionsSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<string[]>(['Build Complete Case Strategy', 'Generate Strongest Arguments', 'AI becomes Judge']);
-  const [recentlyUsed, setRecentlyUsed] = useState<string[]>(['Generate Strongest Arguments', 'Relevant Judgments', 'Find Opponent Weakness']);
-
-  // UI state for inputs composer
-  const [composerPlaceholder, setComposerPlaceholder] = useState('Ask about this case...');
-  const textInputRef = useRef<TextInput>(null);
-  const flatListRef = useRef<FlatList>(null);
-  const isAtBottomRef = useRef(true);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
-  const scrollBtnScale = useRef(new Animated.Value(0.95)).current;
-  const hideTimerRef = useRef<any>(null);
-  const lastOffsetRef = useRef<number>(0);
-
-  const handleScrollAction = (shouldShow: boolean) => {
-    if (shouldShow) {
-      if (!showScrollBtn) {
-        setShowScrollBtn(true);
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 1, duration: 200, useNativeDriver: true }),
-        ]).start();
-      }
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-          Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-        ]).start((result: { finished: boolean }) => {
-          if (result.finished) {
-            setShowScrollBtn(false);
-          }
-        });
-      }, 2500);
-    } else {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = null;
-      }
-      Animated.parallel([
-        Animated.timing(scrollBtnOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.timing(scrollBtnScale, { toValue: 0.95, duration: 250, useNativeDriver: true }),
-      ]).start((result: { finished: boolean }) => {
-        if (result.finished) {
-          setShowScrollBtn(false);
-        }
-      });
-    }
-  };
-
-  useEffect(() => {
-    if (inputVal.trim() !== '') {
-      handleScrollAction(false);
-    }
-  }, [inputVal]);
-
-  // Expanded bubble states
-  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
-
-  // Dynamic Case Type Detection (based on attachments name)
-  const detectedCaseType = useMemo(() => {
-    if (attachments.length === 0) return '';
-    const name = attachments[0].name.toLowerCase();
-    if (name.includes('cheque') || name.includes('bounce') || name.includes('138')) return 'Cheque Bounce Case';
-    if (name.includes('property') || name.includes('partition') || name.includes('land')) return 'Property Dispute';
-    if (name.includes('criminal') || name.includes('fir') || name.includes('charge')) return 'Criminal Case';
-    if (name.includes('consumer') || name.includes('complaint')) return 'Consumer Dispute';
-    return 'Civil Litigation Case';
-  }, [attachments]);
-
-  // AI Recommended Actions depending on the active case type
-  const aiRecommendedActions = useMemo(() => {
-    if (!detectedCaseType) return [];
-    
-    if (detectedCaseType === 'Cheque Bounce Case') {
-      return [
-        { id: 'build_strategy', label: 'Build Complete Strategy', desc: 'Generate complete NI Act Sec 138 strategy' },
-        { id: 'strongest_arguments', label: 'Generate Arguments', desc: 'Shifts burden under Section 139 presumption' },
-        { id: 'counter_arguments', label: 'Counter Arguments', desc: 'Rebut the typical "security cheque" claims' },
-        { id: 'relevant_judgments', label: 'Relevant Judgments', desc: 'Find binding Apex Court check rulings' },
-      ];
-    }
-    if (detectedCaseType === 'Property Dispute') {
-      return [
-        { id: 'prop_analysis', label: 'Property Law Analysis', desc: 'Audit adverse possession or title limits' },
-        { id: 'evidence_mapping', label: 'Evidence Mapping', desc: 'Correlate electricity bill pings and tax logs' },
-        { id: 'civil_strategy', label: 'Civil Strategy', desc: 'Limit suit parameters under Limitation Act' },
-        { id: 'cross_questions', label: 'Cross Examination', desc: 'Build questions challenging plaintiff title deeds' }
-      ];
-    }
-    if (detectedCaseType === 'Criminal Case') {
-      return [
-        { id: 'defense_strat', label: 'Defense Strategy', desc: 'Examine procedural failures in FIR logs' },
-        { id: 'prosecution_weakness', label: 'Prosecution Weakness', desc: 'Highlight lack of independent witnesses' },
-        { id: 'witness_questions', label: 'Witness Questions', desc: 'Draft interrogation guidelines' },
-        { id: 'cross_questions', label: 'Cross Examination', desc: 'Discredit eyewitness credibility' }
-      ];
-    }
-    
-    return [
-      { id: 'build_strategy', label: 'Build Complete Strategy', desc: 'General findings litigation timeline' },
-      { id: 'strongest_arguments', label: 'Generate Arguments', desc: 'Build primary core legal claims' }
-    ];
-  }, [detectedCaseType]);
-
-  const scrollToBottom = (animated = true) => {
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated });
-    }, 100);
-  };
-
-  const handleSend = async (overrideText?: string, actionId?: string, editMessageId?: string) => {
-    const text = overrideText || inputVal.trim();
-    if (!text && attachments.length === 0) return;
-
-    setIsSending(true);
-    setShouldComposerFocus(false);
-
-    let uploadedAttachments = attachments;
-    if (attachments.length > 0 && !editMessageId) {
-      try {
-        uploadedAttachments = await uploadPendingAttachments();
-      } catch (uploadErr) {
-        setIsSending(false);
-        return;
-      }
-    }
-
-    // Optimistic user message append / edit replacement
-    let userMsgId = `msg_${Date.now()}`;
-    let updatedMessages: ChatMessage[] = [];
-
-    if (editMessageId) {
-      const msgIdx = messages.findIndex((m) => m.id === editMessageId);
-      if (msgIdx !== -1) {
-        const editedMsg = {
-          ...messages[msgIdx],
-          content: text,
-          timestamp: Date.now(),
-        };
-        updatedMessages = [
-          ...messages.slice(0, msgIdx),
-          editedMsg
-        ];
-        userMsgId = editMessageId;
-      } else {
-        const newUserMessage: ChatMessage = {
-          id: userMsgId,
-          role: 'user',
-          content: text,
-          timestamp: Date.now(),
-          attachments: [],
-        };
-        updatedMessages = [...messages, newUserMessage];
-      }
-    } else {
-      const newUserMessage: ChatMessage = {
-        id: userMsgId,
-        role: 'user',
-        content: text,
-        timestamp: Date.now(),
-        attachments: [...uploadedAttachments],
+      const draft = {
+        intakeMethod,
+        intakeStep,
+        caseTitle,
+        courtNameInput,
+        caseTypeInput,
+        role,
+        petitionerName,
+        respondentName,
+        advocateName,
+        caseFactsText,
+        agreementDate,
+        incidentDate,
+        noticeDate,
+        firDate,
+        causeOfActionDate,
+        hearingDate,
+        selectedEvidences,
+        selectedReliefs,
+        customRelief,
+        voiceText,
+        interviewHistory,
       };
-      updatedMessages = [...messages, newUserMessage];
-    }
-
-    setMessages(updatedMessages);
-    if (!editMessageId) {
-      setInputVal('');
-      setComposerPlaceholder('Ask about this case...');
-    }
-    scrollToBottom(true);
-
-    const aiMsgId = `msg_ai_${Date.now()}`;
-    const placeholderAiMessage: ChatMessage = {
-      id: aiMsgId,
-      role: 'model',
-      content: '',
-      timestamp: Date.now() + 1,
-      isProcessing: true,
-    };
-
-    const finalMessages = [...updatedMessages, placeholderAiMessage];
-    setMessages(finalMessages);
-
-    // Keep track of recently used
-    if (actionId) {
-      const allActs = [
-        ...STRATEGY_ACTIONS.courtroomStrategy,
-        ...STRATEGY_ACTIONS.courtPreparation,
-        ...STRATEGY_ACTIONS.legalIntelligence,
-        ...STRATEGY_ACTIONS.litigationIntelligence,
-        ...STRATEGY_ACTIONS.courtSimulation,
-        ...aiRecommendedActions
-      ];
-      const match = allActs.find((a) => a.id === actionId);
-      if (match) {
-        setRecentlyUsed((prev) => {
-          const filtered = prev.filter((n) => n !== match.label);
-          return [match.label, ...filtered].slice(0, 3);
-        });
-      }
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    isCancelledRef.current = false;
-
-    try {
-      const currentSessionId = sessionId || `session_strategy_${Date.now()}`;
-      setSessionId(currentSessionId);
-
-      const history = finalMessages
-        .filter((m) => m.id !== aiMsgId)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      let contentToSend = text;
-      if (activeCaseDetails && history.length === 0) {
-        contentToSend = `${getCaseMetadataSummary(activeCaseDetails)}\nUser Query: ${text}`;
-      }
-
-      const payload: Record<string, any> = {
-        content: contentToSend,
-        sessionId: currentSessionId,
-        activeTool: 'argumentBuilder',
-        stream: true,
-        history,
-      };
-
-      if (activeCaseId) {
-        payload.projectId = activeCaseId;
-      }
-
-      if (uploadedAttachments.length > 0 && !editMessageId) {
-        payload.document = uploadedAttachments.map((a) => ({
-          name: a.name,
-          mimeType: a.type,
-          base64Data: a.base64Data || '',
-          url: a.url,
-        }));
-      }
-
-      let isFallbackNeeded = true;
-      let accumulatedText = '';
-
-      try {
-        const stream = streamAIResponse('/chat', payload, controller.signal);
-        for await (const token of stream) {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            break;
-          }
-          isFallbackNeeded = false;
-          accumulatedText += token;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, content: accumulatedText } : m))
-          );
-        }
-      } catch (streamErr) {
-        console.warn('[ArgumentBuilder] Stream err, fallback used:', streamErr);
-      }
-
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-        setIsSending(false);
-        return;
-      }
-
-      if (isFallbackNeeded) {
-        let key = 'build_strategy';
-        if (actionId) {
-          if (MOCK_ANSWERS[actionId]) {
-            key = actionId;
-          } else if (actionId.includes('strategy') || actionId.includes('build')) {
-            key = 'build_strategy';
-          } else if (actionId.includes('arg') || actionId.includes('strong')) {
-            key = 'strongest_arguments';
-          } else if (actionId.includes('weakness')) {
-            key = 'opponent_weakness';
-          } else if (actionId.includes('counter') || actionId.includes('rebut')) {
-            key = 'counter_arguments';
-          }
-        } else {
-          if (detectedCaseType === 'Cheque Bounce Case') key = 'build_strategy';
-          else if (detectedCaseType === 'Property Dispute') key = 'strongest_arguments';
-          else if (detectedCaseType === 'Criminal Case') key = 'opponent_weakness';
-        }
-
-        const fallbackResponse = MOCK_ANSWERS[key] || MOCK_ANSWERS.build_strategy;
-
-        const chunks = fallbackResponse.split(' ');
-        let curIdx = 0;
-        let runningText = '';
-
-        const timer = setInterval(() => {
-          if (isCancelledRef.current) {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            return;
-          }
-          if (curIdx < chunks.length) {
-            runningText += (curIdx === 0 ? '' : ' ') + chunks[curIdx];
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, content: runningText } : m))
-            );
-            curIdx += 2;
-          } else {
-            clearInterval(timer);
-            streamTimerRef.current = null;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-            );
-            setIsSending(false);
-            scrollToBottom(true);
-          }
-        }, 15);
-        streamTimerRef.current = timer;
-
-        return;
-      }
-
-      setMessages((prev) =>
-        prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-      );
-
-      setTimeout(async () => {
-        try {
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const res = await ChatService.getSessionDetails(currentSessionId);
-          if (isCancelledRef.current || controller.signal.aborted) {
-            return;
-          }
-          const sess = (res as any).data || res;
-          if (sess?.messages) {
-            setMessages(sess.messages);
-          }
-        } catch (e) {
-          console.warn('[ArgumentBuilder] Session details sync error:', e);
-        }
-      }, 1000);
-
+      await AsyncStorage.setItem('courtprep_intake_draft', JSON.stringify(draft));
     } catch (e) {
-      if (isCancelledRef.current || controller.signal.aborted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isProcessing: false } : m))
-        );
-      } else {
-        console.error(e);
-        showToast('error', 'Strategy Generation Failed', 'Unable to reach AI Strategy Engine.');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId
-              ? {
-                  ...m,
-                  content: '⚠️ Strategy audit failed. Please verify connection and try again.',
-                  isProcessing: false,
-                }
-              : m
-          )
-        );
+      console.warn('Draft auto-save failed:', e);
+    }
+  };
+
+  const loadSavedDraft = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('courtprep_intake_draft');
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.caseTitle || draft.voiceText || draft.interviewHistory?.length > 0) {
+          showToast('info', 'Draft Restored', 'Resumed your last session.');
+          setIntakeMethod(draft.intakeMethod || 'none');
+          setIntakeStep(draft.intakeStep || 1);
+          setCaseTitle(draft.caseTitle || '');
+          setCourtNameInput(draft.courtNameInput || '');
+          setCaseTypeInput(draft.caseTypeInput || '');
+          setRole(draft.role || 'Petitioner');
+          setPetitionerName(draft.petitionerName || '');
+          setRespondentName(draft.respondentName || '');
+          setAdvocateName(draft.advocateName || '');
+          setCaseFactsText(draft.caseFactsText || '');
+          setAgreementDate(draft.agreementDate || '');
+          setIncidentDate(draft.incidentDate || '');
+          setNoticeDate(draft.noticeDate || '');
+          setFirDate(draft.firDate || '');
+          setCauseOfActionDate(draft.causeOfActionDate || '');
+          setHearingDate(draft.hearingDate || '');
+          setSelectedEvidences(draft.selectedEvidences || {});
+          setSelectedReliefs(draft.selectedReliefs || {});
+          setCustomRelief(draft.customRelief || '');
+          setVoiceText(draft.voiceText || '');
+          setInterviewHistory(draft.interviewHistory || []);
+          setCurrentQuestionIndex(draft.interviewHistory ? Math.floor(draft.interviewHistory.length / 2) : 0);
+        }
       }
-    } finally {
-      setIsSending(false);
-      abortControllerRef.current = null;
-      scrollToBottom(true);
+    } catch (e) {
+      console.warn('Draft loading failed:', e);
     }
   };
 
-
-
-  // Response utilities
-  const handleCopyText = (content: string) => {
-    Clipboard.setString(content);
-    showToast('success', 'Copied', 'Strategy brief copied to clipboard.');
-  };
-
-  const handleExportPDF = (name: string) => {
-    showToast('success', 'PDF Export Success', `${name} litigation strategy report saved.`);
-  };
-
-  const handleExportDOCX = (name: string) => {
-    showToast('success', 'Word Export Success', `${name} court arguments report saved.`);
-  };
-
-  const handleShareAnalysis = () => {
-    showToast('info', 'Share Screen', 'Court strategy brief sharing activated.');
-  };
-
-  const handleSaveToCase = () => {
-    showToast('success', 'Saved', 'Court strategy report linked to active case dossiers.');
-  };
-
-  const handleCancelStream = () => {
-    isCancelledRef.current = true;
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+  const clearIntakeDraft = async () => {
+    try {
+      await AsyncStorage.removeItem('courtprep_intake_draft');
+      setCaseTitle('');
+      setCourtNameInput('');
+      setCaseTypeInput('');
+      setRole('Petitioner');
+      setPetitionerName('');
+      setRespondentName('');
+      setAdvocateName('');
+      setCaseFactsText('');
+      setAgreementDate('');
+      setIncidentDate('');
+      setNoticeDate('');
+      setFirDate('');
+      setCauseOfActionDate('');
+      setHearingDate('');
+      setSelectedEvidences({
+        Agreement: false,
+        Emails: false,
+        WhatsAppChats: false,
+        Photographs: false,
+        Videos: false,
+        Audio: false,
+        BankStatements: false,
+        Witnesses: false,
+        MedicalRecords: false,
+        Other: false,
+      });
+      setSelectedReliefs({
+        Recovery: false,
+        Compensation: false,
+        Bail: false,
+        Divorce: false,
+        Injunction: false,
+        SpecificPerformance: false,
+      });
+      setCustomRelief('');
+      setVoiceText('');
+      setInterviewHistory([]);
+      setCurrentQuestionIndex(0);
+    } catch (e) {
+      console.warn('Draft clear failed:', e);
     }
-    if (streamTimerRef.current) {
-      clearInterval(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-    setMessages((prev) =>
-      prev.map((m) => (m.isProcessing ? { ...m, isProcessing: false } : m))
-    );
-    setIsSending(false);
   };
 
-  // Bottom Sheet execution rules
-  const handleExecuteAction = (action: { id: string; label: string; isImmediate: boolean; placeholder?: string }) => {
-    setIsActionsOpen(false);
-    if (action.isImmediate) {
-      let prompt = `Run ${action.label} on case records.`;
-      if (attachments.length > 0) {
-        prompt = `Run ${action.label} on attached case files: ${attachments.map((a) => `"${a.name}"`).join(', ')}. Detail legal arguments.`;
-      }
-      handleSend(prompt, action.id);
+  // Live recording mic pulsing animation
+  useEffect(() => {
+    if (isVoiceRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(micAnimValue, { toValue: 1.3, duration: 800, useNativeDriver: true }),
+          Animated.timing(micAnimValue, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      ).start();
     } else {
-      setComposerPlaceholder(action.placeholder || 'Ask about this case...');
-      setTimeout(() => {
-        textInputRef.current?.focus();
+      micAnimValue.setValue(1);
+    }
+  }, [isVoiceRecording]);
+
+  const toggleVoiceRecording = () => {
+    if (isVoiceRecording) {
+      setIsVoiceRecording(false);
+      // Simulate real-time legal facts extraction
+      showToast('success', 'Recording Completed', 'Speech converted to legal draft.');
+    } else {
+      setIsVoiceRecording(true);
+      setVoiceText('');
+      // Simulate speech conversion in real time
+      let transcriptWords = [
+        "In", "discharge", "of", "the", "outstanding", "dues", "of", "INR", "five", "lakhs",
+        "under", "commercial", "invoices", "dated", "tenth", "March,", "the", "accused", "issued",
+        "a", "cheque", "which", "dishonoured", "upon", "presentation", "on", "thirtieth", "April",
+        "due", "to", "insufficient", "funds.", "Statutory", "legal", "notice", "was", "sent", "on",
+        "twelfth", "May", "but", "accused", "failed", "to", "make", "payment."
+      ];
+      let currentWordIdx = 0;
+      let tempText = "";
+      const timer = setInterval(() => {
+        if (currentWordIdx < transcriptWords.length) {
+          tempText += (currentWordIdx === 0 ? "" : " ") + transcriptWords[currentWordIdx];
+          setVoiceText(tempText);
+          currentWordIdx++;
+        } else {
+          clearInterval(timer);
+          setIsVoiceRecording(false);
+        }
       }, 150);
     }
   };
 
-  // Filter actions based on bottom sheet search phrase
-  const filteredActions = useMemo(() => {
-    const query = actionsSearchQuery.toLowerCase().trim();
-    if (!query) return STRATEGY_ACTIONS;
+  const startAIInterview = () => {
+    setIntakeMethod('ai-guided');
+    setInterviewHistory([{ role: 'ai', text: interviewQuestions[0].text }]);
+    setCurrentQuestionIndex(0);
+  };
 
-    const filterList = (list: { id: string; label: string; desc: string; isImmediate: boolean }[]) =>
-      list.filter((a) => a.label.toLowerCase().includes(query) || a.desc.toLowerCase().includes(query));
+  const handleSendInterviewAnswer = () => {
+    if (!interviewAnswerInput.trim()) return;
 
-    return {
-      courtroomStrategy: filterList(STRATEGY_ACTIONS.courtroomStrategy),
-      courtPreparation: filterList(STRATEGY_ACTIONS.courtPreparation),
-      legalIntelligence: filterList(STRATEGY_ACTIONS.legalIntelligence),
-      litigationIntelligence: filterList(STRATEGY_ACTIONS.litigationIntelligence),
-      courtSimulation: filterList(STRATEGY_ACTIONS.courtSimulation),
-    };
-  }, [actionsSearchQuery]);
+    const answer = interviewAnswerInput;
+    const history = [...interviewHistory, { role: 'user' as const, text: answer }];
+    setInterviewHistory(history);
+    setInterviewAnswerInput('');
 
-  const toggleFavorite = (actionLabel: string) => {
-    setFavorites((prev) => {
-      if (prev.includes(actionLabel)) {
-        return prev.filter((a) => a !== actionLabel);
+    const nextIndex = currentQuestionIndex + 1;
+    if (nextIndex < interviewQuestions.length) {
+      setIsGenerating(true);
+      setTimeout(() => {
+        setInterviewHistory((prev) => [
+          ...prev,
+          { role: 'ai', text: interviewQuestions[nextIndex].text },
+        ]);
+        setCurrentQuestionIndex(nextIndex);
+        setIsGenerating(false);
+      }, 700);
+    } else {
+      // Completed interview
+      setIsGenerating(true);
+      setTimeout(() => {
+        setInterviewHistory((prev) => [
+          ...prev,
+          { role: 'ai', text: "Thank you. I have collected all necessary parameters. Let's analyze and prepare your workspace." },
+        ]);
+        setIsGenerating(false);
+      }, 800);
+    }
+  };
+
+  const triggerCaseAnalysisFromWizard = () => {
+    setShowIntakeWizard(false);
+    clearIntakeDraft();
+    triggerCaseAnalysis();
+  };
+
+  // Load dummy templates based on selected case type
+  const loadWorkspaceData = (caseType: string) => {
+    setSectionsData(getSectionsForStyle(refinementMode));
+    setIntelligenceData(getIntelligenceDataForStyle(refinementMode));
+  };
+
+  // Step 1 -> Step 2 Action
+  const handleSelectSource = (sourceId: string) => {
+    setSelectedSource(sourceId);
+    if (sourceId === 'workspace' && !activeCaseId) {
+      setIsCaseModalOpen(true);
+      return;
+    }
+    if (sourceId === 'manual') {
+      setShowIntakeWizard(true);
+      setIntakeMethod('none');
+      return;
+    }
+    triggerCaseAnalysis();
+  };
+
+  const triggerCaseAnalysis = () => {
+    setWorkspaceStep('analyzing');
+    setGenerationProgress(10);
+    
+    // Simulate premium AI generation and workflow phases
+    let progress = 10;
+    const interval = setInterval(() => {
+      progress += 15;
+      if (progress >= 100) {
+        clearInterval(interval);
+        loadWorkspaceData(activeCaseDetails?.caseType || 'NI Act Case');
+        setWorkspaceStep('workspace');
+        showToast('success', 'Case Workspace Prepared', 'Court Prep dossier successfully generated.');
       } else {
-        return [...prev, actionLabel];
+        setGenerationProgress(progress);
       }
-    });
-    showToast('info', 'Favorites Updated', `Favorites checklist updated.`);
+    }, 300);
   };
 
-  const handleClearWorkspace = () => {
-    setMessages([]);
-    setSessionId(null);
-    setAttachments([]);
-    showToast('info', 'Session Reset', 'Court strategy workspace cleared.');
+  // Perform Refinement (Step 5)
+  const handleRefineWorkspace = (style: string) => {
+    setIsRefinementOpen(false);
+
+    const applyStyle = (regenerate: boolean) => {
+      setRefinementMode(style);
+      showToast('success', 'Argument Style Updated', `Argument style updated to ${style}.`);
+
+      if (regenerate) {
+        setIsGenerating(true);
+        setTimeout(() => {
+          setSectionsData(getSectionsForStyle(style));
+          setIntelligenceData(getIntelligenceDataForStyle(style));
+          setIsGenerating(false);
+          showToast('success', 'Workspace Refined', 'Dossier updated successfully.');
+        }, 1000);
+      }
+    };
+
+    if (sectionsData.length > 0) {
+      Alert.alert(
+        "Apply new style?",
+        "Apply the new style to the current courtroom preparation?",
+        [
+          {
+            text: "Keep Existing",
+            onPress: () => applyStyle(false),
+            style: "cancel"
+          },
+          {
+            text: "Regenerate",
+            onPress: () => applyStyle(true)
+          }
+        ]
+      );
+    } else {
+      setRefinementMode(style);
+      showToast('success', 'Argument Style Updated', `Argument style updated to ${style}.`);
+    }
   };
+
+  // Section level operations
+  const handleRegenerateSection = (sectionId: string) => {
+    showToast('info', 'Regenerating Section', 'Querying AI Court engine...');
+    setTimeout(() => {
+      const refinedSections = getSectionsForStyle(refinementMode);
+      const targetSec = refinedSections.find((s) => s.id === sectionId);
+      setSectionsData((prev) =>
+        prev.map((sec) => {
+          if (sec.id === sectionId && targetSec) {
+            return {
+              ...sec,
+              content: targetSec.content,
+              confidence: Math.min(sec.confidence + 2, 99),
+            };
+          }
+          return sec;
+        })
+      );
+      showToast('success', 'Updated', 'Section rewritten.');
+    }, 1000);
+  };
+
+  const handleCopySection = (content: string) => {
+    Clipboard.setString(content);
+    showToast('success', 'Copied', 'Section content copied to clipboard.');
+  };
+
+  // Export functions (Step 6)
+  const handleExport = (format: string) => {
+    showToast('success', 'Export Commenced', `Dossier exported to ${format} successfully.`);
+  };
+
+  // Mock Courtroom Integration (Step 7)
+  const handleLaunchMockCourt = () => {
+    showToast('info', 'Launching Simulator', 'Booting AI Moot Court simulation room...');
+    router.push({
+      pathname: '/tools/argument-builder',
+      params: { startSimulation: 'true' }
+    });
+  };
+
+  // Toggle sections collapse
+  const toggleSection = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSections((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  const filteredSections = useMemo(() => {
+    if (!workspaceSearch.trim()) return sectionsData;
+    return sectionsData.filter(
+      (s) =>
+        s.title.toLowerCase().includes(workspaceSearch.toLowerCase()) ||
+        s.content.toLowerCase().includes(workspaceSearch.toLowerCase())
+    );
+  }, [sectionsData, workspaceSearch]);
+
+  const activeIntelContent = useMemo(() => {
+    return intelligenceData.find((d) => d.id === activeIntelligenceTab);
+  }, [intelligenceData, activeIntelligenceTab]);
 
   return (
-    <KeyboardSafeChatLayout
-      backgroundColor={theme.background}
-      header={
-        <React.Fragment>
-          {/* HEADER SECTION */}
-          <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
-            <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-              <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
-            </Pressable>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* 1. Header Bar */}
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
 
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Argument Builder</Text>
-            </View>
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Court Prep Workspace</Text>
+          <Text style={styles.headerSubtitle}>Hearing Intelligence Platform</Text>
+        </View>
 
-            <View style={styles.headerRightActions}>
-              <Pressable onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
-                <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
-              </Pressable>
+        <View style={styles.headerRightActions}>
+          <TouchableOpacity onPress={() => setIsAiAssistantOpen(true)} style={[styles.headerBtn, { marginRight: 8 }]}>
+            <Ionicons name="sparkles" size={22} color="#8A5CF5" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsHistoryOpen(true)} style={styles.headerBtn}>
+            <Ionicons name="time-outline" size={22} color={theme.textPrimary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* CASE INTAKE WIZARD OVERLAY VIEW */}
+      {showIntakeWizard ? (
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
+          <View style={[styles.wizardHeader, { borderBottomColor: theme.border }]}>
+            <TouchableOpacity onPress={() => { setShowIntakeWizard(false); clearIntakeDraft(); }} style={styles.wizardBackBtn}>
+              <Ionicons name="close-outline" size={26} color={theme.textPrimary} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[styles.wizardTitle, { color: theme.textPrimary }]}>Manual Facts Entry</Text>
+              <Text style={styles.wizardSubtitle}>Create a complete legal case using structured facts and AI assistance.</Text>
             </View>
+            <TouchableOpacity onPress={clearIntakeDraft} style={styles.clearDraftBtn}>
+              <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '700' }}>Reset</Text>
+            </TouchableOpacity>
           </View>
 
-          {activeCaseDetails && (
-            <View style={[styles.activeCaseBanner, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-              <View style={styles.activeCaseLeft}>
-                <Text style={styles.activeCaseLabel}>CURRENT CASE</Text>
-                <Text style={[styles.activeCaseName, { color: theme.textPrimary }]} numberOfLines={1}>
-                  {activeCaseDetails.name}
-                </Text>
-                <View style={styles.activeCaseSubtitleRow}>
-                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
-                    {activeCaseDetails.caseType || 'Labour Dispute'}
+          {intakeMethod === 'none' && (
+            <ScrollView contentContainerStyle={styles.wizardScroll}>
+              <Text style={[styles.wizardSectionHeading, { color: theme.textPrimary, textAlign: 'center', marginBottom: 20 }]}>
+                Choose how you want to enter your case
+              </Text>
+
+              <View style={styles.wizardMethodGrid}>
+                {/* Method 1: AI Guided (Recommended) */}
+                <TouchableOpacity
+                  style={[styles.wizardMethodCard, { borderColor: '#8A5CF5', backgroundColor: theme.card }]}
+                  onPress={startAIInterview}
+                >
+                  <View style={styles.recommendedBadge}>
+                    <Text style={styles.recommendedBadgeText}>RECOMMENDED</Text>
+                  </View>
+                  <View style={[styles.wizardMethodIconCircle, { backgroundColor: 'rgba(138, 92, 245, 0.15)' }]}>
+                    <Ionicons name="chatbubbles-outline" size={28} color="#8A5CF5" />
+                  </View>
+                  <Text style={[styles.wizardMethodTitle, { color: theme.textPrimary }]}>🤖 AI Guided Interview</Text>
+                  <Text style={[styles.wizardMethodDesc, { color: theme.textSecondary }]}>
+                    Answer single-question legal queries dynamically. AI compiles facts chronologically.
                   </Text>
-                  <Text style={{ color: theme.textMuted, marginHorizontal: 6 }}>•</Text>
-                  <Text style={[styles.activeCaseSubtext, { color: theme.textSecondary }]}>
-                    {activeCaseDetails.courtName || (activeCaseDetails as any).jurisdiction || 'District Court'}
+                </TouchableOpacity>
+
+                {/* Method 2: Write Manually */}
+                <TouchableOpacity
+                  style={[styles.wizardMethodCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => { setIntakeMethod('manual'); setIntakeStep(1); }}
+                >
+                  <View style={[styles.wizardMethodIconCircle, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                    <Ionicons name="create-outline" size={28} color="#10B981" />
+                  </View>
+                  <Text style={[styles.wizardMethodTitle, { color: theme.textPrimary }]}>✍ Write Manually</Text>
+                  <Text style={[styles.wizardMethodDesc, { color: theme.textSecondary }]}>
+                    Fill structured legal forms directly. Recommended for experienced litigators.
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Method 3: Voice Dictation */}
+                <TouchableOpacity
+                  style={[styles.wizardMethodCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => setIntakeMethod('voice')}
+                >
+                  <View style={[styles.wizardMethodIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                    <Ionicons name="mic-outline" size={28} color="#EF4444" />
+                  </View>
+                  <Text style={[styles.wizardMethodTitle, { color: theme.textPrimary }]}>🎤 Voice Dictation</Text>
+                  <Text style={[styles.wizardMethodDesc, { color: theme.textSecondary }]}>
+                    Narrate the case timeline directly. Speech gets transcribed into structured legal folders.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          )}
+
+          {/* METHOD A: WRITE MANUALLY STEP BUILDER */}
+          {intakeMethod === 'manual' && (
+            <View style={{ flex: 1 }}>
+              {/* Steps Progress Indicator */}
+              <View style={styles.wizardProgressContainer}>
+                {[1, 2, 3, 4, 5, 6].map((st) => (
+                  <View
+                    key={st}
+                    style={[
+                      styles.wizardProgressBarDot,
+                      intakeStep >= st ? { backgroundColor: '#10B981' } : { backgroundColor: theme.border },
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <ScrollView contentContainerStyle={styles.wizardScroll}>
+                {intakeStep === 1 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 1: Basic Information</Text>
+                    
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Case Title</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="E.g., Apex Logistics vs Nitin Kumar"
+                      placeholderTextColor={theme.placeholder}
+                      value={caseTitle}
+                      onChangeText={setCaseTitle}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Court Name</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="E.g., Court of Metropolitan Magistrate, Delhi"
+                      placeholderTextColor={theme.placeholder}
+                      value={courtNameInput}
+                      onChangeText={setCourtNameInput}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Case Type</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="E.g., Cheque Dishonour Suit (Sec 138)"
+                      placeholderTextColor={theme.placeholder}
+                      value={caseTypeInput}
+                      onChangeText={setCaseTypeInput}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Your Role</Text>
+                    <View style={styles.wizardRoleGrid}>
+                      {['Petitioner', 'Respondent', 'Plaintiff', 'Defendant', 'Complainant', 'Accused'].map((rl) => (
+                        <TouchableOpacity
+                          key={rl}
+                          style={[
+                            styles.roleSelectBtn,
+                            role === rl && { backgroundColor: '#EF4444', borderColor: '#EF4444' },
+                            { borderColor: theme.border }
+                          ]}
+                          onPress={() => setRole(rl as any)}
+                        >
+                          <Text style={[styles.roleSelectText, role === rl && { color: '#FFFFFF' }, { color: theme.textSecondary }]}>{rl}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {intakeStep === 2 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 2: Parties Details</Text>
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Petitioner / Complainant Name</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="E.g., Apex Logistics Corporation"
+                      placeholderTextColor={theme.placeholder}
+                      value={petitionerName}
+                      onChangeText={setPetitionerName}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Respondent / Accused Name</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="E.g., Nitin Kumar"
+                      placeholderTextColor={theme.placeholder}
+                      value={respondentName}
+                      onChangeText={setRespondentName}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Lead Advocate Name</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="Adv. Sharma & Associates"
+                      placeholderTextColor={theme.placeholder}
+                      value={advocateName}
+                      onChangeText={setAdvocateName}
+                    />
+                  </View>
+                )}
+
+                {intakeStep === 3 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 3: Case Facts</Text>
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Dispute Description</Text>
+                    <TextInput
+                      style={[styles.wizardFactsEditor, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                      placeholder="Describe your case in detail..."
+                      placeholderTextColor={theme.placeholder}
+                      multiline
+                      numberOfLines={10}
+                      value={caseFactsText}
+                      onChangeText={setCaseFactsText}
+                    />
+
+                    {/* Facts Quick Utility bar */}
+                    <View style={styles.wizardFactsUtilityBar}>
+                      <TouchableOpacity style={[styles.utilityActionBtn, { borderColor: theme.border }]} onPress={() => showToast('info', 'Mic active', 'Voice note transcription initialized.')}>
+                        <Ionicons name="mic" size={16} color="#EF4444" />
+                        <Text style={[styles.utilityActionBtnText, { color: theme.textPrimary }]}>Voice</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.utilityActionBtn, { borderColor: theme.border }]} onPress={showAttachmentOptions}>
+                        <Ionicons name="document-attach" size={16} color="#3B82F6" />
+                        <Text style={[styles.utilityActionBtnText, { color: theme.textPrimary }]}>Attach Docs</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.utilityActionBtn, { borderColor: theme.border }]} onPress={showAttachmentOptions}>
+                        <Ionicons name="image" size={16} color="#10B981" />
+                        <Text style={[styles.utilityActionBtnText, { color: theme.textPrimary }]}>Attach Images</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {intakeStep === 4 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 4: Important Dates</Text>
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Agreement Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={agreementDate}
+                      onChangeText={setAgreementDate}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Incident Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={incidentDate}
+                      onChangeText={setIncidentDate}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Notice Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={noticeDate}
+                      onChangeText={setNoticeDate}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>FIR Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={firDate}
+                      onChangeText={setFirDate}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Cause of Action Arisen Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={causeOfActionDate}
+                      onChangeText={setCauseOfActionDate}
+                    />
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary }]}>Hearing Date</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="DD/MM/YYYY"
+                      placeholderTextColor={theme.placeholder}
+                      value={hearingDate}
+                      onChangeText={setHearingDate}
+                    />
+                  </View>
+                )}
+
+                {intakeStep === 5 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 5: Evidence Classification</Text>
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary, marginBottom: 12 }]}>
+                      Select all evidence types currently available:
+                    </Text>
+
+                    <View style={styles.evidenceGrid}>
+                      {Object.keys(selectedEvidences).map((ev) => (
+                        <TouchableOpacity
+                          key={ev}
+                          style={[
+                            styles.evidenceCheckboxRow,
+                            { borderColor: theme.border, backgroundColor: theme.surface },
+                            selectedEvidences[ev] && { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.08)' },
+                          ]}
+                          onPress={() => setSelectedEvidences((prev) => ({ ...prev, [ev]: !prev[ev] }))}
+                        >
+                          <Ionicons
+                            name={selectedEvidences[ev] ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={selectedEvidences[ev] ? '#10B981' : theme.textSecondary}
+                          />
+                          <Text style={[styles.evidenceLabel, { color: theme.textPrimary }]}>{ev}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {intakeStep === 6 && (
+                  <View style={styles.wizardStepForm}>
+                    <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary }]}>Section 6: Relief Requested</Text>
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary, marginBottom: 12 }]}>
+                      Select primary relief options sought:
+                    </Text>
+
+                    <View style={styles.evidenceGrid}>
+                      {[
+                        { id: 'Recovery', label: 'Financial Recovery' },
+                        { id: 'Compensation', label: 'Compensation / Damages' },
+                        { id: 'Bail', label: 'Bail / Anticipatory Bail' },
+                        { id: 'Divorce', label: 'Divorce / Matrimonial Relief' },
+                        { id: 'Injunction', label: 'Permanent Injunction' },
+                        { id: 'SpecificPerformance', label: 'Specific Performance' }
+                      ].map((rel) => (
+                        <TouchableOpacity
+                          key={rel.id}
+                          style={[
+                            styles.evidenceCheckboxRow,
+                            { borderColor: theme.border, backgroundColor: theme.surface },
+                            selectedReliefs[rel.id] && { borderColor: '#3B82F6', backgroundColor: 'rgba(59, 130, 246, 0.08)' },
+                          ]}
+                          onPress={() => setSelectedReliefs((prev) => ({ ...prev, [rel.id]: !prev[rel.id] }))}
+                        >
+                          <Ionicons
+                            name={selectedReliefs[rel.id] ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={selectedReliefs[rel.id] ? '#3B82F6' : theme.textSecondary}
+                          />
+                          <Text style={[styles.evidenceLabel, { color: theme.textPrimary }]}>{rel.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <Text style={[styles.wizardInputLabel, { color: theme.textSecondary, marginTop: 20 }]}>Custom Relief / Additional Prayers</Text>
+                    <TextInput
+                      style={[styles.wizardTextInputField, { color: theme.textPrimary, borderColor: theme.border }]}
+                      placeholder="State any specific relief or order requests..."
+                      placeholderTextColor={theme.placeholder}
+                      value={customRelief}
+                      onChangeText={setCustomRelief}
+                    />
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* Form Navigation Controls */}
+              <View style={[styles.wizardFooterControls, { borderTopColor: theme.border, backgroundColor: theme.card }]}>
+                {intakeStep > 1 ? (
+                  <TouchableOpacity style={[styles.navigationBtn, { borderColor: theme.border }]} onPress={() => setIntakeStep((prev) => prev - 1)}>
+                    <Ionicons name="arrow-back" size={16} color={theme.textPrimary} style={{ marginRight: 6 }} />
+                    <Text style={[styles.navigationBtnText, { color: theme.textPrimary }]}>Previous</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[styles.navigationBtn, { borderColor: theme.border }]} onPress={() => setIntakeMethod('none')}>
+                    <Text style={[styles.navigationBtnText, { color: theme.textPrimary }]}>Dashboard</Text>
+                  </TouchableOpacity>
+                )}
+
+                {intakeStep < 6 ? (
+                  <TouchableOpacity style={styles.navigationBtnActive} onPress={() => setIntakeStep((prev) => prev + 1)}>
+                    <Text style={styles.navigationBtnActiveText}>Next Step</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[styles.navigationBtnActive, { backgroundColor: '#10B981' }]} onPress={triggerCaseAnalysisFromWizard}>
+                    <Ionicons name="sparkles" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.navigationBtnActiveText}>Analyze with AI</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* METHOD B: VOICE DICTATION WORKFLOW */}
+          {intakeMethod === 'voice' && (
+            <View style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={styles.wizardScroll}>
+                <Text style={[styles.wizardFormHeaderTitle, { color: theme.textPrimary, textAlign: 'center', marginBottom: 6 }]}>
+                  Narrate Your Case Facts
+                </Text>
+                <Text style={{ fontSize: 13, color: theme.textSecondary, textAlign: 'center', marginBottom: 30 }}>
+                  Speak details naturally. Our legal speech parser maps names, invoices, dates, and causes of action automatically.
+                </Text>
+
+                {/* Pulser Mic Interface */}
+                <View style={styles.micInterfaceContainer}>
+                  <Animated.View
+                    style={[
+                      styles.micPulsingRing,
+                      {
+                        transform: [{ scale: micAnimValue }],
+                        opacity: isVoiceRecording ? 0.4 : 0.1,
+                        backgroundColor: '#EF4444',
+                      },
+                    ]}
+                  />
+                  <TouchableOpacity
+                    style={[styles.micRecordCircle, { backgroundColor: isVoiceRecording ? '#EF4444' : '#E2E8F0' }]}
+                    onPress={toggleVoiceRecording}
+                  >
+                    <Ionicons name={isVoiceRecording ? 'stop' : 'mic'} size={38} color={isVoiceRecording ? '#FFFFFF' : '#475569'} />
+                  </TouchableOpacity>
+                  <Text style={[styles.recordingStatusLabel, { color: theme.textPrimary }]}>
+                    {isVoiceRecording ? 'Listening & Transcribing...' : 'Tap Mic to Start Dictating'}
                   </Text>
                 </View>
-              </View>
-              <View style={styles.activeCaseRight}>
+
+                {/* Transcription output box */}
+                <View style={[styles.transcriptionCard, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+                  <Text style={[styles.transcriptionHeading, { color: theme.textSecondary }]}>Live Transcription</Text>
+                  <TextInput
+                    style={[styles.transcriptionEditorText, { color: theme.textPrimary }]}
+                    multiline
+                    value={voiceText}
+                    onChangeText={setVoiceText}
+                    placeholder="Transcription text will display here in real time. Feel free to edit after dictation completes..."
+                    placeholderTextColor={theme.placeholder}
+                  />
+                </View>
+              </ScrollView>
+
+              <View style={[styles.wizardFooterControls, { borderTopColor: theme.border, backgroundColor: theme.card }]}>
+                <TouchableOpacity style={[styles.navigationBtn, { borderColor: theme.border }]} onPress={() => setIntakeMethod('none')}>
+                  <Text style={[styles.navigationBtnText, { color: theme.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => setIsCaseModalOpen(true)}
-                  style={[styles.changeCaseBtn, { borderColor: '#8A5CF5' }]}
+                  style={[styles.navigationBtnActive, { backgroundColor: '#10B981' }, !voiceText && { opacity: 0.5 }]}
+                  disabled={!voiceText}
+                  onPress={triggerCaseAnalysisFromWizard}
                 >
-                  <Text style={styles.changeCaseBtnText}>Change</Text>
+                  <Ionicons name="sparkles" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.navigationBtnActiveText}>Analyze with AI</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
-        </React.Fragment>
-      }
-      messages={
-        messages.length === 0 ? (
-          activeCaseDetails ? (
-            <View style={{ flex: 1 }} />
-          ) : (
-            <ChatWelcome 
-              title="Argument Builder" 
-              subtitle="Construct trial positions, rebuttals, and core arguments."
-              icon="⚖" 
-            />
-          )
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
-            onScroll={(e) => {
-              const offset = e.nativeEvent.contentOffset.y;
-              const contentHeight = e.nativeEvent.contentSize.height;
-              const layoutHeight = e.nativeEvent.layoutMeasurement.height;
-              const distanceFromBottom = contentHeight - (offset + layoutHeight);
-              isAtBottomRef.current = distanceFromBottom <= 50;
 
-              const isScrollingUp = offset < lastOffsetRef.current;
-              lastOffsetRef.current = offset;
-
-              if (distanceFromBottom <= 50) {
-                handleScrollAction(false);
-              } else {
-                const shouldShow = isScrollingUp && 
-                                   distanceFromBottom > 100 && 
-                                   messages.length > 4 && 
-                                   inputVal.trim() === '';
-                handleScrollAction(shouldShow);
-              }
-            }}
-            onContentSizeChange={() => {
-              if (isAtBottomRef.current && !isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            onLayout={() => {
-              if (!isSending) {
-                scrollToBottom(true);
-              }
-            }}
-            renderItem={({ item }) => {
-              return (
-                <ChatMessageBubble
-                  message={item}
-                  aiName="Argument Builder"
-                  aiIcon="⚖"
-                  onCopy={() => {
-                    Clipboard.setString(item.content);
-                    showToast('success', 'Copied', 'Arguments copied to clipboard.');
-                  }}
-                  onShare={async () => {
-                    try {
-                      await Share.share({ message: item.content });
-                    } catch (err) {
-                      console.error(err);
-                    }
-                  }}
-                  onEditMessage={(msgId, newText) => handleSend(newText, undefined, msgId)}
+          {/* METHOD C: AI GUIDED INTERVIEW WORKFLOW */}
+          {intakeMethod === 'ai-guided' && (
+            <View style={{ flex: 1 }}>
+              {/* Progress counter */}
+              <View style={styles.wizardProgressRow}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#8A5CF5' }}>
+                  CASE DOSSIER INTAKE PROGRESS
+                </Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.textSecondary }}>
+                  Question {currentQuestionIndex + 1} of {interviewQuestions.length}
+                </Text>
+              </View>
+              <View style={[styles.interviewProgressBarBg, { backgroundColor: theme.border }]}>
+                <View
+                  style={[
+                    styles.interviewProgressBarFill,
+                    {
+                      width: `${((currentQuestionIndex + 1) / interviewQuestions.length) * 100}%`,
+                      backgroundColor: '#8A5CF5',
+                    },
+                  ]}
                 />
-              );
-            }}
-            ListFooterComponent={null}
-          />
-        )
-      }
-      scrollBtn={
-        showScrollBtn && (
-          <Animated.View
+              </View>
+
+              {/* Chat styled list */}
+              <ScrollView
+                style={{ flex: 1, padding: 16 }}
+                contentContainerStyle={{ gap: 12, paddingBottom: 40 }}
+                ref={(ref) => ref?.scrollToEnd({ animated: true })}
+              >
+                {interviewHistory.map((chat, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.chatBubbleRow,
+                      chat.role === 'user' ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' },
+                    ]}
+                  >
+                    {chat.role === 'ai' && (
+                      <View style={styles.chatAvatar}>
+                        <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+                      </View>
+                    )}
+                    <View
+                      style={[
+                        styles.chatBubble,
+                        chat.role === 'user'
+                          ? { backgroundColor: '#8A5CF5', borderBottomRightRadius: 2 }
+                          : { backgroundColor: theme.surface, borderBottomLeftRadius: 2, borderColor: theme.border, borderWidth: 1 },
+                      ]}
+                    >
+                      <Text style={[styles.chatBubbleText, chat.role === 'user' ? { color: '#FFFFFF' } : { color: theme.textPrimary }]}>
+                        {chat.text}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
+                {isGenerating && (
+                  <View style={styles.chatBubbleRow}>
+                    <View style={styles.chatAvatar}>
+                      <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+                    </View>
+                    <View style={[styles.chatBubble, { backgroundColor: theme.surface, borderBottomLeftRadius: 2 }]}>
+                      <ActivityIndicator size="small" color="#8A5CF5" />
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* Answer input Composer */}
+              <View style={[styles.interviewComposerContainer, { borderTopColor: theme.border, backgroundColor: theme.card }]}>
+                <TextInput
+                  style={[styles.interviewInput, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surface }]}
+                  placeholder="Type your response here..."
+                  placeholderTextColor={theme.placeholder}
+                  value={interviewAnswerInput}
+                  onChangeText={setInterviewAnswerInput}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.interviewSendBtn,
+                    !interviewAnswerInput.trim() && { opacity: 0.5 },
+                  ]}
+                  disabled={!interviewAnswerInput.trim()}
+                  onPress={handleSendInterviewAnswer}
+                >
+                  <Ionicons name="send" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              {currentQuestionIndex + 1 === interviewQuestions.length && (
+                <View style={[styles.wizardFooterControls, { borderTopColor: theme.border, backgroundColor: theme.card }]}>
+                  <TouchableOpacity style={[styles.navigationBtn, { borderColor: theme.border }]} onPress={() => setIntakeMethod('none')}>
+                    <Text style={[styles.navigationBtnText, { color: theme.textPrimary }]}>Exit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.navigationBtnActive, { backgroundColor: '#10B981' }]}
+                    onPress={triggerCaseAnalysisFromWizard}
+                  >
+                    <Ionicons name="sparkles" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.navigationBtnActiveText}>Compile & Analyze</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+      ) : (
+        // RENDER DEFAULT WORKSPACE SCREENS
+        <React.Fragment>
+          {workspaceStep === 'source' && (
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+              {/* STEP 1: CHOOSE SOURCE */}
+              <Text style={[styles.welcomeMainTitle, { color: theme.textPrimary }]}>Hearing Preparation Setup</Text>
+              <Text style={[styles.welcomeSubText, { color: theme.textSecondary }]}>
+                Select your case source. Our AI legal brain will analyze documents, map facts, research precedents, and compile a 12-section court folder instantly.
+              </Text>
+
+              <View style={styles.sourceGrid}>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceCard,
+                    { borderColor: theme.border, backgroundColor: theme.card },
+                  ]}
+                  onPress={() => handleSelectSource('workspace')}
+                >
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(138, 92, 245, 0.15)' }]}>
+                    <Ionicons name="folder-open-outline" size={28} color="#8A5CF5" />
+                  </View>
+                  <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Case Workspace</Text>
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
+                    Pull context directly from existing case folders and dossiers.
+                  </Text>
+                  {activeCaseDetails && (
+                    <View style={styles.activeCaseBadge}>
+                      <Text style={styles.activeCaseBadgeText} numberOfLines={1}>
+                        Active: {activeCaseDetails.name}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.sourceCard,
+                    { borderColor: theme.border, backgroundColor: theme.card },
+                  ]}
+                  onPress={showAttachmentOptions}
+                >
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                    <Ionicons name="cloud-upload-outline" size={28} color="#EF4444" />
+                  </View>
+                  <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Upload Legal Documents</Text>
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
+                    Extract parties, timeline, and facts from PDF, Word or images.
+                  </Text>
+                  {attachments.length > 0 && (
+                    <View style={[styles.activeCaseBadge, { backgroundColor: '#FEE2E2' }]}>
+                      <Text style={[styles.activeCaseBadgeText, { color: '#EF4444' }]}>
+                        {attachments.length} file(s) attached
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.sourceCard,
+                    { borderColor: theme.border, backgroundColor: theme.card },
+                  ]}
+                  onPress={() => handleSelectSource('manual')}
+                >
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                    <Ionicons name="create-outline" size={28} color="#10B981" />
+                  </View>
+                  <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Manual Facts Entry</Text>
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
+                    Launch Intake Wizard: Write details, dictate, or run an AI interview.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {attachments.length > 0 && (
+                <View style={styles.attachmentsListWrapper}>
+                  <Text style={[styles.attachmentsHeading, { color: theme.textPrimary }]}>Attached Files</Text>
+                  {attachments.map((file) => (
+                    <View key={file.name} style={[styles.attachmentRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                      <Ionicons name="document-text" size={20} color="#EF4444" />
+                      <Text style={[styles.attachmentNameText, { color: theme.textPrimary }]} numberOfLines={1}>
+                        {file.name}
+                      </Text>
+                      <TouchableOpacity onPress={() => handleRemoveAttachment(file.name)}>
+                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  <TouchableOpacity style={styles.generateButton} onPress={triggerCaseAnalysis}>
+                    <Ionicons name="sparkles" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.generateButtonText}>Initialize Court preparation</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          {workspaceStep === 'analyzing' && (
+            <View style={styles.analyzingContainer}>
+              <ActivityIndicator size="large" color="#EF4444" />
+              <Text style={[styles.analyzingText, { color: theme.textPrimary }]}>Analyzing Case Folders...</Text>
+              <Text style={[styles.analyzingSubtext, { color: theme.textSecondary }]}>
+                AI is mapping evidence, building timeline, extracting legal issues and identifying applicable laws.
+              </Text>
+              <View style={styles.progressBarBg}>
+                <View style={[styles.progressBarFill, { width: `${generationProgress}%` }]} />
+              </View>
+              <Text style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>{generationProgress}% Compiled</Text>
+            </View>
+          )}
+
+          {workspaceStep === 'workspace' && (
+            <View style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={styles.workspaceScroll} showsVerticalScrollIndicator={false}>
+                {/* STEP 2: CASE INTELLIGENCE DASHBOARD */}
+                <View style={[styles.dashboardCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={styles.dashboardHeader}>
+                    <Ionicons name="bar-chart-outline" size={20} color="#EF4444" />
+                    <Text style={[styles.dashboardTitle, { color: theme.textPrimary }]}>Case Intelligence Dashboard</Text>
+                  </View>
+
+                  <View style={styles.dashboardMetricsGrid}>
+                    <View style={[styles.metricBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={styles.metricLabel}>Strength Score</Text>
+                      <Text style={[styles.metricValue, { color: '#10B981' }]}>{caseMetrics.strengthScore}%</Text>
+                    </View>
+
+                    <View style={[styles.metricBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={styles.metricLabel}>Risk Level</Text>
+                      <Text style={[styles.metricValue, { color: '#F59E0B' }]}>{caseMetrics.riskLevel}</Text>
+                    </View>
+
+                    <View style={[styles.metricBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={styles.metricLabel}>Evidence Strength</Text>
+                      <Text style={[styles.metricValue, { color: '#10B981' }]}>{caseMetrics.evidenceStrength}</Text>
+                    </View>
+
+                    <View style={[styles.metricBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={styles.metricLabel}>Confidence</Text>
+                      <Text style={[styles.metricValue, { color: theme.primary }]}>{caseMetrics.confidenceScore}%</Text>
+                    </View>
+                  </View>
+
+                  {/* Extra details (Acts, sections, deadlines) */}
+                  <View style={styles.dashboardDetailsRow}>
+                    <Text style={[styles.detailsLabel, { color: theme.textSecondary }]}>Applicable Acts:</Text>
+                    <Text style={[styles.detailsValue, { color: theme.textPrimary }]}>{caseMetrics.applicableActs}</Text>
+                  </View>
+                  <View style={styles.dashboardDetailsRow}>
+                    <Text style={[styles.detailsLabel, { color: theme.textSecondary }]}>Key Issue:</Text>
+                    <Text style={[styles.detailsValue, { color: theme.textPrimary }]} numberOfLines={1}>
+                      {caseMetrics.keyLegalIssues}
+                    </Text>
+                  </View>
+                  <View style={styles.dashboardDetailsRow}>
+                    <Text style={[styles.detailsLabel, { color: theme.textSecondary }]}>Missing Info:</Text>
+                    <Text style={[styles.detailsValue, { color: '#EF4444' }]} numberOfLines={1}>
+                      {caseMetrics.missingInfo}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* SEARCH COMPRESSED */}
+                <View style={[styles.searchBar, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+                  <Ionicons name="search-outline" size={16} color={theme.textMuted} />
+                  <TextInput
+                    style={[styles.searchInput, { color: theme.textPrimary }]}
+                    placeholder="Search Court Preparation Dossier..."
+                    placeholderTextColor={theme.placeholder}
+                    value={workspaceSearch}
+                    onChangeText={setWorkspaceSearch}
+                  />
+                </View>
+
+                {/* STEP 3: COURT PREPARATION WORKSPACE (12 SECTIONS) */}
+                <Text style={[styles.workspaceSubheading, { color: theme.textPrimary }]}>Case Folder & Sections</Text>
+                
+                {filteredSections.map((sec) => {
+                  const isExpanded = expandedSections[sec.id];
+                  return (
+                    <View key={sec.id} style={[styles.sectionContainer, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                      <TouchableOpacity
+                        style={styles.sectionHeader}
+                        onPress={() => toggleSection(sec.id)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.sectionHeaderLeft}>
+                          <Ionicons name={sec.icon as any} size={20} color="#EF4444" style={{ marginRight: 10 }} />
+                          <View>
+                            <Text style={[styles.sectionTitleText, { color: theme.textPrimary }]}>{sec.title}</Text>
+                            <Text style={[styles.sectionDescText, { color: theme.textSecondary }]}>{sec.description}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.sectionHeaderRight}>
+                          <View style={[styles.confidencePill, { backgroundColor: sec.confidence > 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)' }]}>
+                            <Text style={[styles.confidencePillText, { color: sec.confidence > 90 ? '#10B981' : '#F59E0B' }]}>
+                              {sec.confidence}% Conf
+                            </Text>
+                          </View>
+                          <Ionicons
+                            name={isExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
+                            size={18}
+                            color={theme.textMuted}
+                          />
+                        </View>
+                      </TouchableOpacity>
+
+                      {isExpanded && (
+                        <View style={[styles.sectionBody, { borderTopColor: theme.border }]}>
+                          <Text style={[styles.sectionBodyContent, { color: theme.textPrimary }]}>{sec.content}</Text>
+
+                          <View style={[styles.whyCallout, { backgroundColor: theme.surface }]}>
+                            <Text style={[styles.whyTitle, { color: theme.textSecondary }]}>💡 Explain Why</Text>
+                            <Text style={[styles.whyContent, { color: theme.textSecondary }]}>{sec.why}</Text>
+                          </View>
+
+                          {/* Section Action Row */}
+                          <View style={styles.sectionActionsRow}>
+                            <TouchableOpacity style={[styles.sectionActionButton, { borderColor: theme.border }]} onPress={() => handleRegenerateSection(sec.id)}>
+                              <Ionicons name="sync-outline" size={14} color={theme.textSecondary} />
+                              <Text style={[styles.sectionActionText, { color: theme.textSecondary }]}>Rewrite</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={[styles.sectionActionButton, { borderColor: theme.border }]} onPress={() => handleCopySection(sec.content)}>
+                              <Ionicons name="copy-outline" size={14} color={theme.textSecondary} />
+                              <Text style={[styles.sectionActionText, { color: theme.textSecondary }]}>Copy</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={[styles.sectionActionButton, { borderColor: theme.border }]}
+                              onPress={() => {
+                                showToast('info', 'Editor Open', 'Section layout unlocked.');
+                              }}
+                            >
+                              <Ionicons name="create-outline" size={14} color={theme.textSecondary} />
+                              <Text style={[styles.sectionActionText, { color: theme.textSecondary }]}>Edit</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {/* STEP 4: COURT PREPARATION INTELLIGENCE (PREMIUM PANEL) */}
+                <View style={[styles.intelligenceContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={styles.intelligenceHeader}>
+                    <Ionicons name="bulb" size={22} color="#EF4444" />
+                    <Text style={[styles.intelligenceTitle, { color: theme.textPrimary }]}>Hearing Intelligence Tools</Text>
+                  </View>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.intelligenceTabsScroll}
+                  >
+                    {intelligenceData.map((tab) => (
+                      <TouchableOpacity
+                        key={tab.id}
+                        style={[
+                          styles.intelligenceTab,
+                          activeIntelligenceTab === tab.id && [styles.intelligenceTabActive, { backgroundColor: '#EF4444' }],
+                        ]}
+                        onPress={() => setActiveIntelligenceTab(tab.id)}
+                      >
+                        <Ionicons
+                          name={tab.icon as any}
+                          size={14}
+                          color={activeIntelligenceTab === tab.id ? '#FFFFFF' : theme.textSecondary}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text
+                          style={[
+                            styles.intelligenceTabText,
+                            { color: activeIntelligenceTab === tab.id ? '#FFFFFF' : theme.textSecondary },
+                          ]}
+                        >
+                          {tab.title}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {activeIntelContent && (
+                    <View style={[styles.intelligenceContentCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={[styles.intelDescription, { color: theme.textSecondary }]}>
+                        {activeIntelContent.description}
+                      </Text>
+                      <Text style={[styles.intelBody, { color: theme.textPrimary }]}>{activeIntelContent.content}</Text>
+
+                      {/* Actions for intel tab */}
+                      <View style={styles.intelActionsRow}>
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => handleCopySection(activeIntelContent.content)}
+                        >
+                          <Ionicons name="copy-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                          <Text style={styles.intelActionBtnText}>Copy Notes</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => showToast('success', 'Regenerating', 'Refining speech vectors...')}
+                        >
+                          <Ionicons name="refresh-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                          <Text style={styles.intelActionBtnText}>Re-analyze</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* STEP 7: MOCK COURTROOM INTEGRATION */}
+                <View style={[styles.mockCourtCard, { borderColor: '#8A5CF5' }]}>
+                  <View style={styles.mockCourtHeader}>
+                    <Ionicons name="people" size={24} color="#8A5CF5" />
+                    <Text style={styles.mockCourtTitle}>Practice in Mock Courtroom</Text>
+                  </View>
+                  <Text style={styles.mockCourtDesc}>
+                    Ready for the trial? Launch our AI Courtroom simulation. Practice oral advocacy against AI Judges, opposing counsel, and receive immediate scoring.
+                  </Text>
+                  <TouchableOpacity style={styles.mockCourtBtn} onPress={handleLaunchMockCourt}>
+                    <Text style={styles.mockCourtBtnText}>Launch Simulation Room</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* STEP 6: EXPORT BAR */}
+                <View style={[styles.exportBar, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.exportTitle, { color: theme.textSecondary }]}>Export Folder</Text>
+                  <View style={styles.exportButtonsGrid}>
+                    <TouchableOpacity style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleExport('PDF')}>
+                      <Ionicons name="document-outline" size={16} color="#EF4444" />
+                      <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>PDF</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleExport('DOCX')}>
+                      <Ionicons name="document-text-outline" size={16} color="#3B82F6" />
+                      <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>Word</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleCopySection(JSON.stringify(sectionsData))}>
+                      <Ionicons name="copy-outline" size={16} color="#10B981" />
+                      <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>Copy All</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.exportBtn, { borderColor: theme.border }]} onPress={() => handleExport('Share')}>
+                      <Ionicons name="share-social-outline" size={16} color="#8A5CF5" />
+                      <Text style={[styles.exportBtnText, { color: theme.textPrimary }]}>Share</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.exportToolbarFooter}>
+                    <TouchableOpacity
+                      style={styles.footerUtilityBtn}
+                      onPress={() => showToast('success', 'Case Linked', 'Court prep dossier pinned to CaseWorkspace')}
+                    >
+                      <Ionicons name="link-outline" size={14} color={theme.textSecondary} />
+                      <Text style={[styles.footerUtilityBtnText, { color: theme.textSecondary }]}>Link Workspace</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.footerUtilityBtn}
+                      onPress={() => showToast('info', 'Version History', 'v1.2 (Active)')}
+                    >
+                      <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
+                      <Text style={[styles.footerUtilityBtnText, { color: theme.textSecondary }]}>Version History</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={{ height: 100 }} />
+              </ScrollView>
+
+
+              {/* STEP 5: AI REFINEMENT FLOATING BUTTON */}
+              <TouchableOpacity
+                style={[styles.floatingRefinementBtn, Shadows.md]}
+                onPress={() => setIsRefinementOpen(true)}
+              >
+                <Text style={styles.floatingRefinementBtnText}>✨ Style: {refinementMode}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </React.Fragment>
+      )}
+
+      {/* Refinement Modal Selector */}
+      <Modal visible={isRefinementOpen} animationType="slide" transparent={true} onRequestClose={() => setIsRefinementOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsRefinementOpen(false)} />
+          <View style={[styles.bottomSheetContainer, Shadows.modal, { height: height * 0.75 }]}>
+            <View style={styles.bottomSheetDragHandle} />
+            <View style={styles.bottomSheetHeader}>
+              <Text style={styles.bottomSheetTitle}>AI Argument Refinement Style</Text>
+              <TouchableOpacity onPress={() => setIsRefinementOpen(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1 }}>
+              {[
+                'Courtroom Style',
+                'Formal',
+                'Judge Friendly',
+                'Senior Counsel Style',
+                'Aggressive Litigation',
+                'Neutral',
+                'Concise',
+                'Detailed',
+                'Plain English',
+                'Hindi Legal Drafting',
+              ].map((style) => (
+                <TouchableOpacity
+                  key={style}
+                  style={[
+                    styles.refinementStyleRow,
+                    { borderBottomColor: theme.border },
+                    refinementMode === style && { 
+                      backgroundColor: isDark ? 'rgba(138, 92, 245, 0.15)' : 'rgba(138, 92, 245, 0.08)',
+                      borderLeftWidth: 3,
+                      borderLeftColor: '#8A5CF5',
+                    },
+                  ]}
+                  onPress={() => handleRefineWorkspace(style)}
+                >
+                  <Text
+                    style={[
+                      styles.refinementStyleText,
+                      { color: theme.textPrimary },
+                      refinementMode === style && { fontWeight: '800', color: '#8A5CF5' },
+                    ]}
+                  >
+                    {style}
+                  </Text>
+                  {refinementMode === style && <Ionicons name="checkmark" size={18} color="#8A5CF5" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* AI Copilot Chat Drawer */}
+      <Modal visible={isAiAssistantOpen} transparent animationType="slide" onRequestClose={() => setIsAiAssistantOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsAiAssistantOpen(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={[
-              styles.scrollDownBtn,
-              {
-                opacity: scrollBtnOpacity,
-                transform: [{ scale: scrollBtnScale }]
+              styles.chatDrawerContainer, 
+              { 
+                backgroundColor: theme.surface,
+                height: sheetSize === 'collapsed' ? 250 : sheetSize === 'full' ? height * 0.9 : height * 0.6 
               }
             ]}
           >
-            <Pressable
-              onPress={() => {
-                handleScrollAction(false);
-                scrollToBottom(true);
-              }}
-              style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-            >
-              <Ionicons name="arrow-down" size={18} color="#000000" />
-            </Pressable>
-          </Animated.View>
-        )
-      }
-      attachments={
-        attachments.length > 0 && (
-          <View style={styles.attachmentsBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {attachments.map((a) => {
-                const fileMock = MOCK_CASE_FILES.find((f) => f.name === a.name);
-                const docType = fileMock?.detectedType || 'Case File';
-                return (
-                  <View key={a.name} style={styles.attachmentChip}>
-                    <Ionicons name="document-text" size={16} color="#EF4444" />
-                    <View style={{ marginHorizontal: 6, maxWidth: 140 }}>
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        {a.name}
-                      </Text>
-                      {detectedCaseType ? (
-                        <View style={styles.detectedBadge}>
-                          <Text style={styles.detectedBadgeText}>{docType}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
-                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-              <TouchableOpacity style={styles.addMoreBtn} onPress={showAttachmentOptions}>
-                <Ionicons name="add" size={16} color="#475569" />
-                <Text style={styles.addMoreText}>Add Document</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        )
-      }
-      composer={
-        <ChatComposer
-          value={inputVal}
-          onChangeText={setInputVal}
-          sending={isSending}
-          onSend={(text) => handleSend(text)}
-          onCancelStream={handleCancelStream}
-          onAddAttachment={showAttachmentOptions}
-          onPressSparkles={() => { setActionsSearchQuery(''); setIsActionsOpen(true); }}
-          placeholder={activeCaseId ? "Ask anything about this case..." : "Build legal arguments..."}
-          autoFocus={shouldComposerFocus}
-          simulatedVoiceText="Construct final submissions and counterarguments for this claim."
-        />
-      }
-    >
+            <View style={{ flex: 1 }}>
+              <Pressable 
+                onPress={() => {
+                  if (sheetSize === 'collapsed') setSheetSize('expanded');
+                  else if (sheetSize === 'expanded') setSheetSize('full');
+                  else setSheetSize('collapsed');
+                }}
+              >
+                <View style={styles.bottomSheetDragHandle} />
+              </Pressable>
+              <View style={styles.bottomSheetHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+                  <Text style={styles.bottomSheetTitle}>Court Prep Copilot</Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsAiAssistantOpen(false)}>
+                  <Ionicons name="close-circle" size={24} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
 
+              {/* Chat dialog Scrollable lists */}
+              <ScrollView ref={copilotScrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 14 }} showsVerticalScrollIndicator={false}>
+                {chatReplies.map((msg, idx) => (
+                  <View key={idx} style={[styles.chatBubble, msg.sender === 'user' ? styles.userBubble : [styles.aiBubble, { backgroundColor: theme.surfaceVariant }]]}>
+                    <Text style={msg.sender === 'user' ? styles.userBubbleText : styles.aiBubbleText}>
+                      {msg.text}
+                    </Text>
+                  </View>
+                ))}
+                {isAiThinking && (
+                  <View style={{ alignItems: 'center', marginVertical: 8 }}>
+                    <ActivityIndicator size="small" color="#8A5CF5" />
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* Quick Prompts */}
+              <View style={styles.promptBubbleScroll}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.promptBubbleScrollContent}>
+                  {['Refine this summary', 'Prepare oral submission', 'Draft witness questions', 'List judge questions', 'Aggressive counter-arguments'].map(prompt => (
+                    <TouchableOpacity
+                      key={prompt}
+                      style={[styles.promptBubble, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                      onPress={() => handleSendChat(prompt)}
+                      disabled={isAiThinking}
+                    >
+                      <Text style={[styles.promptBubbleText, { color: '#8A5CF5' }]}>{prompt}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Chat messenger input */}
+              <View style={[styles.chatComposer, { backgroundColor: theme.surfaceVariant, marginBottom: Platform.OS === 'ios' ? 24 : 10 }]}>
+                <TextInput
+                  style={[styles.chatComposerInput, { color: theme.textPrimary }]}
+                  placeholder="Ask Court Prep Copilot..."
+                  placeholderTextColor={theme.placeholder}
+                  value={chatInput}
+                  onChangeText={setChatInput}
+                  onSubmitEditing={() => handleSendChat()}
+                  editable={!isAiThinking}
+                />
+                <TouchableOpacity 
+                  style={[
+                    styles.chatComposerSendBtn, 
+                    { backgroundColor: '#8A5CF5' },
+                    (!chatInput.trim() || isAiThinking) && { opacity: 0.5 }
+                  ]} 
+                  onPress={() => handleSendChat()}
+                  disabled={!chatInput.trim() || isAiThinking}
+                >
+                  <Ionicons name="send" size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* Legacy modals preserved */}
       <AttachmentBottomSheet
         visible={isBottomSheetVisible}
         onClose={hideAttachmentOptions}
         onSelectOption={handleSelectOption}
       />
 
-      <CustomCameraModal
-        visible={isCameraVisible}
-        onClose={hideCamera}
-        onConfirm={handleCameraConfirm}
-      />
-
-      {/* COURTROOM STRATEGY ACTIONS BOTTOM SHEET */}
-      <Modal visible={isActionsOpen} animationType="slide" transparent={true} onRequestClose={() => setIsActionsOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsActionsOpen(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.bottomSheetContainer, Shadows.modal]}>
-                <View style={styles.bottomSheetDragHandle} />
-
-                <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Litigation Actions Menu</Text>
-                  <TouchableOpacity onPress={() => setIsActionsOpen(false)}>
-                    <Ionicons name="close-circle" size={24} color="#94A3B8" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Actions filter search input */}
-                <View style={styles.sheetSearchContainer}>
-                  <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={styles.sheetSearchInput}
-                    placeholder="Search strategy workflows (e.g. counter, judge)..."
-                    value={actionsSearchQuery}
-                    onChangeText={setActionsSearchQuery}
-                  />
-                  {actionsSearchQuery ? (
-                    <TouchableOpacity onPress={() => setActionsSearchQuery('')}>
-                      <Ionicons name="close" size={18} color="#94A3B8" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <ScrollView style={styles.bottomSheetContent} showsVerticalScrollIndicator={false}>
-                  {/* Recently Used (if no search active) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>⭐ Recently Used</Text>
-                      <View style={styles.actionsGrid}>
-                        {recentlyUsed.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={styles.recentActionItem}
-                            onPress={() => {
-                              const item = [...STRATEGY_ACTIONS.courtroomStrategy, ...STRATEGY_ACTIONS.courtPreparation, ...STRATEGY_ACTIONS.legalIntelligence, ...STRATEGY_ACTIONS.litigationIntelligence, ...STRATEGY_ACTIONS.courtSimulation].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
-                            <Text style={styles.recentActionText}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                      {/* Favorites */}
-                      <Text style={styles.categoryHeading}>❤️ Favorites</Text>
-                      <View style={styles.actionsGrid}>
-                        {favorites.map((label, idx) => (
-                          <TouchableOpacity
-                            key={idx}
-                            style={[styles.recentActionItem, { borderColor: '#EF4444' }]}
-                            onPress={() => {
-                              const item = [...STRATEGY_ACTIONS.courtroomStrategy, ...STRATEGY_ACTIONS.courtPreparation, ...STRATEGY_ACTIONS.legalIntelligence, ...STRATEGY_ACTIONS.litigationIntelligence, ...STRATEGY_ACTIONS.courtSimulation].find((a) => a.label === label);
-                              if (item) handleExecuteAction(item);
-                            }}
-                          >
-                            <Ionicons name="star" size={12} color="#EF4444" style={{ marginRight: 4 }} />
-                            <Text style={[styles.recentActionText, { color: '#EF4444' }]}>{label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Recommended Actions (changes based on active case type) */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>🤖 AI Recommended</Text>
-                      {aiRecommendedActions.length > 0 ? (
-                        <View style={styles.actionsList}>
-                          {aiRecommendedActions.map((action) => (
-                            <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: true })}>
-                              <View style={styles.actionListIcon}>
-                                <Ionicons name="sparkles" size={16} color="#EF4444" />
-                              </View>
-                              <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.actionListTitle}>{action.label}</Text>
-                                <Text style={styles.actionListDesc}>{action.desc}</Text>
-                              </View>
-                              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      ) : (
-                        <View style={styles.actionsEmpty}>
-                          <Text style={styles.actionsEmptyText}>Please attach case documents to activate case-type recommended workflows.</Text>
-                        </View>
-                      )}
-                    </>
-                  )}
-
-                  {/* Courtroom Strategy Category */}
-                  {filteredActions.courtroomStrategy.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>⚖️ Courtroom Strategy Workflows</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.courtroomStrategy.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#EFF6FF' }]}>
-                              <Ionicons name="shield-checkmark-outline" size={16} color="#3B82F6" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Court Preparation Category */}
-                  {filteredActions.courtPreparation.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🎯 Hearing Preparation</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.courtPreparation.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F0FDF4' }]}>
-                              <Ionicons name="megaphone-outline" size={16} color="#10B981" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Input-required Actions */}
-                  {!actionsSearchQuery && (
-                    <>
-                      <Text style={styles.categoryHeading}>⌨️ Search & Query Inputs</Text>
-                      <View style={styles.actionsList}>
-                        {INPUT_ACTIONS.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction({ ...action, isImmediate: false })}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FFFBEB' }]}>
-                              <Ionicons name="chatbox-ellipses-outline" size={16} color="#F59E0B" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Court Simulation Category */}
-                  {filteredActions.courtSimulation.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🎭 AI Moot Court Simulation</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.courtSimulation.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#FEF2F2' }]}>
-                              <Ionicons name="people-outline" size={16} color="#EF4444" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* Legal Intelligence Category */}
-                  {filteredActions.legalIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>📚 Legal Intelligence & Statutes</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.legalIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#F5F3FF' }]}>
-                              <Ionicons name="library-outline" size={16} color="#8A5CF5" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  {/* AI Litigation Intelligence Category */}
-                  {filteredActions.litigationIntelligence.length > 0 && (
-                    <>
-                      <Text style={styles.categoryHeading}>🧠 AI Case Integrity Diagnostics</Text>
-                      <View style={styles.actionsList}>
-                        {filteredActions.litigationIntelligence.map((action) => (
-                          <TouchableOpacity key={action.id} style={styles.actionListItem} onPress={() => handleExecuteAction(action)}>
-                            <View style={[styles.actionListIcon, { backgroundColor: '#E0F2FE' }]}>
-                              <Ionicons name="pulse-outline" size={16} color="#0284C7" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.actionListTitle}>{action.label}</Text>
-                              <Text style={styles.actionListDesc}>{action.desc}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => toggleFavorite(action.label)} style={{ padding: 4 }}>
-                              <Ionicons name={favorites.includes(action.label) ? "star" : "star-outline"} size={18} color="#F59E0B" />
-                            </TouchableOpacity>
-                            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-
-                  <View style={{ height: 40 }} />
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Sliding Sidebar History modal drawer */}
-      <Modal
-        visible={isHistoryOpen}
-        animationType="none"
-        transparent={true}
-        onRequestClose={() => setIsHistoryOpen(false)}
-      >
-        <View style={styles.drawerOverlay}>
-          {/* Semi-transparent backdrop */}
-          <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
-
-          {/* Sidebar Drawer container */}
-          <View style={styles.drawerContainer}>
-            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-              <View style={styles.drawerHeader}>
-                <Text style={styles.drawerTitle}>Chat Logs History</Text>
-                <Pressable onPress={() => setIsHistoryOpen(false)}>
-                  <Ionicons name="close" size={24} color={theme.textPrimary} />
-                </Pressable>
-              </View>
-
-
-
-              <View style={styles.drawerSearchContainer}>
-                <Ionicons name="search" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  placeholder="Search chats..."
-                  placeholderTextColor="#94A3B8"
-                  value={searchHistoryQuery}
-                  onChangeText={setSearchHistoryQuery}
-                  style={styles.drawerSearchInput}
-                />
-              </View>
-
-              <ScrollView style={styles.drawerList} showsVerticalScrollIndicator={false}>
-                <View style={styles.drawerActionsRow}>
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 8 }]}
-                    onPress={() => {
-                      setIsHistoryOpen(false);
-                      setIsCaseModalOpen(true);
-                    }}
-                  >
-                    <Ionicons name="folder-open-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#475569' }]}>Select Case</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.drawerActionBtn, { backgroundColor: '#8A5CF5', flex: 1 }]}
-                    onPress={() => {
-                      handleNewChat();
-                      setActiveCaseId(null);
-                      setIsHistoryOpen(false);
-                    }}
-                  >
-                    <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Conversation</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {filteredHistorySessions.length === 0 ? (
-                  <Text style={styles.drawerEmptyText}>No previous chats logged.</Text>
-                ) : (
-                  <>
-                    <Text style={styles.historySectionHeader}>Case Conversations</Text>
-                    {Object.keys(groupedHistory.caseGroups).length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No case conversations logged.</Text>
-                    ) : (
-                      Object.entries(groupedHistory.caseGroups).map(([projId, sessions]) => {
-                        const caseName = caseSummariesMap[projId] || 'Unknown Case';
-                        return (
-                          <View key={projId} style={styles.historyCaseGroup}>
-                            <Text style={[styles.historyCaseNameHeader, { color: theme.textPrimary }]}>
-                              {caseName}
-                            </Text>
-                            {sessions.map((item) => (
-                              <View
-                                key={item.sessionId}
-                                style={[
-                                  styles.drawerItem,
-                                  sessionId === item.sessionId && styles.drawerItemActive,
-                                ]}
-                              >
-                                <Pressable
-                                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                                  onPress={() => handleSelectSession(item.sessionId)}
-                                >
-                                  <Ionicons
-                                    name="chatbox-ellipses-outline"
-                                    size={16}
-                                    color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                                    style={{ marginRight: 10 }}
-                                  />
-
-                                  {editingSessionId === item.sessionId ? (
-                                    <TextInput
-                                      style={styles.drawerRenameInput}
-                                      value={renameTitleVal}
-                                      onChangeText={setRenameTitleVal}
-                                      autoFocus={true}
-                                      onBlur={() => handleRenameConfirm(item.sessionId)}
-                                      onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                                    />
-                                  ) : (
-                                    <View style={styles.drawerItemTextContainer}>
-                                      <Text
-                                        style={[
-                                          styles.drawerItemText,
-                                          sessionId === item.sessionId && styles.drawerItemTextActive,
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {item.title}
-                                      </Text>
-                                      <Text style={styles.drawerItemSubtext}>
-                                        {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </Pressable>
-
-                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                                  <Pressable
-                                    onPress={() => {
-                                      setEditingSessionId(item.sessionId);
-                                      setRenameTitleVal(item.title);
-                                    }}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleDeleteSession(item.sessionId)}
-                                    style={styles.drawerActionIcon}
-                                  >
-                                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                  </Pressable>
-                                </View>
-                              </View>
-                            ))}
-                            <View style={[styles.historyGroupDivider, { backgroundColor: theme.border }]} />
-                          </View>
-                        );
-                      })
-                    )}
-
-                    <Text style={styles.historySectionHeader}>General Conversations</Text>
-                    {groupedHistory.generalList.length === 0 ? (
-                      <Text style={styles.historyEmptySubtext}>No general conversations logged.</Text>
-                    ) : (
-                      groupedHistory.generalList.map((item) => (
-                        <View
-                          key={item.sessionId}
-                          style={[
-                            styles.drawerItem,
-                            sessionId === item.sessionId && styles.drawerItemActive,
-                          ]}
-                        >
-                          <Pressable
-                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12 }}
-                            onPress={() => handleSelectSession(item.sessionId)}
-                          >
-                            <Ionicons
-                              name="chatbox-ellipses-outline"
-                              size={16}
-                              color={sessionId === item.sessionId ? '#8A5CF5' : theme.textSecondary}
-                              style={{ marginRight: 10 }}
-                            />
-
-                            {editingSessionId === item.sessionId ? (
-                              <TextInput
-                                style={styles.drawerRenameInput}
-                                value={renameTitleVal}
-                                onChangeText={setRenameTitleVal}
-                                autoFocus={true}
-                                onBlur={() => handleRenameConfirm(item.sessionId)}
-                                onSubmitEditing={() => handleRenameConfirm(item.sessionId)}
-                              />
-                            ) : (
-                              <View style={styles.drawerItemTextContainer}>
-                                <Text
-                                  style={[
-                                    styles.drawerItemText,
-                                    sessionId === item.sessionId && styles.drawerItemTextActive,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {item.title}
-                                </Text>
-                                <Text style={styles.drawerItemSubtext}>
-                                  {new Date(item.lastModified).toLocaleDateString()} at {new Date(item.lastModified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </Text>
-                              </View>
-                            )}
-                          </Pressable>
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                            <Pressable
-                              onPress={() => {
-                                  setEditingSessionId(item.sessionId);
-                                  setRenameTitleVal(item.title);
-                              }}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => handleDeleteSession(item.sessionId)}
-                              style={styles.drawerActionIcon}
-                            >
-                              <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                            </Pressable>
-                          </View>
-                        </View>
-                      ))
-                    )}
-                  </>
-                )}
-              </ScrollView>
-            </SafeAreaView>
-          </View>
-        </View>
-      </Modal>
+      <CustomCameraModal visible={isCameraVisible} onClose={hideCamera} onConfirm={handleCameraConfirm} />
 
       <CaseSelectionModal
         visible={isCaseModalOpen}
@@ -2080,106 +2170,62 @@ export default function ArgumentBuilderScreen() {
         activeCaseId={activeCaseId}
         onSelectCase={(caseId) => {
           setActiveCaseId(caseId);
-          setMessages([]);
-          setSessionId(null);
-          clearAttachments();
-          setInputVal('');
-          setShouldComposerFocus(true);
-          showToast('success', 'Case Workspace', 'Case workspace selected.');
+          fetchActiveCaseDetails(caseId);
+          showToast('success', 'Workspace Synced', 'Case dossier contexts successfully pulled.');
+          triggerCaseAnalysis();
         }}
       />
-    </KeyboardSafeChatLayout>
+
+      {/* Sliding Sidebar History Drawer */}
+      <Modal visible={isHistoryOpen} animationType="none" transparent={true} onRequestClose={() => setIsHistoryOpen(false)}>
+        <View style={styles.drawerOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setIsHistoryOpen(false)} />
+          <View style={styles.drawerContainer}>
+            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+              <View style={styles.drawerHeader}>
+                <Text style={styles.drawerTitle}>Dossier History</Text>
+                <Pressable onPress={() => setIsHistoryOpen(false)}>
+                  <Ionicons name="close" size={24} color={theme.textPrimary} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={styles.drawerList}>
+                <TouchableOpacity
+                  style={[styles.drawerActionBtn, { backgroundColor: '#EF4444', marginVertical: 12 }]}
+                  onPress={() => {
+                    setWorkspaceStep('source');
+                    setSectionsData([]);
+                    setIsHistoryOpen(false);
+                  }}
+                >
+                  <Ionicons name="add-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={[styles.drawerActionBtnText, { color: '#FFFFFF' }]}>New Preparation Folder</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.historySectionHeader}>Case Files History</Text>
+                {Object.entries(caseSummariesMap).map(([id, name]) => (
+                  <TouchableOpacity
+                    key={id}
+                    style={styles.drawerItem}
+                    onPress={() => {
+                      setActiveCaseId(id);
+                      setIsHistoryOpen(false);
+                    }}
+                  >
+                    <Ionicons name="folder-outline" size={16} color={theme.textSecondary} style={{ marginRight: 10 }} />
+                    <Text style={[styles.drawerItemText, { color: theme.textPrimary }]} numberOfLines={1}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
-
-// Fallback Answer Mocks
-const MOCK_ANSWERS: Record<string, string> = {
-  build_strategy: `# Case Overview
-Complete litigation strategy brief for Cheque Dishonour Suit under Section 138 of the Negotiable Instruments (NI) Act, 1881. The complainant claims the defendant Nitin Kumar issued a cheque of INR 5,00,000 which dishonoured due to "Funds Insufficient".
-
-# Applicable Laws
-* Negotiable Instruments Act, 1881
-* Code of Criminal Procedure, 1973
-* Indian Evidence Act, 1872
-
-# Applicable Sections
-* **Section 138 (NI Act):** Criminal liability for cheque dishonour.
-* **Section 139 (NI Act):** Presumption in favour of holder.
-* **Section 141 (NI Act):** Offenses by companies (if applicable).
-
-# Relevant Judgments
-* **Rangappa v. Sri Mohan (2010 SC):** Supreme Court held that the presumption mandated by Section 139 includes the existence of a legally enforceable debt.
-
-# Strongest Arguments
-* Presumption of legally enforceable debt under Section 139 NI Act shifts the entire burden of proof onto the defendant Nitin Kumar.
-* Proper statutory notice was served within 30 days of receipt of memo, and no payment was received within 15 days.
-
-# Weaknesses
-* Complainant lacks documentation (loan agreement) showing the initial lending of INR 5,00,000 cash.
-
-# Likely Opponent Strategy
-* Defendant will claim the cheque was issued as "Security" for a different transaction and no debt exists.
-* Defendant will challenge the proof of service of the statutory notice.
-
-# Rebuttal Strategy
-* Argue that even a security cheque attracts liability under Section 138 if the debt is due at the time of presentation.
-
-# Winning Probability: 85% Probability
-High probability of success due to strong statutory presumption.
-
-# Next Best Action
-* File the original postal acknowledgement card to establish service.`,
-
-  strongest_arguments: `# Case Overview
-Litigation summary and core arguments for Civil Property Dispute.
-
-# Applicable Laws
-* Code of Civil Procedure, 1908
-* Limitation Act, 1963
-* Indian Evidence Act, 1872
-
-# Strongest Arguments
-* Defendant Nitin Kumar has been in open, continuous, and hostile possession of the property for over 12 years, establishing adverse possession.
-* Plaintiff's suit is barred by limitation under Article 65 of the Limitation Act, 1963.
-
-# Weaknesses
-* Defendant does not possess registered title deeds.
-
-# Winning Probability: 68% Probability
-Moderate probability. Success depends on proof of continuous possession records (electricity bills, tax receipts).
-
-# Next Best Action
-* Collate and file municipal tax receipts from 2014 onwards.`,
-
-  opponent_weakness: `# Case Overview
-Opponent weaknesses audit for Criminal Prosecution cases.
-
-# Key Findings
-* Prosecution has failed to list independent eye-witnesses, relying solely on testimony from relative witnesses.
-* Delayed FIR registration: incident occurred on May 10, but FIR was registered on May 15 with no reasonable explanation for delay.
-
-# Weaknesses
-* Defense witness credibility is unverified.
-
-# Winning Probability: 72% Probability
-Highly favorable defense outlook due to delay in FIR.
-
-# Next Best Action
-* Prepare cross examination questions highlighting the timeline gap.`,
-
-  counter_arguments: `# Case Overview
-Rebuttals and counter arguments briefing.
-
-# Strongest Arguments
-* The opponent claims that the security cheque was not meant to be encashed. However, under *Sampelly Satyanarayana Rao*, once default occurs, security cheque becomes legally enforceable.
-* Opponent claims they never received the notice; however, a registered post sent to correct address constitutes deemed service under Section 27 of General Clauses Act.
-
-# Winning Probability: 80% Probability
-Strong counter arguments setup.
-
-# Next Best Action
-* Link tracking report from Indian Post to verify receipt delivery.`
-};
 
 function getStyles(theme: any, isDark: boolean) {
   return StyleSheet.create({
@@ -2221,374 +2267,461 @@ function getStyles(theme: any, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
     },
-    searchInput: {
-      flex: 1,
-      height: 38,
-      borderRadius: 19,
-      paddingHorizontal: 16,
-      fontSize: 14,
-      marginHorizontal: 10,
+    scrollContent: {
+      padding: 20,
     },
-    listContent: {
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      paddingBottom: 24,
-    },
-    absoluteComposerContainer: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: 'transparent',
-    },
-    welcomeCard: {
-      backgroundColor: theme.card,
-      borderRadius: 16,
-      padding: 16,
-      alignItems: 'center',
-      marginVertical: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    welcomeIconCircle: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
-      justifyContent: 'center',
-      alignItems: 'center',
+    welcomeMainTitle: {
+      fontSize: 22,
+      fontWeight: '800',
       marginBottom: 10,
-    },
-    welcomeText: {
-      fontSize: 14.5,
-      color: theme.textSecondary,
       textAlign: 'center',
-      lineHeight: 22,
-      fontWeight: '500',
     },
-    bubbleContainer: {
-      flexDirection: 'row',
-      marginVertical: 8,
-      alignSelf: 'stretch',
-    },
-    userAlign: {
-      justifyContent: 'flex-end',
-      paddingLeft: 40,
-    },
-    aiAlign: {
-      justifyContent: 'flex-start',
-      paddingRight: 40,
-    },
-    aiAvatar: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 8,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    bubble: {
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 16,
-      maxWidth: '100%',
-    },
-    collapsedOverlay: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      height: 80,
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      borderBottomLeftRadius: 16,
-      borderBottomRightRadius: 16,
-      justifyContent: 'flex-end',
-      alignItems: 'center',
-      paddingBottom: 10,
-    },
-    expandButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#FFFFFF',
-      borderWidth: 1,
-      borderColor: '#E2E8F0',
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-      gap: 4,
-    },
-    expandButtonText: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: '#EF4444',
-    },
-    collapseToggleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 6,
-      alignSelf: 'center',
-      gap: 4,
-    },
-    collapseToggleText: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: '#EF4444',
-    },
-    msgAttachments: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 6,
-      marginTop: 6,
-    },
-    msgAttachChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.surfaceVariant,
-      borderWidth: 1,
-      borderColor: theme.border,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 12,
-      gap: 4,
-    },
-    msgAttachName: {
-      fontSize: 11,
-      color: theme.textSecondary,
-      fontWeight: '600',
-      maxWidth: 120,
-    },
-    actionRow: {
-      flexDirection: 'row',
-      marginTop: 6,
-      gap: 12,
-      flexWrap: 'wrap',
-    },
-    actionButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: theme.border,
-      gap: 4,
-    },
-    actionBtnLabel: {
-      fontSize: 11.5,
-      color: theme.textSecondary,
-      fontWeight: '600',
-    },
-    followUpRow: {
-      marginTop: 8,
-    },
-    followUpChip: {
-      backgroundColor: theme.surfaceVariant,
-      borderWidth: 1,
-      borderColor: theme.border,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-    },
-    followUpChipText: {
-      fontSize: 12,
-      color: theme.primary,
-      fontWeight: '600',
-    },
-    strategyCard: {
-      borderLeftWidth: 4,
-      borderRadius: 8,
-      padding: 10,
-      backgroundColor: theme.card,
-      borderWidth: 1,
-      borderColor: theme.border,
-      marginVertical: 4,
-      alignSelf: 'stretch',
-    },
-    cardHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    cardTitleText: {
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    progressBarBg: {
-      height: 8,
-      width: '100%',
-      backgroundColor: theme.border,
-      borderRadius: 4,
-      overflow: 'hidden',
-    },
-    attachmentsBar: {
-      borderTopWidth: 1,
-      borderTopColor: theme.border,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      backgroundColor: theme.card,
-    },
-    attachmentChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FCA5A5',
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 12,
-    },
-    attachmentName: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: isDark ? '#FCA5A5' : '#991B1B',
-    },
-    detectedBadge: {
-      alignSelf: 'flex-start',
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2',
-      borderRadius: 6,
-      paddingHorizontal: 4,
-      paddingVertical: 1,
-      marginTop: 1,
-    },
-    detectedBadgeText: {
-      fontSize: 9,
-      color: isDark ? '#FCA5A5' : '#991B1B',
-      fontWeight: '800',
-      textTransform: 'uppercase',
-    },
-    addMoreBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderStyle: 'dashed',
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 12,
-      backgroundColor: theme.surfaceVariant,
-      gap: 4,
-    },
-    addMoreText: {
-      fontSize: 11.5,
-      color: theme.textSecondary,
-      fontWeight: '700',
-    },
-    composerContainer: {
-      borderTopWidth: 1,
-      borderTopColor: theme.border,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      backgroundColor: theme.card,
-    },
-    composerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    composerOptionBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    composerInput: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: theme.border,
-      color: theme.textPrimary,
-      backgroundColor: theme.surfaceVariant,
-      borderRadius: 20,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+    welcomeSubText: {
       fontSize: 14,
-      maxHeight: 100,
+      lineHeight: 22,
+      textAlign: 'center',
+      marginBottom: 24,
     },
-    micBtnActive: {
-      backgroundColor: '#EF4444',
+    sourceGrid: {
+      gap: 16,
+      marginBottom: 20,
     },
-    sendBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: theme.primary,
+    sourceCard: {
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 20,
+      alignItems: 'center',
+    },
+    sourceIconWrapper: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
       justifyContent: 'center',
       alignItems: 'center',
+      marginBottom: 12,
     },
-    sendBtnDisabled: {
-      opacity: 0.4,
-    },
-    pressed: {
-      opacity: 0.7,
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: theme.overlay,
-      justifyContent: 'flex-end',
-    },
-    modalCard: {
-      width: '100%',
-      backgroundColor: theme.card,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      padding: 16,
-      paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-      maxHeight: height * 0.7,
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      borderBottomWidth: 1,
-      borderBottomColor: theme.border,
-      paddingBottom: 10,
-      marginBottom: 10,
-    },
-    modalTitle: {
-      fontSize: 16.5,
+    sourceCardTitle: {
+      fontSize: 16,
       fontWeight: '800',
-      color: theme.textPrimary,
+      marginBottom: 6,
     },
-    modalSubtitle: {
-      fontSize: 13,
-      color: theme.textSecondary,
+    sourceCardDesc: {
+      fontSize: 12,
       lineHeight: 18,
-      marginBottom: 14,
+      textAlign: 'center',
     },
-    mockList: {
-      gap: 8,
+    activeCaseBadge: {
+      marginTop: 10,
+      backgroundColor: '#E6F4FE',
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 4,
     },
-    mockFileItem: {
+    activeCaseBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#8A5CF5',
+    },
+    generateButton: {
+      backgroundColor: '#EF4444',
+      borderRadius: 12,
+      paddingVertical: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    generateButtonText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    attachmentsListWrapper: {
+      marginTop: 20,
+      gap: 10,
+    },
+    attachmentsHeading: {
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    attachmentRow: {
       flexDirection: 'row',
       alignItems: 'center',
       padding: 12,
       borderWidth: 1,
-      borderColor: theme.border,
       borderRadius: 12,
-      backgroundColor: theme.card,
     },
-    customMockItem: {
-      backgroundColor: theme.card,
-      borderStyle: 'dashed',
-      borderColor: theme.border,
-    },
-    mockFileName: {
-      fontSize: 13.5,
+    attachmentNameText: {
+      flex: 1,
+      marginLeft: 10,
+      fontSize: 13,
       fontWeight: '700',
-      color: theme.textPrimary,
     },
-    mockFileDesc: {
+    analyzingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    analyzingText: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginTop: 20,
+    },
+    analyzingSubtext: {
+      fontSize: 13,
+      lineHeight: 20,
+      textAlign: 'center',
+      marginTop: 10,
+      marginBottom: 20,
+    },
+    progressBarBg: {
+      height: 6,
+      width: '80%',
+      backgroundColor: '#E2E8F0',
+      borderRadius: 3,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: '#EF4444',
+    },
+    workspaceScroll: {
+      padding: 16,
+    },
+    dashboardCard: {
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+    },
+    dashboardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 16,
+    },
+    dashboardTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    dashboardMetricsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 16,
+    },
+    metricBox: {
+      flex: 1,
+      minWidth: '45%',
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      alignItems: 'center',
+    },
+    metricLabel: {
+      fontSize: 10,
+      color: '#94A3B8',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    metricValue: {
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    dashboardDetailsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginVertical: 4,
+    },
+    detailsLabel: {
       fontSize: 11,
-      color: theme.textSecondary,
+      fontWeight: '600',
+    },
+    detailsValue: {
+      fontSize: 12,
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'right',
+      marginLeft: 10,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      height: 42,
+      marginBottom: 20,
+    },
+    searchInput: {
+      flex: 1,
+      marginLeft: 8,
+      fontSize: 13,
+    },
+    workspaceSubheading: {
+      fontSize: 16,
+      fontWeight: '800',
+      marginBottom: 12,
+    },
+    sectionContainer: {
+      borderWidth: 1,
+      borderRadius: 12,
+      marginBottom: 12,
+      overflow: 'hidden',
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 16,
+    },
+    sectionHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+    },
+    sectionTitleText: {
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    sectionDescText: {
+      fontSize: 11,
       marginTop: 2,
+    },
+    sectionHeaderRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    confidencePill: {
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+    },
+    confidencePillText: {
+      fontSize: 9,
+      fontWeight: '800',
+    },
+    sectionBody: {
+      borderTopWidth: 1,
+      padding: 16,
+    },
+    sectionBodyContent: {
+      fontSize: 13,
+      lineHeight: 20,
+    },
+    whyCallout: {
+      borderRadius: 8,
+      padding: 12,
+      marginTop: 12,
+      borderLeftWidth: 3,
+      borderLeftColor: '#94A3B8',
+    },
+    whyTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      marginBottom: 4,
+    },
+    whyContent: {
+      fontSize: 11,
+      lineHeight: 16,
+    },
+    sectionActionsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 16,
+    },
+    sectionActionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 6,
+    },
+    sectionActionText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    intelligenceContainer: {
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 16,
+      marginTop: 20,
+      marginBottom: 20,
+    },
+    intelligenceHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    intelligenceTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    intelligenceTabsScroll: {
+      gap: 8,
+      paddingBottom: 10,
+    },
+    intelligenceTab: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: 'transparent',
+    },
+    intelligenceTabActive: {
+      backgroundColor: '#EF4444',
+    },
+    intelligenceTabText: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    intelligenceContentCard: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 14,
+      marginTop: 10,
+    },
+    intelDescription: {
+      fontSize: 11,
+      fontStyle: 'italic',
+      marginBottom: 8,
+    },
+    intelBody: {
+      fontSize: 13,
+      lineHeight: 20,
+    },
+    intelActionsRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: '#E2E8F0',
+      paddingTop: 10,
+    },
+    intelActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    intelActionBtnText: {
+      fontSize: 11.5,
+      color: '#EF4444',
+      fontWeight: '700',
+    },
+    mockCourtCard: {
+      borderWidth: 2,
+      borderRadius: 16,
+      padding: 20,
+      backgroundColor: '#F5F3FF',
+      marginBottom: 20,
+    },
+    mockCourtHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 10,
+    },
+    mockCourtTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#8A5CF5',
+    },
+    mockCourtDesc: {
+      fontSize: 12,
+      lineHeight: 18,
+      color: '#475569',
+      marginBottom: 16,
+    },
+    mockCourtBtn: {
+      backgroundColor: '#8A5CF5',
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    mockCourtBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    exportBar: {
+      borderTopWidth: 1,
+      paddingTop: 16,
+      marginTop: 10,
+    },
+    exportTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 10,
+    },
+    exportButtonsGrid: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    exportBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingVertical: 10,
+      gap: 6,
+    },
+    exportBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    exportToolbarFooter: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 16,
+    },
+    footerUtilityBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    footerUtilityBtnText: {
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    floatingRefinementBtn: {
+      position: 'absolute',
+      bottom: 24,
+      right: 16,
+      backgroundColor: '#0F172A',
+      borderRadius: 24,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 8,
+    },
+    floatingRefinementBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      justifyContent: 'flex-end',
     },
     bottomSheetContainer: {
       width: '100%',
       height: height * 0.75,
-      backgroundColor: theme.card,
+      backgroundColor: '#FFFFFF',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingHorizontal: 16,
@@ -2598,7 +2731,7 @@ function getStyles(theme: any, isDark: boolean) {
       width: 36,
       height: 4,
       borderRadius: 2,
-      backgroundColor: theme.border,
+      backgroundColor: '#E2E8F0',
       alignSelf: 'center',
       marginTop: 8,
       marginBottom: 8,
@@ -2609,137 +2742,36 @@ function getStyles(theme: any, isDark: boolean) {
       justifyContent: 'space-between',
       paddingVertical: 10,
       borderBottomWidth: 1,
-      borderBottomColor: theme.border,
+      borderBottomColor: '#E2E8F0',
       marginBottom: 12,
     },
     bottomSheetTitle: {
       fontSize: 16,
       fontWeight: '800',
-      color: theme.textPrimary,
+      color: '#1F2937',
     },
-    bottomSheetContent: {
-      flex: 1,
-    },
-    sheetSearchContainer: {
+    refinementStyleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.surfaceVariant,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      marginBottom: 10,
+      justifyContent: 'space-between',
+      paddingVertical: 14,
+      borderBottomWidth: 1,
     },
-    sheetSearchInput: {
-      flex: 1,
+    refinementStyleText: {
       fontSize: 14,
-      color: theme.textPrimary,
-      padding: 0,
-    },
-    categoryHeading: {
-      fontSize: 12,
-      fontWeight: '800',
-      color: theme.textSecondary,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      marginTop: 14,
-      marginBottom: 8,
-    },
-    actionsGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    recentActionItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.surfaceVariant,
-      borderWidth: 1,
-      borderColor: theme.border,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 12,
-    },
-    recentActionText: {
-      fontSize: 12,
       fontWeight: '600',
-      color: theme.textSecondary,
-    },
-    actionsList: {
-      gap: 8,
-    },
-    actionListItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      padding: 10,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-      backgroundColor: theme.card,
-    },
-    actionListIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    actionListTitle: {
-      fontSize: 13.5,
-      fontWeight: '700',
-      color: theme.textPrimary,
-    },
-    actionListDesc: {
-      fontSize: 10.5,
-      color: theme.textSecondary,
-      marginTop: 1,
-    },
-    actionsEmpty: {
-      padding: 12,
-      backgroundColor: theme.surfaceVariant,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderStyle: 'dashed',
-      alignItems: 'center',
-    },
-    actionsEmptyText: {
-      fontSize: 12,
-      color: theme.textMuted,
-      textAlign: 'center',
-      lineHeight: 18,
-    },
-    scrollDownBtn: {
-      position: 'absolute',
-      bottom: 96,
-      left: '50%',
-      marginLeft: -21,
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor: theme.card,
-      borderWidth: 1,
-      borderColor: theme.border,
-      justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 5,
-      elevation: 4,
-      zIndex: 999,
     },
     drawerOverlay: {
       flex: 1,
       flexDirection: 'row',
-      backgroundColor: theme.overlay,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
     },
     drawerContainer: {
       width: width * 0.8,
       height: '100%',
-      backgroundColor: theme.background,
+      backgroundColor: '#FFFFFF',
       borderRightWidth: 1,
-      borderRightColor: theme.border,
+      borderRightColor: '#E2E8F0',
       paddingHorizontal: 16,
     },
     drawerHeader: {
@@ -2748,294 +2780,433 @@ function getStyles(theme: any, isDark: boolean) {
       justifyContent: 'space-between',
       paddingVertical: 16,
       borderBottomWidth: 1,
-      borderBottomColor: theme.border,
+      borderBottomColor: '#E2E8F0',
     },
     drawerTitle: {
       fontSize: 16,
       fontWeight: '800',
-      color: theme.textPrimary,
-    },
-    drawerNewChatBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#8A5CF5',
-      paddingVertical: 10,
-      borderRadius: 8,
-      marginVertical: 12,
-      gap: 6,
-    },
-    drawerNewChatBtnText: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: '#FFFFFF',
-    },
-    drawerSearchContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 8,
-      backgroundColor: theme.surfaceVariant,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      marginBottom: 12,
-    },
-    drawerSearchInput: {
-      flex: 1,
-      fontSize: 13,
-      color: theme.textPrimary,
-      padding: 0,
     },
     drawerList: {
       flex: 1,
-    },
-    drawerEmptyText: {
-      fontSize: 12.5,
-      color: theme.textMuted,
-      textAlign: 'center',
-      marginTop: 24,
-      fontStyle: 'italic',
-    },
-    drawerItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderRadius: 8,
-      marginBottom: 4,
-      backgroundColor: 'transparent',
-    },
-    drawerItemActive: {
-      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
-    },
-    drawerItemTextContainer: {
-      flex: 1,
-      flexDirection: 'column',
-      justifyContent: 'center',
-    },
-    drawerItemText: {
-      fontSize: 13,
-      color: theme.textSecondary,
-      fontWeight: '500',
-    },
-    drawerItemTextActive: {
-      color: theme.primary,
-      fontWeight: '700',
-    },
-    drawerItemSubtext: {
-      fontSize: 10,
-      color: theme.textMuted,
-      marginTop: 2,
-    },
-    drawerRenameInput: {
-      fontSize: 13,
-      color: theme.textPrimary,
-      fontWeight: '600',
-      flex: 1,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.primary,
-      padding: 0,
-    },
-    drawerActionIcon: {
-      width: 28,
-      height: 28,
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderRadius: 14,
-      marginLeft: 4,
-    },
-    activeCaseBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      borderBottomWidth: 1,
-    },
-    activeCaseLeft: {
-      flex: 1,
-      paddingRight: 12,
-    },
-    activeCaseLabel: {
-      fontSize: 9,
-      fontWeight: '800',
-      color: theme.primary,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      marginBottom: 2,
-    },
-    activeCaseName: {
-      fontSize: 14,
-      fontWeight: '800',
-      marginBottom: 2,
-    },
-    activeCaseSubtitleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    activeCaseSubtext: {
-      fontSize: 11,
-      fontWeight: '500',
-    },
-    activeCaseRight: {
-      alignItems: 'flex-end',
-      gap: 6,
-    },
-    activeStatusPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: 'rgba(16, 185, 129, 0.1)',
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 6,
-    },
-    activeDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: '#10B981',
-      marginRight: 4,
-    },
-    activeStatusText: {
-      fontSize: 10,
-      fontWeight: '800',
-      color: '#10B981',
-      textTransform: 'uppercase',
-    },
-    changeCaseBtn: {
-      borderWidth: 1,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 8,
-    },
-    changeCaseBtnText: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: theme.primary,
-    },
-    drawerActionsRow: {
-      flexDirection: 'row',
-      marginVertical: 12,
-      gap: 8,
     },
     drawerActionBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 10,
-      borderRadius: 8,
+      paddingVertical: 12,
+      borderRadius: 10,
     },
     drawerActionBtnText: {
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: '700',
     },
     historySectionHeader: {
       fontSize: 11,
       fontWeight: '800',
-      color: theme.textSecondary,
+      color: '#94A3B8',
       textTransform: 'uppercase',
       letterSpacing: 0.6,
       marginTop: 14,
       marginBottom: 8,
     },
-    historyEmptySubtext: {
-      fontSize: 12,
-      fontStyle: 'italic',
-      color: theme.textMuted,
-      paddingLeft: 12,
-      marginVertical: 4,
-    },
-    historyCaseGroup: {
-      marginTop: 4,
-    },
-    historyCaseNameHeader: {
-      fontSize: 13,
-      fontWeight: '700',
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      color: theme.textPrimary,
-    },
-    historyGroupDivider: {
-      height: 1,
-      marginVertical: 8,
-      opacity: 0.5,
-      backgroundColor: theme.border,
-    },
-    activeCaseCenterContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: 20,
-      backgroundColor: 'transparent',
-    },
-    activeCaseCenterCard: {
-      width: '100%',
-      backgroundColor: theme.surface,
-      borderRadius: 20,
-      padding: 24,
-      borderWidth: 1,
-      borderColor: theme.border,
-      ...Shadows.md,
-      alignItems: 'center',
-    },
-    activeCaseCenterHeaderLabel: {
-      fontSize: 10,
-      fontWeight: '800',
-      color: '#8A5CF5',
-      textTransform: 'uppercase',
-      letterSpacing: 1.5,
-      marginBottom: 8,
-    },
-    activeCaseCenterTitle: {
-      fontSize: 18,
-      fontWeight: '800',
-      color: theme.textPrimary,
-      textAlign: 'center',
-      marginBottom: 16,
-    },
-    activeCaseCenterDivider: {
-      width: '100%',
-      height: 1,
-      backgroundColor: theme.border,
-      marginBottom: 16,
-    },
-    activeCaseCenterDetailsGrid: {
-      width: '100%',
-      gap: 12,
-      marginBottom: 20,
-    },
-    activeCaseCenterDetailRow: {
+    drawerItem: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F1F5F9',
     },
-    activeCaseCenterDetailLabel: {
-      fontSize: 12,
-      color: theme.textSecondary,
+    drawerItemText: {
+      fontSize: 13,
       fontWeight: '600',
     },
-    activeCaseCenterDetailValue: {
-      fontSize: 13,
-      color: theme.textPrimary,
-      fontWeight: '700',
-      maxWidth: '65%',
-      textAlign: 'right',
+
+    // ==========================================
+    // CASE INTAKE WIZARD NEW STYLES (Phase 5)
+    // ==========================================
+    wizardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
     },
-    activeCaseCenterChangeBtn: {
-      marginTop: 8,
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: 20,
+    wizardBackBtn: {
+      padding: 4,
+    },
+    wizardTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    wizardSubtitle: {
+      fontSize: 11,
+      color: '#64748B',
+      marginTop: 2,
+    },
+    clearDraftBtn: {
+      padding: 6,
+    },
+    wizardScroll: {
+      padding: 16,
+      paddingBottom: 60,
+    },
+    wizardSectionHeading: {
+      fontSize: 16,
+      fontWeight: '800',
+      marginTop: 10,
+    },
+    wizardMethodGrid: {
+      gap: 16,
+      marginTop: 10,
+    },
+    wizardMethodCard: {
       borderWidth: 1.5,
-      borderColor: '#8A5CF5',
-      backgroundColor: 'transparent',
+      borderRadius: 16,
+      padding: 20,
+      position: 'relative',
+    },
+    recommendedBadge: {
+      position: 'absolute',
+      top: -10,
+      right: 16,
+      backgroundColor: '#8A5CF5',
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+    },
+    recommendedBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    wizardMethodIconCircle: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 14,
+    },
+    wizardMethodTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    wizardMethodDesc: {
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    wizardProgressContainer: {
+      flexDirection: 'row',
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      gap: 6,
+      justifyContent: 'center',
+    },
+    wizardProgressBarDot: {
+      flex: 1,
+      height: 6,
+      borderRadius: 3,
+    },
+    wizardStepForm: {
+      gap: 14,
+    },
+    wizardFormHeaderTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    wizardInputLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    wizardTextInputField: {
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 13,
+    },
+    wizardRoleGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    roleSelectBtn: {
+      borderWidth: 1.5,
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    roleSelectText: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    wizardFactsEditor: {
+      borderWidth: 1.5,
+      borderRadius: 12,
+      padding: 12,
+      fontSize: 13,
+      textAlignVertical: 'top',
+    },
+    wizardFactsUtilityBar: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 4,
+    },
+    utilityActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 6,
+    },
+    utilityActionBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    evidenceGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    evidenceCheckboxRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      gap: 6,
+      minWidth: '46%',
+    },
+    evidenceLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    wizardFooterControls: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderTopWidth: 1,
+    },
+    navigationBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    navigationBtnText: {
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    navigationBtnActive: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#EF4444',
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    navigationBtnActiveText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    micInterfaceContainer: {
+      alignItems: 'center',
+      marginVertical: 30,
+      position: 'relative',
+    },
+    micPulsingRing: {
+      position: 'absolute',
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      top: 0,
+    },
+    micRecordCircle: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 10,
+    },
+    recordingStatusLabel: {
+      marginTop: 20,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    transcriptionCard: {
+      borderWidth: 1.5,
+      borderRadius: 16,
+      padding: 16,
+      marginTop: 20,
+    },
+    transcriptionHeading: {
+      fontSize: 11,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 8,
+    },
+    transcriptionEditorText: {
+      fontSize: 13.5,
+      lineHeight: 20,
+    },
+    wizardProgressRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 14,
+    },
+    interviewProgressBarBg: {
+      height: 4,
+      marginHorizontal: 16,
+      marginTop: 8,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    interviewProgressBarFill: {
+      height: '100%',
+    },
+    chatBubbleRow: {
+      flexDirection: 'row',
+      marginVertical: 4,
+      alignItems: 'flex-end',
+    },
+    chatAvatar: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: '#8A5CF5',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 6,
+    },
+    chatBubble: {
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      maxWidth: '85%',
+    },
+    chatBubbleText: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
+    },
+    interviewComposerContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderTopWidth: 1,
+      gap: 8,
+    },
+    interviewInput: {
+      flex: 1,
+      borderWidth: 1.5,
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      fontSize: 13,
+      maxHeight: 80,
+    },
+    interviewSendBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: '#8A5CF5',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    floatingAiBtn: {
+      position: 'absolute',
+      right: 16,
+      bottom: 84,
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: '#8A5CF5',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#8A5CF5',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 8,
+    },
+    chatDrawerContainer: {
+      width: '100%',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+    },
+    userBubble: {
+      backgroundColor: '#8A5CF5',
+      alignSelf: 'flex-end',
+    },
+    userBubbleText: {
+      fontSize: 12.5,
+      color: '#FFFFFF',
+      fontWeight: '600',
+    },
+    aiBubble: {
+      backgroundColor: 'rgba(138, 92, 245, 0.08)',
+      alignSelf: 'flex-start',
+    },
+    aiBubbleText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+    },
+    promptBubbleScroll: {
+      maxHeight: 40,
+      marginBottom: 10,
+    },
+    promptBubbleScrollContent: {
+      gap: 8,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+    },
+    promptBubble: {
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    promptBubbleText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    chatComposer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 44,
+      borderRadius: 22,
+      paddingHorizontal: 12,
+      gap: 8,
+    },
+    chatComposerInput: {
+      flex: 1,
+      fontSize: 13,
+      paddingVertical: 4,
+    },
+    chatComposerSendBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      minWidth: 100,
-    },
-    activeCaseCenterChangeBtnText: {
-      fontSize: 12,
-      fontWeight: '800',
-      color: '#8A5CF5',
     },
   });
 }

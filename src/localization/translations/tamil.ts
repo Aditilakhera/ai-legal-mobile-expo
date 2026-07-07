@@ -12,6 +12,8 @@ export const tamil = {
     continueWorking: "வேலையைத் தொடரவும்",
     quickActions: "விரைவான செயல்கள்",
     newCase: "புதிய வழக்கு",
+    newCaseTitle: "புதிய வழக்கு",
+    productGuide: "தயாரிப்பு வழிகாட்டி",
     aiLegalAssistant: "AI சட்ட உதவியாளர்",
   },
   cases: {
@@ -207,8 +209,8 @@ export const tamil = {
     noNotes: 'குறிப்புகள் இல்லை',
   },
   assistant: {
-    placeholder: 'எந்தவொரு சட்டபூர்வமான கேள்வியையும் கேளுங்கள்...',
-    welcomeSubtitle: 'எந்தவொரு சட்டபூர்வமான கேள்வியையும் கேளுங்கள்',
+    placeholder: 'கேள்வி கேளுங்கள்...',
+    welcomeSubtitle: 'கேள்வி கேளுங்கள்',
     thinking: 'AI யோசிக்கிறது...',
     retry: 'மீண்டும் முயற்சி செய்',
     welcome: 'AI வழக்கு உதவியாளருக்கு வரவேற்கிறோம்',

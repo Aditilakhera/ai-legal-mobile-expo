@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Animated,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -38,6 +39,8 @@ import {
   DeleteDialog,
   PageHeader,
 } from '@/components/ui';
+
+import { NewCaseIntelligenceModal } from '@/components/NewCaseIntelligenceModal';
 
 // Responsive width calculations
 const { width: screenWidth } = Dimensions.get('window');
@@ -279,6 +282,10 @@ export default function DashboardScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Animated values for quick action card press animations
+  const newCaseScale = useRef(new Animated.Value(1)).current;
+  const productGuideScale = useRef(new Animated.Value(1)).current;
+
   // Modal / Dropdown / Dialog States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingCase, setEditingCase] = useState<CaseWorkspace | null>(null);
@@ -286,16 +293,7 @@ export default function DashboardScreen() {
   const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
   const [caseToDeleteId, setCaseToDeleteId] = useState<string | null>(null);
 
-  // Form States
-  const [newCaseForm, setNewCaseForm] = useState({
-    name: '',
-    clientName: '',
-    opponentName: '',
-    caseType: '',
-    courtName: '',
-    summary: '',
-    priority: 'Medium' as 'Low' | 'Medium' | 'High' | 'Urgent',
-  });
+
 
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -523,65 +521,7 @@ export default function DashboardScreen() {
   }, [recentCasesList]);
 
   // --- Handlers ---
-  const handleCreateCase = async () => {
-    if (!newCaseForm.name) {
-      showToast('error', 'Error', 'Case / Suit Name is required.');
-      return;
-    }
 
-    try {
-      setIsLoading(true);
-      const res = await CaseService.createCase({
-        name: newCaseForm.name,
-        clientName: newCaseForm.clientName,
-        opponentName: newCaseForm.opponentName,
-        caseType: newCaseForm.caseType,
-        courtName: newCaseForm.courtName,
-        summary: newCaseForm.summary,
-        priority: newCaseForm.priority,
-        status: 'Active',
-        stage: 'Pre-litigation',
-        lawyers: [],
-        facts: [],
-        legalIssues: [],
-        documents: [],
-        evidence: [],
-        savedPrecedents: [],
-        intelligence: {
-          strengthScore: 70,
-          winProbability: 55,
-          riskLevel: 'Medium',
-          weakPoints: [],
-          missingEvidence: [],
-          opponentStrategies: [],
-          strategyRecommendations: [],
-        },
-        tasks: [],
-        communicationLogs: [],
-        research: [],
-        hearings: [],
-      });
-
-      if (res.success) {
-        showToast('success', 'Success', 'Case folder created successfully.');
-        setIsCreateModalOpen(false);
-        setNewCaseForm({
-          name: '',
-          clientName: '',
-          opponentName: '',
-          caseType: '',
-          courtName: '',
-          summary: '',
-          priority: 'Medium',
-        });
-        fetchDashboardData(true);
-      }
-    } catch (err: any) {
-      showToast('error', 'Error', err.message || 'Failed to create case folder.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleUpdateCase = async () => {
     if (!editingCase || !editingCase.name) {
@@ -938,30 +878,77 @@ export default function DashboardScreen() {
           {/* 4. Quick Actions */}
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('home.quickActions')}</Text>
-            <Card style={styles.quickActionsCard}>
-              <Pressable
-                onPress={() => setIsCreateModalOpen(true)}
-                style={({ pressed }) => [
-                  styles.quickActionBtn,
-                  { borderColor: theme.border, backgroundColor: pressed ? theme.surfaceVariant : '#FFFFFF' }
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="New Case"
-              >
-                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>{t('home.newCase')}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push('/(tabs)/chat')}
-                style={({ pressed }) => [
-                  styles.quickActionBtn,
-                  { borderColor: theme.border, backgroundColor: pressed ? theme.surfaceVariant : '#FFFFFF' }
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="AI Legal Assistant"
-              >
-                <Text style={[styles.quickActionBtnText, { color: theme.textSecondary }]}>{t('home.aiLegalAssistant')}</Text>
-              </Pressable>
-            </Card>
+            <View style={styles.quickActionsRow}>
+              <Animated.View style={{ transform: [{ scale: newCaseScale }], flex: 1 }}>
+                <Pressable
+                  onPressIn={() => {
+                    Animated.timing(newCaseScale, {
+                      toValue: 0.94,
+                      duration: 100,
+                      useNativeDriver: true,
+                    }).start();
+                  }}
+                  onPressOut={() => {
+                    Animated.timing(newCaseScale, {
+                      toValue: 1,
+                      duration: 120,
+                      useNativeDriver: true,
+                    }).start();
+                    setIsCreateModalOpen(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickActionCard,
+                    {
+                      borderColor: theme.border,
+                      backgroundColor: pressed ? (isDark ? '#2D234D' : '#F5F3FF') : theme.card,
+                    }
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="New Case"
+                  android_ripple={{ color: 'rgba(108, 76, 241, 0.15)', borderless: false }}
+                >
+                  <View style={[styles.iconWrapper, { backgroundColor: isDark ? 'rgba(108, 76, 241, 0.15)' : '#F0EEFF' }]}>
+                    <Ionicons name="add-outline" size={24} color={isDark ? '#7B61FF' : '#6C4CF1'} />
+                  </View>
+                  <Text style={[styles.quickActionLabel, { color: theme.textPrimary }]}>{t('home.newCaseTitle')}</Text>
+                </Pressable>
+              </Animated.View>
+
+              <Animated.View style={{ transform: [{ scale: productGuideScale }], flex: 1 }}>
+                <Pressable
+                  onPressIn={() => {
+                    Animated.timing(productGuideScale, {
+                      toValue: 0.94,
+                      duration: 100,
+                      useNativeDriver: true,
+                    }).start();
+                  }}
+                  onPressOut={() => {
+                    Animated.timing(productGuideScale, {
+                      toValue: 1,
+                      duration: 120,
+                      useNativeDriver: true,
+                    }).start();
+                    router.push('/settings/guide');
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickActionCard,
+                    {
+                      borderColor: theme.border,
+                      backgroundColor: pressed ? (isDark ? '#2D234D' : '#F5F3FF') : theme.card,
+                    }
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Product Guide"
+                  android_ripple={{ color: 'rgba(108, 76, 241, 0.15)', borderless: false }}
+                >
+                  <View style={[styles.iconWrapper, { backgroundColor: isDark ? 'rgba(108, 76, 241, 0.15)' : '#F0EEFF' }]}>
+                    <Ionicons name="sparkles-outline" size={24} color={isDark ? '#7B61FF' : '#6C4CF1'} />
+                  </View>
+                  <Text style={[styles.quickActionLabel, { color: theme.textPrimary }]}>{t('home.productGuide')}</Text>
+                </Pressable>
+              </Animated.View>
+            </View>
           </View>
         </ScrollView>
 
@@ -983,110 +970,13 @@ export default function DashboardScreen() {
         />
 
         {/* Modal: Create Case Folder */}
-        <Modal
+        <NewCaseIntelligenceModal
           visible={isCreateModalOpen}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setIsCreateModalOpen(false)}
-        >
-          <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
-            <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalHeaderTitle, { color: theme.textPrimary }]}>{t('cases.createFolder')}</Text>
-                <Pressable onPress={() => setIsCreateModalOpen(false)}>
-                  <Text style={{ fontSize: 20, color: theme.textSecondary }}>✕</Text>
-                </Pressable>
-              </View>
-
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-                <TextInput
-                  label={t('cases.suitName')}
-                  placeholder="e.g. Rajesh Sharma vs Amit Verma"
-                  value={newCaseForm.name}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, name: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
-
-                <TextInput
-                  label={t('cases.clientName')}
-                  placeholder="Plaintiff Name"
-                  value={newCaseForm.clientName}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, clientName: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
-
-                <TextInput
-                  label={t('cases.opponentParty')}
-                  placeholder="Defendant Name"
-                  value={newCaseForm.opponentName}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, opponentName: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
-
-                <TextInput
-                  label={t('cases.legalDomain')}
-                  placeholder="e.g. Commercial Contract Law"
-                  value={newCaseForm.caseType}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, caseType: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
-
-                <TextInput
-                  label={t('cases.presidingCourt')}
-                  placeholder="e.g. Delhi High Court"
-                  value={newCaseForm.courtName}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, courtName: text })}
-                  containerStyle={{ marginBottom: 12 }}
-                />
-
-                <TextInput
-                  label={t('cases.statementSummary')}
-                  placeholder="Provide brief background facts..."
-                  value={newCaseForm.summary}
-                  onChangeText={(text) => setNewCaseForm({ ...newCaseForm, summary: text })}
-                  multiline
-                  numberOfLines={3}
-                  containerStyle={{ marginBottom: 16 }}
-                />
-
-                {/* Priority Selector buttons */}
-                <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>{t('cases.priority')}</Text>
-                <View style={styles.priorityRow}>
-                  {(['Low', 'Medium', 'High', 'Urgent'] as const).map((p) => (
-                    <Pressable
-                      key={p}
-                      onPress={() => setNewCaseForm({ ...newCaseForm, priority: p })}
-                      style={[
-                        styles.priorityBtn,
-                        {
-                          borderColor: theme.border,
-                          backgroundColor: newCaseForm.priority === p ? theme.primary : 'transparent',
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: '700',
-                          color: newCaseForm.priority === p ? '#FFFFFF' : theme.textSecondary,
-                        }}
-                      >
-                        {p === 'Low' ? t('cases.priorityLow') : p === 'Medium' ? t('cases.priorityMedium') : p === 'High' ? t('cases.priorityHigh') : t('cases.priorityUrgent')}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Button
-                  title={t('cases.saveFolder')}
-                  variant="primary"
-                  onPress={handleCreateCase}
-                  style={{ marginTop: 24, marginBottom: 40 }}
-                />
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
+          onClose={() => setIsCreateModalOpen(false)}
+          onSuccess={() => {
+            fetchDashboardData(true);
+          }}
+        />
 
         {/* Modal: Edit Case Folder */}
         <Modal
@@ -1728,21 +1618,39 @@ function getStyles(theme: any) {
     fontSize: 9,
     fontWeight: '800',
   },
-  quickActionsCard: {
-    padding: Spacing[16],
+  quickActionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
   },
-  quickActionBtn: {
+  quickActionCard: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: Radius.md,
-    paddingVertical: 12,
+    borderRadius: Radius.lg,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  iconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: Spacing[8],
   },
-  quickActionBtnText: {
+  quickActionLabel: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.5,

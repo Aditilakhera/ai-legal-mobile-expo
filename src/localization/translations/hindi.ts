@@ -12,6 +12,8 @@ export const hindi = {
     continueWorking: "काम जारी रखें",
     quickActions: "त्वरित कार्रवाई",
     newCase: "नया केस",
+    newCaseTitle: "नया केस",
+    productGuide: "उत्पाद गाइड",
     aiLegalAssistant: "एआई कानूनी सहायक",
   },
   cases: {
@@ -212,8 +214,8 @@ export const hindi = {
     noNotes: 'कोई नोट नहीं',
   },
   assistant: {
-    placeholder: 'कोई भी कानूनी प्रश्न पूछें...',
-    welcomeSubtitle: 'कोई भी कानूनी प्रश्न पूछें',
+    placeholder: 'प्रश्न पूछें...',
+    welcomeSubtitle: 'प्रश्न पूछें',
     thinking: 'एआई सोच रहा है...',
     retry: 'पुनः प्रयास करें',
     welcome: 'एआई केस सहायक में आपका स्वागत है',

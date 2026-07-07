@@ -110,7 +110,7 @@ const ChatComposerComponent: React.FC<ChatComposerProps> = ({
   onCancelStream,
   onAddAttachment,
   onPressSparkles,
-  placeholder = 'Ask AI Legal Assistant...',
+  placeholder = 'Ask assistant...',
   simulatedVoiceText = 'What are the legal precedents for easement rights in tenant disputes?',
   hasAttachmentSupport = true,
   hasSparklesSupport = true,
@@ -126,6 +126,13 @@ const ChatComposerComponent: React.FC<ChatComposerProps> = ({
   const inputRef = (ref as React.RefObject<TextInput>) || localInputRef;
 
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [inputHeight, setInputHeight] = useState(36);
+
+  useEffect(() => {
+    if (value.trim() === '') {
+      setInputHeight(36);
+    }
+  }, [value]);
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -355,18 +362,33 @@ const ChatComposerComponent: React.FC<ChatComposerProps> = ({
 
             <TextInput
               ref={inputRef}
-              style={[styles.composerInput, { color: theme.textPrimary }]}
+              style={[
+                styles.composerInput, 
+                { 
+                  color: theme.textPrimary,
+                  height: inputHeight,
+                  paddingTop: Platform.OS === 'ios' ? 8 : 4,
+                  paddingBottom: Platform.OS === 'ios' ? 8 : 4,
+                  textAlignVertical: 'center',
+                }
+              ]}
               placeholder={sending ? 'Generating response...' : placeholder}
               placeholderTextColor={theme.textMuted || '#9CA3AF'}
               value={value}
               onChangeText={handleInputChange}
               editable={!sending}
               multiline={true}
+              onContentSizeChange={(e) => {
+                const contentHeight = e.nativeEvent.contentSize.height;
+                // Limit height between 36dp (approx 1 line) and 96dp (approx 4 lines)
+                const newHeight = Math.min(96, Math.max(36, contentHeight));
+                setInputHeight(newHeight);
+              }}
               onSubmitEditing={handleSendClick}
               accessibilityLabel="Message input field"
             />
 
-            {/* Dynamic Send / Mic / Stop Action Button inside the container */}
+            {/* Dynamic Actions side-by-side or stream cancellation control */}
             {sending ? (
               <Pressable
                 onPress={onCancelStream}
@@ -382,36 +404,48 @@ const ChatComposerComponent: React.FC<ChatComposerProps> = ({
                   <View style={styles.stopSquare} />
                 </View>
               </Pressable>
-            ) : value.trim() === '' ? (
-              <Pressable
-                onPress={handleVoiceInputPress}
-                style={({ pressed }) => [
-                  styles.innerActionBtnTouchTarget,
-                  pressed && styles.pressed,
-                ]}
-                accessibilityLabel="Voice input"
-                accessibilityRole="button"
-              >
-                <Ionicons
-                  name="mic-outline"
-                  size={22}
-                  color={theme.textSecondary}
-                />
-              </Pressable>
             ) : (
-              <Pressable
-                onPress={handleSendClick}
-                style={({ pressed }) => [
-                  styles.innerActionBtnTouchTarget,
-                  pressed && styles.pressed,
-                ]}
-                accessibilityLabel="Send message"
-                accessibilityRole="button"
-              >
-                <View style={[styles.innerSendCircle, { backgroundColor: theme.primary }]}>
-                  <Ionicons name="arrow-up" size={18} color="#FFFFFF" />
-                </View>
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Pressable
+                  onPress={handleVoiceInputPress}
+                  style={({ pressed }) => [
+                    styles.innerActionBtnTouchTarget,
+                    pressed && styles.pressed,
+                    value.trim() !== '' && { opacity: 0.4 }
+                  ]}
+                  accessibilityLabel="Voice input"
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name="mic-outline"
+                    size={22}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+
+                <Pressable
+                  onPress={handleSendClick}
+                  disabled={value.trim() === ''}
+                  style={({ pressed }) => [
+                    styles.innerActionBtnTouchTarget,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityLabel="Send message"
+                  accessibilityRole="button"
+                >
+                  <View style={[
+                    styles.innerSendCircle,
+                    { backgroundColor: theme.primary },
+                    value.trim() === '' && { backgroundColor: theme.border, opacity: 0.5 }
+                  ]}>
+                    <Ionicons 
+                      name="arrow-up" 
+                      size={18} 
+                      color={value.trim() === '' ? (theme.textMuted || '#9CA3AF') : "#FFFFFF"} 
+                    />
+                  </View>
+                </Pressable>
+              </View>
             )}
           </View>
         )}
@@ -455,13 +489,15 @@ const styles = StyleSheet.create({
   composerWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 26,
+    borderRadius: 24,
     backgroundColor: '#F9FAFB',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    minHeight: 48,
+    maxHeight: 120,
   },
   recordingComposerWrapper: {
     flex: 1,
@@ -469,7 +505,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 26,
+    borderRadius: 24,
     backgroundColor: '#F9FAFB',
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -481,7 +517,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 26,
+    borderRadius: 24,
     backgroundColor: '#F9FAFB',
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -490,8 +526,7 @@ const styles = StyleSheet.create({
   leftIconsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
-    marginRight: 2,
+    marginRight: 4,
   },
   innerOptionBtn: {
     width: 32,
@@ -501,12 +536,9 @@ const styles = StyleSheet.create({
   },
   composerInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 20,
     paddingHorizontal: 8,
-    paddingVertical: 10,
-    minHeight: 40,
-    maxHeight: 140,
   },
   innerActionBtnTouchTarget: {
     width: 36,
@@ -515,7 +547,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 4,
-    marginBottom: 2,
   },
   innerSendCircle: {
     width: 28,
