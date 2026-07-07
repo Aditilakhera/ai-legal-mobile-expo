@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -1862,25 +1862,9 @@ function getStyles(theme: any) {
     minWidth: 44,
     alignItems: 'center',
   },
-  dropdownBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing[12],
-    paddingVertical: Spacing[10],
-    marginBottom: 4,
-    minHeight: 48,
-  },
   roleDropdownBtn: {
     marginTop: 4,
     paddingVertical: 0,
-  },
-  dropdownBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    flex: 1,
   },
   dropdownList: {
     position: 'absolute',
