@@ -15,14 +15,12 @@ import {
   TextInputProps as RNTextInputProps,
   ActivityIndicator,
   StyleProp,
+  Modal,
+  FlatList,
 } from 'react-native';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
-// @ts-ignore
-import { DatePickerModal } from 'react-native-paper-dates';
-// @ts-ignore
-import { PaperProvider } from 'react-native-paper';
 import { useThemeContext } from '@/providers';
 import { Spacing, Radius, Opacity } from '@/theme';
 
@@ -369,8 +367,8 @@ export const UploadInput: React.FC<UploadInputProps> = ({
 };
 
 /**
- * Cross-platform Material Design Date Picker.
- * Uses react-native-paper-dates DatePickerModal for a consistent UI across Android, iOS, and Web.
+ * Cross-platform Date Picker — pure React Native, Expo Go compatible.
+ * No native packages required.
  */
 export interface DatePickerProps {
   label?: string;
@@ -382,6 +380,8 @@ export interface DatePickerProps {
   disabled?: boolean;
 }
 
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
 export const DatePicker: React.FC<DatePickerProps> = ({
   label,
   placeholder = 'Select date...',
@@ -391,43 +391,31 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   error,
   disabled,
 }) => {
-  const { theme, isDark } = useThemeContext();
+  const { theme } = useThemeContext();
   const [open, setOpen] = useState(false);
 
   const today = new Date();
-  const minDate = new Date(1900, 0, 1);
-
-  // Parse YYYY-MM-DD value → Date object for the picker
-  const parsedDate = React.useMemo(() => {
-    if (!value) return undefined;
-    const parts = value.split('-');
-    if (parts.length === 3) {
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10) - 1;
-      const d = parseInt(parts[2], 10);
-      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-        return new Date(y, m, d);
-      }
-    }
-    return undefined;
-  }, [value]);
+  const [selYear, setSelYear] = useState(value ? parseInt(value.split('-')[0], 10) : today.getFullYear());
+  const [selMonth, setSelMonth] = useState(value ? parseInt(value.split('-')[1], 10) - 1 : today.getMonth());
+  const [selDay, setSelDay] = useState(value ? parseInt(value.split('-')[2], 10) : today.getDate());
 
   const getDisplayDate = (): string => {
     if (!value) return '';
     const parts = value.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
-    }
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
     return value;
   };
 
-  const handleConfirm = (params: { date: Date | undefined }) => {
+  const daysInMonth = new Date(selYear, selMonth + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const months = MONTHS;
+  const years = Array.from({ length: 125 }, (_, i) => today.getFullYear() - i);
+
+  const handleConfirm = () => {
+    const safeDay = Math.min(selDay, daysInMonth);
+    const iso = `${selYear}-${String(selMonth + 1).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+    onChangeDate(iso);
     setOpen(false);
-    if (params.date) {
-      const d = params.date;
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      onChangeDate(iso);
-    }
   };
 
   const handleClear = (e: any) => {
@@ -435,82 +423,138 @@ export const DatePicker: React.FC<DatePickerProps> = ({
     onChangeDate('');
   };
 
-  // Build a Material Design theme matching the app's color scheme
-  const paperTheme = React.useMemo(() => ({
-    dark: isDark,
-    colors: {
-      primary: theme.primary,
-      onPrimary: '#FFFFFF',
-      primaryContainer: theme.primary,
-      onPrimaryContainer: '#FFFFFF',
-      secondary: theme.textSecondary,
-      onSecondary: '#FFFFFF',
-      background: theme.card,
-      onBackground: theme.textPrimary,
-      surface: theme.card,
-      onSurface: theme.textPrimary,
-      surfaceVariant: theme.surfaceVariant,
-      onSurfaceVariant: theme.textSecondary,
-      outline: theme.border,
-      shadow: '#000000',
-      inverseSurface: theme.textPrimary,
-      inverseOnSurface: theme.card,
-    },
-  }), [theme, isDark]);
-
   return (
-    <PaperProvider theme={paperTheme as any}>
-      <View style={containerStyle}>
-        {!!label && <Text style={[dpStyles.label, { color: theme.textSecondary }]}>{label}</Text>}
+    <View style={containerStyle}>
+      {!!label && <Text style={[dpStyles.label, { color: theme.textSecondary }]}>{label}</Text>}
 
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => { if (!disabled) setOpen(true); }}
-          disabled={disabled}
-          style={[
-            dpStyles.inputWrapper,
-            {
-              borderColor: error ? theme.danger : theme.border,
-              backgroundColor: disabled ? theme.surfaceVariant : theme.surface,
-            },
-          ]}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => { if (!disabled) setOpen(true); }}
+        disabled={disabled}
+        style={[
+          dpStyles.inputWrapper,
+          {
+            borderColor: error ? theme.danger : theme.border,
+            backgroundColor: disabled ? theme.surfaceVariant : theme.surface,
+          },
+        ]}
+      >
+        <View style={dpStyles.leftIconWrapper}>
+          <Ionicons name="calendar-outline" size={18} color={theme.textSecondary} />
+        </View>
+
+        <Text
+          style={[dpStyles.inputText, { color: value ? theme.textPrimary : theme.placeholder }]}
+          numberOfLines={1}
         >
-          <View style={dpStyles.leftIconWrapper}>
-            <Ionicons name="calendar-outline" size={18} color={theme.textSecondary} />
+          {getDisplayDate() || placeholder}
+        </Text>
+
+        {!!value && !disabled && (
+          <TouchableOpacity onPress={handleClear} activeOpacity={0.7} style={dpStyles.clearButton}>
+            <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+
+      {!!error && <Text style={[dpStyles.errorText, { color: theme.danger }]}>{error}</Text>}
+
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <View style={[dpStyles.modalOverlay]}>
+          <View style={[dpStyles.modalContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* Header */}
+            <View style={[dpStyles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[dpStyles.modalTitle, { color: theme.textPrimary }]}>Select Date</Text>
+              <TouchableOpacity onPress={() => setOpen(false)}>
+                <Ionicons name="close" size={22} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Column Pickers */}
+            <View style={dpStyles.pickersRow}>
+              {/* Day */}
+              <View style={dpStyles.pickerCol}>
+                <Text style={[dpStyles.pickerColLabel, { color: theme.textSecondary }]}>Day</Text>
+                <FlatList
+                  data={days}
+                  keyExtractor={(item) => String(item)}
+                  style={dpStyles.pickerList}
+                  showsVerticalScrollIndicator={false}
+                  getItemLayout={(_, index) => ({ length: 44, offset: 44 * index, index })}
+                  initialScrollIndex={Math.max(0, selDay - 1)}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      onPress={() => setSelDay(item)}
+                      style={[dpStyles.pickerItem, selDay === item && { backgroundColor: theme.primary + '22' }]}
+                    >
+                      <Text style={[dpStyles.pickerItemText, { color: selDay === item ? theme.primary : theme.textPrimary }, selDay === item && { fontWeight: '700' }]}>
+                        {String(item).padStart(2, '0')}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+
+              {/* Month */}
+              <View style={[dpStyles.pickerCol, { flex: 2 }]}>
+                <Text style={[dpStyles.pickerColLabel, { color: theme.textSecondary }]}>Month</Text>
+                <FlatList
+                  data={months}
+                  keyExtractor={(item) => item}
+                  style={dpStyles.pickerList}
+                  showsVerticalScrollIndicator={false}
+                  getItemLayout={(_, index) => ({ length: 44, offset: 44 * index, index })}
+                  initialScrollIndex={selMonth}
+                  renderItem={({ item, index }) => (
+                    <TouchableOpacity
+                      onPress={() => setSelMonth(index)}
+                      style={[dpStyles.pickerItem, selMonth === index && { backgroundColor: theme.primary + '22' }]}
+                    >
+                      <Text style={[dpStyles.pickerItemText, { color: selMonth === index ? theme.primary : theme.textPrimary }, selMonth === index && { fontWeight: '700' }]}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+
+              {/* Year */}
+              <View style={[dpStyles.pickerCol, { flex: 1.2 }]}>
+                <Text style={[dpStyles.pickerColLabel, { color: theme.textSecondary }]}>Year</Text>
+                <FlatList
+                  data={years}
+                  keyExtractor={(item) => String(item)}
+                  style={dpStyles.pickerList}
+                  showsVerticalScrollIndicator={false}
+                  getItemLayout={(_, index) => ({ length: 44, offset: 44 * index, index })}
+                  initialScrollIndex={0}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      onPress={() => setSelYear(item)}
+                      style={[dpStyles.pickerItem, selYear === item && { backgroundColor: theme.primary + '22' }]}
+                    >
+                      <Text style={[dpStyles.pickerItemText, { color: selYear === item ? theme.primary : theme.textPrimary }, selYear === item && { fontWeight: '700' }]}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            </View>
+
+            {/* Actions */}
+            <View style={[dpStyles.modalActions, { borderTopColor: theme.border }]}>
+              <TouchableOpacity onPress={() => setOpen(false)} style={[dpStyles.modalBtn, { borderColor: theme.border }]}>
+                <Text style={[dpStyles.modalBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleConfirm} style={[dpStyles.modalBtn, dpStyles.modalConfirmBtn, { backgroundColor: theme.primary }]}>
+                <Text style={[dpStyles.modalBtnText, { color: '#fff' }]}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-
-          <Text
-            style={[
-              dpStyles.inputText,
-              { color: value ? theme.textPrimary : theme.placeholder },
-            ]}
-            numberOfLines={1}
-          >
-            {getDisplayDate() || placeholder}
-          </Text>
-
-          {!!value && !disabled && (
-            <TouchableOpacity onPress={handleClear} activeOpacity={0.7} style={dpStyles.clearButton}>
-              <Ionicons name="close-circle" size={16} color={theme.textMuted} />
-            </TouchableOpacity>
-          )}
-        </TouchableOpacity>
-
-        {!!error && <Text style={[dpStyles.errorText, { color: theme.danger }]}>{error}</Text>}
-
-        <DatePickerModal
-          mode="single"
-          visible={open}
-          onDismiss={() => setOpen(false)}
-          date={parsedDate}
-          onConfirm={handleConfirm}
-          validRange={{ startDate: minDate, endDate: today }}
-          locale="en"
-          presentationStyle="pageSheet"
-          animationType="fade"
-        />
-      </View>
-    </PaperProvider>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
@@ -547,7 +591,89 @@ const dpStyles = StyleSheet.create({
     marginTop: Spacing[4],
     fontWeight: '500',
   },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    paddingBottom: 32,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  pickersRow: {
+    flexDirection: 'row',
+    height: 220,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  pickerCol: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  pickerColLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  pickerList: {
+    flex: 1,
+  },
+  pickerItem: {
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    marginVertical: 1,
+    paddingHorizontal: 4,
+  },
+  pickerItemText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    marginTop: 8,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+  },
+  modalConfirmBtn: {
+    borderWidth: 0,
+  },
+  modalBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });
+
 
 const styles = StyleSheet.create({
   container: {
