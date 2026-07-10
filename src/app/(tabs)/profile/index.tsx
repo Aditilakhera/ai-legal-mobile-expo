@@ -636,7 +636,7 @@ export default function ProfileScreen() {
                   {renderInput(t('profile.enrollmentNumber'), form.barNumber, (v) => setForm({ ...form, barNumber: v }), t('profile.enrollmentPlaceholder'))}
                   <View style={styles.rowFields}>
                     <View style={{ flex: 1 }}>
-                      {renderInput(t('profile.enrollmentNumber'), form.enrollmentYear, (v) => setForm({ ...form, enrollmentYear: v }), t('profile.enrollmentYearPlaceholder'), 'numeric')}
+                      {renderInput(t('profile.enrollmentYear'), form.enrollmentYear, (v) => setForm({ ...form, enrollmentYear: v }), t('profile.enrollmentYearPlaceholder'), 'numeric')}
                     </View>
                     <View style={{ flex: 1 }}>
                       {renderInput(t('profile.practiceExperienceYears'), form.practiceExperience, (v) => setForm({ ...form, practiceExperience: v }), t('profile.experiencePlaceholder'), 'numeric')}
@@ -649,7 +649,7 @@ export default function ProfileScreen() {
                 <View style={styles.infoGrid}>
                   {renderRow('ribbon-outline', t('profile.stateBarCouncil'), form.stateBarCouncil)}
                   {renderRow('card-outline', t('profile.enrollmentNumber'), form.barNumber)}
-                  {renderRow('calendar-outline', t('profile.enrollmentNumber'), form.enrollmentYear)}
+                  {renderRow('calendar-outline', t('profile.enrollmentYear'), form.enrollmentYear)}
                   {renderRow('briefcase-outline', t('profile.practiceExperience'), form.practiceExperience ? t('profile.yearsCount', { count: form.practiceExperience }) : undefined)}
                   {renderRow('library-outline', t('profile.primaryCourt'), form.primaryCourt)}
                   {renderRow('language-outline', t('profile.languagesKnown'), form.languagesKnown)}
@@ -808,6 +808,18 @@ export default function ProfileScreen() {
                       <View style={styles.accountItemLeft}>
                         <Ionicons name="book-outline" size={18} color={theme.textSecondary} style={styles.accountIcon} />
                         <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>{t('settings.ragKnowledgeBase', 'AI Product Guide Knowledge')}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                    </Pressable>
+                    <View style={[styles.accountDivider, { backgroundColor: theme.divider }]} />
+
+                    <Pressable
+                      style={styles.accountItem}
+                      onPress={() => router.push('/settings/admin')}
+                    >
+                      <View style={styles.accountItemLeft}>
+                        <Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} style={styles.accountIcon} />
+                        <Text style={[styles.accountItemText, { color: theme.textPrimary }]}>🛡 Admin Portal</Text>
                       </View>
                       <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
                     </Pressable>

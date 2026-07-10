@@ -21,6 +21,7 @@ export interface UserPersonalizationGeneral {
   dateFormat?: string;
   timeFormat?: string;
   compactMode?: boolean;
+  showProductGuideBanner?: boolean;
 }
 
 export interface UserPersonalizationNotifications {

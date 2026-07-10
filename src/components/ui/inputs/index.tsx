@@ -236,7 +236,6 @@ export const OtpInput: React.FC<OtpInputProps> = ({
         onChangeText={(text) => onChangeValue(text.replace(/[^0-9]/g, '').slice(0, codeLength))}
         keyboardType="number-pad"
         textContentType="oneTimeCode"
-        autoComplete="one-time-code"
       />
       {!!error && <Text style={[styles.errorText, { color: theme.danger, textAlign: 'center' }]}>{error}</Text>}
     </View>

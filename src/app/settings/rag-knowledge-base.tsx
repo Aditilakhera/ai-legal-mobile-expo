@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+// @ts-ignore
 import { Ionicons } from '@expo/vector-icons';
 import { useToastContext, useThemeContext } from '@/providers';
 import { useUserStore } from '@/store/user';
@@ -583,11 +584,11 @@ const styles = StyleSheet.create({
   statsCard: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     padding: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.small,
+    ...Shadows.sm,
   },
   statsVal: {
     fontSize: 16,
@@ -604,7 +605,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     padding: 16,
-    ...Shadows.small,
+    ...Shadows.sm,
   },
   sectionTitle: {
     fontSize: 14,
@@ -620,7 +621,7 @@ const styles = StyleSheet.create({
   pickerArea: {
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
@@ -636,7 +637,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     height: 42,
   },
   uploadBtnText: {
@@ -661,7 +662,7 @@ const styles = StyleSheet.create({
   searchInput: {
     height: 38,
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     paddingHorizontal: 12,
     fontSize: 13,
     marginBottom: 12,
@@ -714,7 +715,7 @@ const styles = StyleSheet.create({
   lockBackBtn: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     marginTop: 24,
   },
   lockBackBtnText: {
@@ -725,7 +726,7 @@ const styles = StyleSheet.create({
   testInput: {
     height: 40,
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     paddingHorizontal: 12,
     fontSize: 13,
     marginBottom: 10,
@@ -747,7 +748,7 @@ const styles = StyleSheet.create({
   },
   testBtn: {
     height: 40,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -775,7 +776,7 @@ const styles = StyleSheet.create({
   },
   chunkItem: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderRadius: Radius.md,
     padding: 10,
     marginBottom: 8,
   },

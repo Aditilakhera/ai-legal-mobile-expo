@@ -123,7 +123,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Register Axios HTTP handlers to fetch JWT tokens dynamically
     registerAuthHandlers({
-      getAccessToken: async () => useAuthStore.getState().token,
+      getAccessToken: async () => {
+        const storeToken = useAuthStore.getState().token;
+        if (storeToken) return storeToken;
+        try {
+          return await StorageService.getSecret(StorageKeys.AuthToken);
+        } catch {
+          return null;
+        }
+      },
       refreshAccessToken: async () => {
         console.log('[AUTH CLIENT] Refresh token requested. Not supported by Express backend.');
         return null; // Triggers session expired flow

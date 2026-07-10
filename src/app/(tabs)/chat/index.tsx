@@ -443,7 +443,7 @@ export default function ChatScreen() {
     renameChatSession,
     dispatchMessageStream,
     cancelMessageStream,
-  } = useChat();
+  } = useChat('legal_my_case');
 
   // Component UI States
   const [inputVal, setInputVal] = useState('');
@@ -464,8 +464,9 @@ export default function ChatScreen() {
           onPress: async () => {
             try {
               const currentSessions = [...sessions];
-              useChatStore.getState().clearChat();
               for (const session of currentSessions) {
+                // Delete locally first
+                useChatStore.getState().deleteSession(session.sessionId);
                 if (session._id || session.createdAt) {
                   const { ChatService } = require('@/services/chat.service');
                   ChatService.deleteSession(session.sessionId).catch(() => {});

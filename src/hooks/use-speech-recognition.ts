@@ -75,6 +75,7 @@ export function useSpeechRecognition(onTranscriptionComplete: (text: string) => 
       }
 
       const currentText = finalTranscript || interimTranscript;
+      console.log('[Voice Recognition] Partial Result:', currentText);
       setPartialText(currentText);
     };
 
@@ -108,12 +109,14 @@ export function useSpeechRecognition(onTranscriptionComplete: (text: string) => 
 
     const onSpeechResults = (e: any) => {
       if (e.value && e.value.length > 0) {
+        console.log('[Voice Recognition] Partial Result:', e.value[0]);
         setPartialText(e.value[0]);
       }
     };
 
     const onSpeechPartialResults = (e: any) => {
       if (e.value && e.value.length > 0) {
+        console.log('[Voice Recognition] Partial Result:', e.value[0]);
         setPartialText(e.value[0]);
       }
     };

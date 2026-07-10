@@ -94,10 +94,33 @@ const TOOLS_LIST: ToolItem[] = [
   },
 ];
 
+const ADVANCED_FEATURES_LIST = [
+  {
+    id: 'mock-courtroom',
+    title: 'AI Mock Courtroom',
+    description: 'Practice realistic courtroom hearings with an AI Judge, opposing counsel, witness simulations, objection handling, oral arguments, courtroom scoring, performance feedback, and trial preparation in a fully interactive environment.',
+    image: require('../../../assets/images/tools/courtroom_voice_3d.png'),
+    bgColor: '#F5F3FF',
+    color: '#7C3AED',
+    route: '/tools/mock-courtroom',
+    badge: 'FLAGSHIP PRO',
+  },
+  {
+    id: 'knowledge-hub',
+    title: 'AI Legal Knowledge Hub™',
+    description: 'Explore India\'s complete AI-powered legal knowledge ecosystem featuring Acts, Sections, Bare Laws, Judgments, Legal Dictionary, Procedures, Drafts, AI explanations, interactive learning, and intelligent legal research in a premium digital reading experience.',
+    image: require('../../../assets/images/tools/legal_precedent.png'),
+    bgColor: '#F0F9FF',
+    color: '#0284C7',
+    route: '/tools/knowledge-hub',
+    badge: 'ENTERPRISE OS',
+  },
+];
+
 export default function ToolsScreen() {
   useAuthGuard();
   const router = useRouter();
-  const { theme } = useThemeContext();
+  const { theme, isDark } = useThemeContext();
   const { t } = useTranslation();
 
   const handleLaunchTool = (route: string) => {
@@ -115,6 +138,7 @@ export default function ToolsScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Section 1: Standard AI Tools */}
           <View style={styles.gridContainer}>
             {TOOLS_LIST.map((tool) => (
               <Pressable
@@ -165,6 +189,70 @@ export default function ToolsScreen() {
               </Pressable>
             ))}
           </View>
+
+          {/* Spacer & Divider */}
+          <View style={[styles.sectionDivider, { backgroundColor: theme.border }]} />
+
+          {/* Section 2: Flagship Advanced Features */}
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.advancedSectionTitle, { color: theme.textPrimary }]}>🚀 ADVANCED FEATURES</Text>
+            <Text style={styles.advancedSectionSubtitle}>
+              Enterprise-grade AI workspaces for courtroom simulation, legal research and intelligent learning.
+            </Text>
+          </View>
+
+          <View style={styles.gridContainer}>
+            {ADVANCED_FEATURES_LIST.map((tool) => (
+              <Pressable
+                key={tool.id}
+                style={({ pressed }) => [
+                  styles.advancedCard,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                  pressed && { backgroundColor: theme.hover, opacity: 0.95 },
+                ]}
+                onPress={() => handleLaunchTool(tool.route)}
+                accessibilityRole="button"
+                accessibilityLabel={`Launch ${tool.title}`}
+              >
+                {/* Premium Badge */}
+                <View style={[styles.premiumBadge, { backgroundColor: isDark ? 'rgba(2, 132, 199, 0.15)' : 'rgba(2, 132, 199, 0.08)' }]}>
+                  <Text style={styles.premiumBadgeText}>{tool.badge}</Text>
+                </View>
+
+                <View style={styles.cardHeader}>
+                  {/* Premium Courtroom representation vector container */}
+                  <View style={[styles.iconWrapper, { backgroundColor: tool.bgColor }]}>
+                    <Image
+                      source={tool.image}
+                      style={styles.toolIcon3D}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={theme.textMuted}
+                    style={styles.chevron}
+                  />
+                </View>
+
+                <Text style={[styles.advancedCardTitle, { color: theme.textPrimary }]}>
+                  {tool.title}
+                </Text>
+                <Text style={[styles.advancedCardDescription, { color: theme.textSecondary }]}>
+                  {tool.description}
+                </Text>
+
+                <View style={[styles.advancedCardFooter, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.advancedActionText, { color: tool.color }]}>
+                    Open Premium Workspace
+                  </Text>
+                  <Ionicons name="arrow-forward" size={15} color={tool.color} />
+                </View>
+              </Pressable>
+            ))}
+          </View>
+
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -241,5 +329,87 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+
+  // ─── ADVANCED FEATURES STYLING ──────────────────────────────────────────
+  sectionDivider: {
+    height: 1,
+    marginVertical: 26,
+    opacity: 0.6,
+  },
+  advancedSectionTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  advancedSectionSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  advancedCard: {
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1.5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  premiumBadge: {
+    position: 'absolute',
+    top: 20,
+    right: 50,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  premiumBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#0284C7',
+    letterSpacing: 0.8,
+  },
+  advancedIconWrapper: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  subIconOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+    padding: 1,
+  },
+  advancedCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  advancedCardDescription: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  advancedCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderTopWidth: 1,
+    paddingTop: 14,
+  },
+  advancedActionText: {
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

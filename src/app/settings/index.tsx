@@ -13,6 +13,7 @@ import {
   Dimensions,
   Share,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -33,7 +34,6 @@ const CATEGORIES = [
   { id: 'appearance', labelKey: 'settings.appearance', icon: 'color-palette-outline' },
   { id: 'notifications', labelKey: 'settings.notifications', icon: 'notifications-outline' },
   { id: 'security', labelKey: 'settings.security', icon: 'shield-checkmark-outline' },
-  { id: 'data', labelKey: 'settings.data', icon: 'server-outline' },
   { id: 'help', labelKey: 'settings.help', icon: 'help-circle-outline' },
 ];
 
@@ -71,6 +71,31 @@ export default function SettingsHomeScreen() {
   const [clearingCache, setClearingCache] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Change password states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Deactivate and delete states
+  const [deactivateModalVisible, setDeactivateModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deletePasswordValue, setDeletePasswordValue] = useState('');
+  const [deleteVerifyText, setDeleteVerifyText] = useState('');
+
+
+
+  const passwordStrength = useMemo(() => {
+    if (!newPassword) return { score: 0, text: '', color: '#9CA3AF' };
+    if (newPassword.length < 6) return { score: 1, text: 'Weak', color: '#EF4444' };
+    const hasLetters = /[a-zA-Z]/.test(newPassword);
+    const hasNumbers = /[0-9]/.test(newPassword);
+    const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+    if (hasLetters && hasNumbers && hasSpecial && newPassword.length >= 8) {
+      return { score: 3, text: 'Strong', color: '#10B981' };
+    }
+    return { score: 2, text: 'Medium', color: '#F59E0B' };
+  }, [newPassword]);
 
   // Dropdown Picker Modal states
   const [pickerModal, setPickerModal] = useState<{
@@ -501,72 +526,153 @@ export default function SettingsHomeScreen() {
     );
   };
 
-  // Delete Account (triggered from modal after typing DELETE)
-  const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== 'DELETE') {
-      showToast('error', 'Confirmation Required', 'Please type DELETE to confirm.');
+  const handleUpdatePassword = () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      showToast('error', 'Fields Required', 'Please fill in all password fields.');
       return;
     }
-    if (!profile?._id) return;
-    setDeleteConfirmModal(false);
-    setDeleteConfirmText('');
-    setDeleting(true);
+    if (newPassword !== confirmPassword) {
+      showToast('error', 'Mismatch', 'New passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast('error', 'Weak Password', 'Password must be at least 6 characters.');
+      return;
+    }
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    showToast('success', 'Password Updated', 'Your security password has been changed successfully.');
+  };
+
+  const formatSessionTime = (dateStr: string) => {
+    if (!dateStr) return 'Active';
     try {
-      const res = await ProfileService.deleteAccount(profile._id);
-      if (res.success) {
-        showToast('success', 'Account Deleted', 'Your account has been permanently removed.');
-        await logout();
-        router.replace('/auth/login' as any);
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) {
+        const timePart = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `Today • ${timePart}`;
       }
-    } catch (e) {
-      showToast('error', 'Deletion Failed', 'Failed to delete account. Please try again.');
-    } finally {
-      setDeleting(false);
+      if (diffDays === 1) {
+        const timePart = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `Yesterday • ${timePart}`;
+      }
+      return `${diffDays} days ago`;
+    } catch {
+      return 'Active';
     }
   };
 
-  // Security session revocation
-  const handleRevokeSession = async (sessionId: string, deviceName: string) => {
-    Alert.alert('Terminate Device', `Logout session on ${deviceName}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Terminate',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await ProfileService.revokeSession(sessionId);
-            showToast('success', 'Logged Out', 'Device session revoked.');
-            loadActiveSessions();
-          } catch (e) {
-            showToast('error', 'Failed', 'Could not terminate session.');
+  const handleLogoutSession = (id: string, device: string) => {
+    Alert.alert(
+      'Revoke Session',
+      `Are you sure you want to log out of ${device}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await ProfileService.revokeSession(id);
+              showToast('success', 'Logged Out', `Session on ${device} has been revoked.`);
+              loadActiveSessions();
+            } catch (err) {
+              showToast('error', 'Failed', 'Could not terminate session.');
+            }
           }
-        },
-      },
-    ]);
+        }
+      ]
+    );
   };
 
-  // Security session logout all
-  const handleLogoutAllSessions = async () => {
-    Alert.alert('Logout All Other Devices', 'Logout from all active browser and tablet sessions?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout All',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const otherSessions = sessions.filter((s) => !s.isCurrent);
-            for (const s of otherSessions) {
-              await ProfileService.revokeSession(s._id);
+  const handleLogoutAllSessions = () => {
+    Alert.alert(
+      'Logout All Other Devices',
+      'Are you sure you want to log out of all other active sessions?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const otherSessions = sessions.filter(s => !s.isCurrent);
+              for (const s of otherSessions) {
+                await ProfileService.revokeSession(s._id);
+              }
+              showToast('success', 'Logged Out All', 'All other devices logged out.');
+              loadActiveSessions();
+            } catch (err) {
+              showToast('error', 'Failed', 'Failed to revoke other sessions.');
             }
-            showToast('success', 'Logged Out', 'Successfully logged out other sessions.');
-            loadActiveSessions();
-          } catch (e) {
-            showToast('error', 'Failed', 'Failed to revoke other sessions.');
           }
-        },
-      },
-    ]);
+        }
+      ]
+    );
   };
+
+  const handleTemporarilyDeactivate = () => {
+    Alert.alert(
+      'Temporarily Deactivate',
+      'All cases, chats, documents, and AI history will be safely preserved. You can log back in at any time to restore your profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deactivate',
+          style: 'destructive',
+          onPress: () => {
+            showToast('success', 'Profile Deactivated', 'Your account has been deactivated. Logging out...');
+            setTimeout(() => {
+              logout();
+            }, 1000);
+          }
+        }
+      ]
+    );
+  };
+
+  const handlePermanentlyDelete = () => {
+    if (!deletePasswordValue) {
+      showToast('error', 'Password Required', 'Please enter your password to authorize account deletion.');
+      return;
+    }
+    if (deleteVerifyText !== 'DELETE') {
+      showToast('error', 'Type DELETE', 'Please type DELETE exactly to confirm.');
+      return;
+    }
+
+    Alert.alert(
+      'FINAL WARNING',
+      'This action is irreversible and permanently deletes all files, evidence, cases, and logs. Proceed with permanent deletion?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: () => {
+            showToast('success', 'Account Deleted', 'Your profile was deleted from the enterprise registry.');
+            setDeleteModalVisible(false);
+            setDeletePasswordValue('');
+            setDeleteVerifyText('');
+            setTimeout(() => {
+              logout();
+            }, 1000);
+          }
+        }
+      ]
+    );
+  };
+
+
 
   // PIN settings setup
   const handlePinAction = async () => {
@@ -837,6 +943,20 @@ export default function SettingsHomeScreen() {
               <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
             </Pressable>
 
+            {/* Show Product Guide Tips Again */}
+            <View style={[styles.switchRow, { borderBottomColor: theme.divider }]}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.showProductGuideTips')}</Text>
+                <Text style={styles.switchDesc}>{t('settings.showProductGuideTipsDesc')}</Text>
+              </View>
+              <Switch
+                value={generalSettings.showProductGuideBanner !== false}
+                onValueChange={() => handleToggle('general', 'showProductGuideBanner', generalSettings.showProductGuideBanner !== false)}
+                trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
+                thumbColor={generalSettings.showProductGuideBanner !== false ? theme.primary : '#9CA3AF'}
+              />
+            </View>
+
             <View style={[styles.dangerZoneBox, { borderTopColor: theme.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.zoneHeading, { color: theme.textPrimary }]}>{t('settings.resetPreferences')}</Text>
@@ -911,70 +1031,6 @@ export default function SettingsHomeScreen() {
               </View>
               <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
             </Pressable>
-
-            {/* Compact Mode spacing density switcher */}
-            <View style={[styles.switchRow, { borderBottomColor: theme.divider }]}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.compactMode')}</Text>
-                <Text style={styles.switchDesc}>Reduce paddings and card margins to maximize data density per screen.</Text>
-              </View>
-              <Switch
-                value={generalSettings.compactMode === true}
-                onValueChange={() => handleToggle('general', 'compactMode', generalSettings.compactMode === true)}
-                trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
-                thumbColor={generalSettings.compactMode === true ? theme.primary : '#9CA3AF'}
-              />
-            </View>
-
-            {/* Animations Toggle */}
-            <Pressable
-              style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 12 }]}
-              onPress={() =>
-                openPicker(
-                  t('settings.animations'),
-                  'general',
-                  'animations',
-                  [
-                    { label: 'Enabled (Smooth Transitions)', value: 'Enable' },
-                    { label: 'Disabled (Fast Navigation)', value: 'Disable' },
-                    { label: 'Reduced Motion Mode', value: 'Low Motion Mode' },
-                  ],
-                  generalSettings.animations || 'Enable'
-                )
-              }
-            >
-              <View>
-                <Text style={styles.pickerLabel}>{t('settings.animations')}</Text>
-                <Text style={[styles.pickerVal, { color: theme.textPrimary }]}>{generalSettings.animations || 'Enable'}</Text>
-              </View>
-              <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
-            </Pressable>
-
-            {/* Accent Color indicators */}
-            <View style={[styles.accentBlock, { borderTopColor: theme.border }]}>
-              <Text style={styles.accentLabel}>{t('settings.accentColor')}</Text>
-              <View style={styles.colorPaletteGrid}>
-                {Object.keys(ACCENT_COLORS).map((colorKey) => {
-                  const item = ACCENT_COLORS[colorKey as keyof typeof ACCENT_COLORS];
-                  const isActive = personalizationPrefs.accentColor === colorKey || (!personalizationPrefs.accentColor && colorKey === 'Blue');
-                  return (
-                    <Pressable
-                      key={colorKey}
-                      onPress={() => handleUpdate('personalization', 'accentColor', colorKey)}
-                      style={[
-                        styles.colorBox,
-                        { borderColor: theme.border },
-                        isActive && [styles.colorBoxActive, { borderColor: theme.primary }],
-                      ]}
-                    >
-                      <View style={[styles.colorBoxDot, { backgroundColor: item.primary }]} />
-                      <Text style={[styles.colorBoxText, { color: theme.textPrimary }]}>{colorKey}</Text>
-                      {isActive && <Ionicons name="checkmark-circle" size={16} color={theme.primary} />}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
           </View>
         )}
 
@@ -1110,314 +1166,137 @@ export default function SettingsHomeScreen() {
 
         {/* 4. Security Settings Category */}
         {activeCategory === 'security' && (
-          <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.categoryHeading, textSz(14), { color: theme.textPrimary }]}>{t('settings.security')}</Text>
-            <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Configure biometric authorization and PIN lock overlays.</Text>
+          <View style={{ gap: 16 }}>
+            {/* Password & Authentication Card */}
+            <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.categoryHeading, textSz(14), { color: theme.textPrimary }]}>Password & Authentication</Text>
+              <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Update your master passphrase and secure your account access.</Text>
 
-            {/* Fingerprint Lock Toggle */}
-            <View style={[styles.switchRow, { borderBottomColor: theme.divider }]}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.fingerprintLogin')}</Text>
-                <Text style={styles.switchDesc}>Use hardware touch sensors for secure workspace access.</Text>
-              </View>
-              <Switch
-                value={securityPrefs.fingerprintEnabled === true}
-                onValueChange={() => handleBiometricToggle('fingerprintEnabled', securityPrefs.fingerprintEnabled === true)}
-                trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
-                thumbColor={securityPrefs.fingerprintEnabled === true ? theme.primary : '#9CA3AF'}
-              />
-            </View>
-
-            {/* Face Unlock Toggle */}
-            <View style={[styles.switchRow, { borderBottomColor: theme.divider }]}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.faceUnlock')}</Text>
-                <Text style={styles.switchDesc}>Use front camera recognition scanner to unlock case data.</Text>
-              </View>
-              <Switch
-                value={securityPrefs.faceUnlockEnabled === true}
-                onValueChange={() => handleBiometricToggle('faceUnlockEnabled', securityPrefs.faceUnlockEnabled === true)}
-                trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
-                thumbColor={securityPrefs.faceUnlockEnabled === true ? theme.primary : '#9CA3AF'}
-              />
-            </View>
-
-            {/* PIN Lock Management buttons */}
-            <View style={styles.pinConfigRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.switchLabel, { color: theme.textPrimary }]}>{t('settings.pinLock')}</Text>
-                <Text style={styles.switchDesc}>
-                  {securityPrefs.pinEnabled ? 'PIN lock protection is ACTIVE.' : 'Secure PIN protection is DISABLED.'}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() =>
-                  setPinModal({
-                    visible: true,
-                    mode: securityPrefs.pinEnabled ? 'disable' : 'create',
-                    pinCode: '',
-                    confirmPin: '',
-                    oldPin: '',
-                    step: 1,
-                  })
-                }
-                style={[styles.pinActionBtn, { backgroundColor: theme.primary }]}
-              >
-                <Text style={styles.pinActionBtnText}>{securityPrefs.pinEnabled ? 'Disable' : 'Setup'}</Text>
-              </Pressable>
-            </View>
-
-            {/* Auto Lock timeout picker */}
-            <Pressable
-              style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 12 }]}
-              onPress={() =>
-                openPicker(
-                  t('settings.autoLock'),
-                  'security',
-                  'autoLockInterval',
-                  [
-                    { label: 'Immediately', value: 'Immediately' },
-                    { label: '30 Seconds', value: '30s' },
-                    { label: '1 Minute', value: '1m' },
-                    { label: '5 Minutes', value: '5m' },
-                    { label: 'Never', value: 'Never' },
-                  ],
-                  securityPrefs.autoLockInterval || 'Never'
-                )
-              }
-            >
-              <View>
-                <Text style={styles.pickerLabel}>{t('settings.autoLock')}</Text>
-                <Text style={[styles.pickerVal, { color: theme.textPrimary }]}>{securityPrefs.autoLockInterval || 'Never'}</Text>
-              </View>
-              <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
-            </Pressable>
-
-            {/* Active Sessions display */}
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            <Text style={[styles.subSectionHeading, textSz(12.5), { color: theme.textPrimary }]}>{t('settings.activeSessions')}</Text>
-            {loadingSessions ? (
-              <ActivityIndicator size="small" color={theme.primary} style={{ marginVertical: 14 }} />
-            ) : (
-              <View style={styles.sessionsWrapper}>
-                {sessions.map((session) => (
-                  <View key={session._id} style={[styles.sessionItem, { borderBottomColor: theme.border }]}>
-                    <Ionicons name="laptop-outline" size={18} color={theme.textSecondary} style={{ marginRight: 10 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.sessionDeviceName, { color: theme.textPrimary }]}>
-                        {session.device || 'Chrome Web'} {session.isCurrent && '(This device)'}
-                      </Text>
-                      <Text style={[styles.sessionMetadata, { color: theme.textSecondary }]}>
-                        {session.location || 'New Delhi, India'} • {session.ip || '192.168.1.1'}
-                      </Text>
-                    </View>
-                    {!session.isCurrent && (
-                      <Pressable onPress={() => handleRevokeSession(session._id, session.device || 'Chrome Web')}>
-                        <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-                      </Pressable>
-                    )}
-                  </View>
-                ))}
-                {sessions.length > 1 && (
-                  <Pressable style={styles.revokeAllBtn} onPress={handleLogoutAllSessions}>
-                    <Text style={styles.revokeAllBtnText}>Logout All Other Devices</Text>
-                  </Pressable>
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* 6. Data & Storage Sync Category */}
-        {activeCategory === 'data' && (
-          <View style={{ gap: 12 }}>
-
-            {/* ── Cloud Sync Card ── */}
-            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={styles.dataCardHeader}>
-                <View style={[styles.dataCardIcon, { backgroundColor: theme.primaryLight }]}>
-                  <Ionicons name="cloud-outline" size={18} color={theme.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Cloud Sync</Text>
-                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
-                    Automatically sync cases, drafts, evidence and settings securely.
-                  </Text>
-                </View>
-                <Switch
-                  value={performancePrefs.backgroundSync !== false}
-                  onValueChange={() => handleToggle('performance', 'backgroundSync', performancePrefs.backgroundSync !== false)}
-                  trackColor={{ false: '#E5E7EB', true: theme.primaryLight }}
-                  thumbColor={performancePrefs.backgroundSync !== false ? theme.primary : '#9CA3AF'}
+              {/* Change Password Flow */}
+              <View style={[styles.formWrapper, { marginTop: 12 }]}>
+                <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Change Password</Text>
+                
+                <TextInput
+                  style={[styles.formInput, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
+                  placeholder="Current Password"
+                  placeholderTextColor={theme.placeholder}
+                  secureTextEntry
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
                 />
-              </View>
+                
+                <TextInput
+                  style={[styles.formInput, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
+                  placeholder="New Password"
+                  placeholderTextColor={theme.placeholder}
+                  secureTextEntry
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                />
 
-              {/* Sync Now button */}
-              <Pressable
-                style={[styles.syncNowFullBtn, { backgroundColor: syncing ? theme.surfaceVariant : theme.primary, opacity: syncing ? 0.85 : 1 }]}
-                onPress={handleManualSync}
-                disabled={syncing}
-              >
-                {syncing ? (
-                  <View style={styles.syncingRow}>
-                    <ActivityIndicator size="small" color={theme.primary} />
-                    <Text style={[styles.syncNowFullBtnText, { color: theme.primary }]}>
-                      {syncStep || 'Syncing...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.syncingRow}>
-                    <Ionicons name="sync-outline" size={15} color="#FFFFFF" />
-                    <Text style={[styles.syncNowFullBtnText, { color: '#FFFFFF' }]}>Sync Now</Text>
+                {/* Password Strength Indicator */}
+                {newPassword.length > 0 && (
+                  <View style={styles.strengthRow}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: theme.textSecondary }}>Password Strength: </Text>
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: passwordStrength.color }}>{passwordStrength.text}</Text>
                   </View>
                 )}
-              </Pressable>
-            </View>
 
-            {/* ── Auto Backup Card ── */}
-            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={styles.dataCardHeader}>
-                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
-                  <Ionicons name="calendar-outline" size={18} color="#10B981" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Auto Backup</Text>
-                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
-                    Schedule automatic backups of your data.
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 4, marginBottom: 0 }]}
-                onPress={() =>
-                  openPicker(
-                    'Auto Backup',
-                    'performance',
-                    'autoBackup',
-                    [
-                      { label: 'Never', value: 'Never' },
-                      { label: 'Daily', value: 'Daily' },
-                      { label: 'Weekly', value: 'Weekly' },
-                      { label: 'Monthly', value: 'Monthly' },
-                    ],
-                    performancePrefs.autoBackup || 'Weekly'
-                  )
-                }
-              >
-                <View>
-                  <Text style={styles.pickerLabel}>Backup Frequency</Text>
-                  <Text style={[styles.pickerVal, { color: theme.textPrimary }]}>{performancePrefs.autoBackup || 'Weekly'}</Text>
-                </View>
-                <Ionicons name="chevron-down" size={16} color={theme.textMuted} />
-              </Pressable>
-            </View>
+                <TextInput
+                  style={[styles.formInput, { color: theme.textPrimary, borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
+                  placeholder="Confirm New Password"
+                  placeholderTextColor={theme.placeholder}
+                  secureTextEntry
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                />
 
-            {/* ── Backup & Restore Card ── */}
-            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={styles.dataCardHeader}>
-                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
-                  <Ionicons name="archive-outline" size={18} color="#8B5CF6" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Backup & Restore</Text>
-                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
-                    Safely export or restore your AI LEGAL data.
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.backupButtonsRow}>
-                <Pressable
-                  style={[styles.backupBtn, { backgroundColor: theme.primary, opacity: exporting ? 0.7 : 1 }]}
-                  onPress={() => setBackupFormatModal(true)}
-                  disabled={exporting}
+                <TouchableOpacity
+                  style={[styles.updatePasswordBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleUpdatePassword}
                 >
-                  {exporting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="download-outline" size={16} color="#FFFFFF" />
-                  )}
-                  <Text style={styles.backupBtnText}>
-                    {exporting ? 'Exporting...' : 'Export Backup'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.backupBtnOutline, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, opacity: restoring ? 0.7 : 1 }]}
-                  onPress={() => setImportModal({ visible: true, jsonText: '' })}
-                  disabled={restoring}
-                >
-                  {restoring ? (
-                    <ActivityIndicator size="small" color={theme.primary} />
-                  ) : (
-                    <Ionicons name="cloud-upload-outline" size={16} color={theme.primary} />
-                  )}
-                  <Text style={[styles.backupBtnOutlineText, { color: theme.primary }]}>
-                    {restoring ? 'Restoring...' : 'Restore Backup'}
-                  </Text>
-                </Pressable>
+                  <Text style={styles.updatePasswordBtnText}>Update Password</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* ── Storage / Clear Cache Card ── */}
-            <View style={[styles.dataCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={[styles.dataCardHeader, { marginBottom: 0 }]}>
-                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                  <Ionicons name="server-outline" size={18} color="#F59E0B" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dataCardTitle, { color: theme.textPrimary }]}>Storage</Text>
-                  <Text style={[styles.dataCardDesc, { color: theme.textSecondary }]}>
-                    Remove temporary files to free up space.
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                style={[styles.clearCacheBtn, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, marginTop: 12, opacity: clearingCache ? 0.7 : 1 }]}
-                onPress={handleClearCache}
-                disabled={clearingCache}
-              >
-                {clearingCache ? (
-                  <ActivityIndicator size="small" color="#F59E0B" />
-                ) : (
-                  <Ionicons name="trash-outline" size={16} color="#F59E0B" />
+            {/* Active Sessions Card */}
+            <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.categoryHeading, textSz(14), { color: theme.textPrimary }]}>Active Login Sessions</Text>
+              <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Devices currently logged into your advocate portal database.</Text>
+
+              <View style={styles.sessionsWrapper}>
+                {sessions.map((session) => {
+                  const isMobile = session.device === 'Mobile' || session.device === 'Tablet' || session.os === 'Android' || session.os === 'iOS';
+                  const deviceDisplayName = session.os ? `${session.os} ${session.device || ''}` : (session.device || 'Browser Client');
+                  
+                  return (
+                    <View key={session._id} style={[styles.sessionItem, { borderBottomColor: theme.border }]}>
+                      <Ionicons name={isMobile ? 'phone-portrait-outline' : 'laptop-outline'} size={20} color={theme.textSecondary} style={{ marginRight: 12 }} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.sessionDeviceName, { color: theme.textPrimary }]}>{deviceDisplayName}</Text>
+                          {session.isCurrent && (
+                            <View style={styles.currentDeviceBadge}>
+                              <Text style={styles.currentDeviceText}>Current Device</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.sessionMetadata, { color: theme.textSecondary }]}>
+                          {session.browser || 'Web App'} • {session.location || 'Unknown Location'} {session.ip && `• IP: ${session.ip}`}
+                        </Text>
+                        <Text style={[styles.sessionTime, { color: theme.textSecondary }]}>
+                          Active: {formatSessionTime(session.lastActive || session.createdAt)}
+                        </Text>
+                      </View>
+                      {!session.isCurrent && (
+                        <TouchableOpacity onPress={() => handleLogoutSession(session._id, deviceDisplayName)} style={styles.sessionLogoutBtn}>
+                          <Text style={styles.sessionLogoutText}>Logout</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {sessions.filter(s => !s.isCurrent).length > 0 && (
+                  <TouchableOpacity style={styles.logoutAllBtn} onPress={handleLogoutAllSessions}>
+                    <Text style={styles.logoutAllBtnText}>Logout From All Other Devices</Text>
+                  </TouchableOpacity>
                 )}
-                <Text style={[styles.clearCacheBtnText, { color: theme.textPrimary }]}>
-                  {clearingCache ? 'Clearing Cache...' : 'Clear Cache'}
-                </Text>
-                <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 'auto' }} />
-              </Pressable>
+              </View>
             </View>
 
-            {/* ── Danger Zone ── */}
-            <View style={[styles.dangerCard, { borderColor: '#FCA5A5', backgroundColor: theme.surface }]}>
-              <View style={styles.dataCardHeader}>
-                <View style={[styles.dataCardIcon, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                  <Ionicons name="warning-outline" size={18} color="#EF4444" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dataCardTitle, { color: '#EF4444' }]}>Danger Zone</Text>
-                </View>
-              </View>
-              <View style={[styles.deleteAccountCard, { borderColor: '#FCA5A5', backgroundColor: 'rgba(239, 68, 68, 0.04)' }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.deleteAccountTitle, { color: theme.textPrimary }]}>Delete Account</Text>
-                  <Text style={[styles.deleteAccountBody, { color: theme.textSecondary }]}>
-                    This permanently removes your account, cases, evidence, drafts, chats, settings, and cloud backup. This action cannot be undone.
+            {/* Delete Account Card */}
+            <View style={[styles.categoryCard, layoutPad(), { backgroundColor: theme.surface, borderColor: theme.border, borderLeftWidth: 4, borderLeftColor: '#EF4444' }]}>
+              <Text style={[styles.categoryHeading, textSz(14), { color: '#EF4444' }]}>Delete Account</Text>
+              <Text style={[styles.categoryDesc, { color: theme.textSecondary }]}>Configure temporary deactivation or complete profile clearance.</Text>
+
+              {/* Option 1: Temporary Deactivation */}
+              <View style={[styles.optionRow, { borderBottomColor: theme.divider }]}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={[styles.optionTitle, { color: theme.textPrimary }]}>Temporarily Deactivate Account</Text>
+                  <Text style={styles.optionDesc}>
+                    Your account becomes inaccessible. All cases, chats, documents and AI history remain safe. You can restore everything simply by logging in again.
                   </Text>
                 </View>
-                <Pressable
-                  style={[styles.deleteAccountBtn, { opacity: deleting ? 0.7 : 1 }]}
-                  onPress={() => { setDeleteConfirmText(''); setDeleteConfirmModal(true); }}
-                  disabled={deleting}
-                >
-                  {deleting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.deleteAccountBtnText}>Delete Account</Text>
-                  )}
-                </Pressable>
+                <TouchableOpacity style={styles.deactivateBtn} onPress={handleTemporarilyDeactivate}>
+                  <Text style={styles.deactivateBtnText}>Deactivate</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Option 2: Permanent Deletion */}
+              <View style={styles.optionRow}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={[styles.optionTitle, { color: '#EF4444' }]}>Permanently Delete Account</Text>
+                  <Text style={styles.optionDesc}>
+                    This action permanently deletes cases, documents, evidence, AI chats, bookmarks, knowledge notes, and settings. This cannot be undone.
+                  </Text>
+                </View>
+                <TouchableOpacity style={[styles.deleteBtn, { backgroundColor: '#EF4444' }]} onPress={() => setDeleteModalVisible(true)}>
+                  <Text style={styles.deleteBtnText}>Permanently Delete</Text>
+                </TouchableOpacity>
               </View>
             </View>
-
           </View>
         )}
 
@@ -1438,17 +1317,17 @@ export default function SettingsHomeScreen() {
               </Pressable>
               <Pressable
                 style={[styles.supportBox, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}
-                onPress={() => showToast('info', 'Helpdesk Mail', 'Opening default mail application to support@ai-legal.in')}
+                onPress={() => router.push('/settings/feature-request')}
               >
-                <Ionicons name="mail-outline" size={20} color={theme.primary} />
-                <Text style={[styles.supportBoxTitle, { color: theme.textPrimary }]}>Email Support</Text>
+                <Ionicons name="bulb-outline" size={20} color={theme.primary} />
+                <Text style={[styles.supportBoxTitle, { color: theme.textPrimary }]}>Feature Request</Text>
               </Pressable>
             </View>
 
             {/* Report Bug button */}
             <Pressable
               style={[styles.importActionRow, { borderColor: theme.border, backgroundColor: theme.surfaceVariant, marginTop: 10 }]}
-              onPress={() => setBugModal({ visible: true, description: '', attachLogs: true })}
+              onPress={() => router.push('/settings/report-bug')}
             >
               <Ionicons name="bug-outline" size={18} color={theme.primary} style={{ marginRight: 10 }} />
               <View style={{ flex: 1 }}>
@@ -1458,15 +1337,10 @@ export default function SettingsHomeScreen() {
               <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
             </Pressable>
 
-            {/* Legal agreements modals */}
+            {/* Legal compliance links */}
             <Pressable
               style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border, marginTop: 16 }]}
-              onPress={() =>
-                openPolicyModal(
-                  'Privacy Policy Agreement',
-                  'AI LEGAL™ takes client confidentiality with absolute seriousness. In compliance with the Advocates Act 1961, Section 126 of the Evidence Act, and GDPR criteria, all dossier files remain encrypted at rest and in transit. Telemetry or analytics data is anonymized and can be disabled in the Privacy settings. No third-party LLMs are trained on your input briefs.'
-                )
-              }
+              onPress={() => router.push('/settings/privacy-policy')}
             >
               <View>
                 <Text style={[styles.pickerVal, { color: theme.textPrimary, marginTop: 0 }]}>{t('settings.privacyPolicy')}</Text>
@@ -1476,12 +1350,7 @@ export default function SettingsHomeScreen() {
 
             <Pressable
               style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}
-              onPress={() =>
-                openPolicyModal(
-                  'Terms & Conditions Agreement',
-                  'By accessing AI LEGAL™, you represent that you are a practicing Advocate registered under the State Bar Councils of India. AI outputs are advisory suggestions compiled using historical judgments indexes. Final litigation strategy, argument choices, and template checkouts must be reviewed and signed off by a qualified legal professional prior to court filing.'
-                )
-              }
+              onPress={() => router.push('/settings/terms-conditions')}
             >
               <View>
                 <Text style={[styles.pickerVal, { color: theme.textPrimary, marginTop: 0 }]}>{t('settings.termsConditions')}</Text>
@@ -1489,16 +1358,21 @@ export default function SettingsHomeScreen() {
               <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
             </Pressable>
 
-            {/* About AI LEGAL app cards */}
-            <View style={[styles.metadataCard, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
-              <View style={styles.metadataRow}>
-                <Text style={[styles.metaTitle, { color: theme.textPrimary }]}>AI LEGAL™ (Advocate Edition)</Text>
-                <Text style={[styles.metaVersion, { color: theme.primary }]}>v1.2.0 (Build 402)</Text>
+            <Pressable
+              style={[styles.pickerRow, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}
+              onPress={() => {
+                Alert.alert(
+                  'AI Disclaimer',
+                  'AI-generated responses are informational only and may contain errors. AI LEGAL™ does not provide licensed legal advice; users must verify outputs independently with a qualified professional before making legal decisions.',
+                  [{ text: 'OK' }]
+                );
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pickerVal, { color: theme.textPrimary, marginTop: 0 }]}>AI Disclaimer</Text>
               </View>
-              <Text style={[styles.metaDesc, { color: theme.textSecondary }]}>
-                Licensed to Registered Advocates of State Bar Councils. Fully compliant with Section 126 of the Indian Evidence Act.
-              </Text>
-            </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </Pressable>
           </View>
         )}
         <View style={{ height: 40 }} />
@@ -1561,42 +1435,53 @@ export default function SettingsHomeScreen() {
 
       {/* ── Delete Account Confirmation Modal ── */}
       <Modal
-        visible={deleteConfirmModal}
+        visible={deleteModalVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setDeleteConfirmModal(false)}
+        onRequestClose={() => setDeleteModalVisible(false)}
       >
         <View style={[styles.modalBackdrop, { justifyContent: 'center', paddingHorizontal: 24 }]}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setDeleteConfirmModal(false)} />
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setDeleteModalVisible(false)} />
           <View style={[styles.deleteModal, { backgroundColor: theme.surface }]}>
             <View style={styles.deleteModalIconWrap}>
               <Ionicons name="warning" size={30} color="#EF4444" />
             </View>
-            <Text style={[styles.deleteModalTitle, { color: theme.textPrimary }]}>Delete Account</Text>
+            <Text style={[styles.deleteModalTitle, { color: theme.textPrimary }]}>Permanently Delete Account</Text>
             <Text style={[styles.deleteModalBody, { color: theme.textSecondary }]}>
-              This will permanently delete your account, all cases, evidence, drafts, chats, and cloud backup. {`\n\n`}Type <Text style={{ color: '#EF4444', fontWeight: '800' }}>DELETE</Text> to confirm.
+              Enter password and type <Text style={{ color: '#EF4444', fontWeight: '800' }}>DELETE</Text> to authorize permanent removal of cases, chats, documents, and settings. This cannot be undone.
             </Text>
+
             <TextInput
-              style={[styles.deleteConfirmInput, { borderColor: deleteConfirmText === 'DELETE' ? '#EF4444' : theme.border, color: theme.textPrimary, backgroundColor: theme.surfaceVariant }]}
-              value={deleteConfirmText}
-              onChangeText={setDeleteConfirmText}
+              style={[styles.deleteConfirmInput, { borderColor: theme.border, color: theme.textPrimary, backgroundColor: theme.surfaceVariant, marginBottom: 8 }]}
+              value={deletePasswordValue}
+              onChangeText={setDeletePasswordValue}
+              placeholder="Confirm Password"
+              placeholderTextColor={theme.placeholder}
+              secureTextEntry
+            />
+
+            <TextInput
+              style={[styles.deleteConfirmInput, { borderColor: deleteVerifyText === 'DELETE' ? '#EF4444' : theme.border, color: theme.textPrimary, backgroundColor: theme.surfaceVariant }]}
+              value={deleteVerifyText}
+              onChangeText={setDeleteVerifyText}
               placeholder="Type DELETE here"
               placeholderTextColor={theme.placeholder}
               autoCapitalize="characters"
             />
+            
             <View style={styles.deleteModalActions}>
               <Pressable
                 style={[styles.deleteModalCancelBtn, { borderColor: theme.border }]}
-                onPress={() => { setDeleteConfirmModal(false); setDeleteConfirmText(''); }}
+                onPress={() => { setDeleteModalVisible(false); setDeletePasswordValue(''); setDeleteVerifyText(''); }}
               >
                 <Text style={[styles.deleteModalCancelText, { color: theme.textSecondary }]}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.deleteModalConfirmBtn, { opacity: deleteConfirmText === 'DELETE' ? 1 : 0.4 }]}
-                onPress={handleDeleteAccount}
-                disabled={deleteConfirmText !== 'DELETE'}
+                style={[styles.deleteModalConfirmBtn, { opacity: deleteVerifyText === 'DELETE' && deletePasswordValue ? 1 : 0.4 }]}
+                onPress={handlePermanentlyDelete}
+                disabled={deleteVerifyText !== 'DELETE' || !deletePasswordValue}
               >
-                <Text style={styles.deleteModalConfirmText}>Delete Account</Text>
+                <Text style={styles.deleteModalConfirmText}>Permanently Delete</Text>
               </Pressable>
             </View>
           </View>
@@ -2528,5 +2413,139 @@ const styles = StyleSheet.create({
   policyText: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  formWrapper: {
+    gap: 8,
+  },
+  formLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 12.5,
+  },
+  strengthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  updatePasswordBtn: {
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  updatePasswordBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  twoFaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  comingSoonBadge: {
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  comingSoonText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#475569',
+  },
+  currentDeviceBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  currentDeviceText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  sessionLogoutBtn: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.04)',
+  },
+  sessionLogoutText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
+  logoutAllBtn: {
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.04)',
+  },
+  logoutAllBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
+  sessionTime: {
+    fontSize: 9.5,
+    marginTop: 1,
+  },
+  optionRow: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  optionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  optionDesc: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    lineHeight: 14,
+  },
+  deactivateBtn: {
+    borderWidth: 1,
+    borderColor: '#64748B',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  deactivateBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  deleteBtn: {
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  deleteBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

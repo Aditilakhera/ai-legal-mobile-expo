@@ -10900,7 +10900,7 @@ Through Counsel
           {aiTaskBriefOpen && (
             <View style={styles.aiBriefContent}>
               <Text style={styles.aiBriefText}>
-                Good morning Advocate. Here is your priority legal checklist:
+                Welcome Advocate. Here is your priority legal checklist:
               </Text>
               {overdueTasks > 0 ? (
                 <Text style={[styles.aiBriefText, { color: '#EF4444', fontWeight: '700', marginTop: 4 }]}>

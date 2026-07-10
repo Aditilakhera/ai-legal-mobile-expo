@@ -8,10 +8,12 @@ import { ChatSession, ChatMessage } from '../types';
 
 interface ChatStoreState {
   sessions: ChatSession[];
+  activeSessionIdByTool: Record<string, string | null>;
   activeSessionId: string | null;
   loading: boolean;
   isFocusMode: boolean;
   setActiveSessionId: (sessionId: string | null) => void;
+  setActiveSessionIdForTool: (tool: string, sessionId: string | null) => void;
   setSessions: (sessions: ChatSession[]) => void;
   addSession: (session: ChatSession) => void;
   updateSession: (sessionId: string, updates: Partial<ChatSession>) => void;
@@ -25,11 +27,20 @@ interface ChatStoreState {
 
 export const useChatStore = create<ChatStoreState>((set) => ({
   sessions: [],
+  activeSessionIdByTool: {},
   activeSessionId: null,
   loading: false,
   isFocusMode: false,
 
   setActiveSessionId: (sessionId) => set({ activeSessionId: sessionId }),
+  setActiveSessionIdForTool: (tool, sessionId) =>
+    set((state) => ({
+      activeSessionIdByTool: {
+        ...state.activeSessionIdByTool,
+        [tool]: sessionId,
+      },
+      activeSessionId: sessionId,
+    })),
   setSessions: (sessions) =>
     set((state) => {
       const localOnly = state.sessions.filter(
@@ -47,6 +58,10 @@ export const useChatStore = create<ChatStoreState>((set) => ({
   addSession: (session) =>
     set((state) => ({
       sessions: [session, ...state.sessions],
+      activeSessionIdByTool: {
+        ...state.activeSessionIdByTool,
+        [session.activeTool || 'legal_my_case']: session.sessionId,
+      },
       activeSessionId: session.sessionId,
     })),
 
@@ -56,10 +71,19 @@ export const useChatStore = create<ChatStoreState>((set) => ({
     })),
 
   deleteSession: (sessionId) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.sessionId !== sessionId),
-      activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
-    })),
+    set((state) => {
+      const nextActiveByTool = { ...state.activeSessionIdByTool };
+      Object.keys(nextActiveByTool).forEach((tool) => {
+        if (nextActiveByTool[tool] === sessionId) {
+          nextActiveByTool[tool] = null;
+        }
+      });
+      return {
+        sessions: state.sessions.filter((s) => s.sessionId !== sessionId),
+        activeSessionIdByTool: nextActiveByTool,
+        activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
+      };
+    }),
 
   addMessage: (sessionId, message) =>
     set((state) => ({
@@ -86,5 +110,5 @@ export const useChatStore = create<ChatStoreState>((set) => ({
 
   setLoading: (loading) => set({ loading }),
 
-  clearChat: () => set({ sessions: [], activeSessionId: null, loading: false }),
+  clearChat: () => set({ sessions: [], activeSessionIdByTool: {}, activeSessionId: null, loading: false }),
 }));

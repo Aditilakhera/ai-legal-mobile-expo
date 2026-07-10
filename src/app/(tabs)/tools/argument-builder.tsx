@@ -10,6 +10,7 @@ import {
   ScrollView,
   LayoutAnimation,
   Platform,
+  UIManager,
   Modal,
   Dimensions,
   TouchableWithoutFeedback,
@@ -21,12 +22,17 @@ import {
   Alert,
   KeyboardAvoidingView,
 } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MarkdownRenderer } from '@/components/ui/documents';
 import { useToastContext, useThemeContext } from '@/providers';
 import { useAuthGuard } from '@/navigation/guards';
 import { streamAIResponse } from '@/api/client';
@@ -36,6 +42,9 @@ import { ChatMessage, ChatAttachment, CaseWorkspace } from '@/types';
 import { AttachmentBottomSheet } from '@/components/ui/bottomSheets/AttachmentBottomSheet';
 import { CustomCameraModal } from '@/components/ui/legal/CustomCameraModal';
 import { useAttachmentHandler } from '@/hooks/use-attachment-handler';
+import { useChat } from '@/hooks/use-chat';
+import { useChatStore } from '@/store/chat';
+import { useSpeechRecognition, SpeechLanguage } from '@/hooks/use-speech-recognition';
 import { CaseSelectionModal } from '@/components/ui/legal/CaseSelectionModal';
 import { CaseService } from '@/services/case.service';
 
@@ -312,6 +321,127 @@ const getSectionsForStyle = (style: string): PrepSection[] => {
   ];
 };
 
+const getUniqueIntelContent = (tabId: string, style: string, activeCase: any): string => {
+  const caseName = activeCase?.name || 'Complainant Case';
+  
+  switch (tabId) {
+    case 'oral-notes':
+      return `### Courtroom Oral Arguments Speaking Draft\n\n**1. Opening Statement:**\n"My Lord, I represent the Complainant in this matter. This is a clear case of commercial default under Section 138 of the Negotiable Instruments Act. The accused issued Cheque Exhibit P-1 to discharge a legally enforceable debt, which was returned dishonoured."\n\n**2. Core Facts to Emphasize:**\n- Complainant supplied goods to the accused.\n- Cheque was presented on due date but returned with bank memo "Funds Insufficient".\n- Demand Notice was sent within 15 days, and signatures on the cheque are admitted by the defense.\n\n**3. Relevant Statutory Provisions:**\n- Section 138, NI Act: Establishes criminal liability for cheque bounce.\n- Section 139, NI Act: Mandates the presumption of a legally enforceable debt.\n\n**4. Binding Precedents:**\n- *Rangappa v. Sri Mohan (2010)*: Section 139 presumption is mandatory and shifts the burden of proof to the accused.\n\n**5. Sequence of Submissions:**\n- Introduce ledger and delivery invoice copies.\n- Demonstrate signature admission by the defense.\n- Point out failure of the defense to send a reply to the statutory notice.\n\n**6. Closing Prayer:**\n"Therefore, My Lord, we pray that the accused be convicted and ordered to pay double the cheque amount as compensation."`;
+    case 'judge-questions':
+      return `### Anticipated Bench Inquiries & Live Answers\n\n#### Q1: Where is the original cheque?\n- **Suggested Answer**: The original cheque is filed as Exhibit P-2 in the main evidence folder.\n- **Supporting Evidence**: Cheque No. 482910 drawn on HDFC Bank.\n- **Relevant Section**: Sec 138 & 142(1), NI Act 1881.\n- **AI Confidence Level**: 99%\n\n#### Q2: Is there a written agreement or invoice to show the underlying contract?\n- **Suggested Answer**: Yes, My Lord, the commercial transaction is backed by invoices and signed delivery challans, marked collectively as Exhibit P-5.\n- **Supporting Evidence**: Invoice Nos. INV-2026-89 and signed delivery challans.\n- **Relevant Section**: Sec 139 presumption of debt.\n- **AI Confidence Level**: 95%\n\n#### Q3: Was the statutory demand notice served within the 30-day legal window?\n- **Suggested Answer**: Yes, My Lord. The bank return memo is dated 5th May, and the notice was sent via speed post on 12th May.\n- **Supporting Evidence**: Speed Post Receipt & Tracking Report Exhibit P-3.\n- **Relevant Section**: Sec 138 proviso (b).\n- **AI Confidence Level**: 98%`;
+    case 'opponent-strat':
+      return `### Opposing Counsel Defense & Counter Strategy\n\n#### 1. Claim Cheque was Only Issued for "Security"\n- **Defense Stance**: They will argue that the cheque was given as security during sign-up and does not represent a current liability.\n- **Strength Score**: Strong (40% likelihood)\n- **Counter Strategy**: Cite *Sampelly Satyanarayana Rao* and *Rangappa* to establish that security cheques are enforceable once the underlying debt matures.\n\n#### 2. Procedural Delay Tactics & Service Denial\n- **Defense Stance**: The accused will claim they never received the demand notice.\n- **Strength Score**: Moderate (20% likelihood)\n- **Counter Strategy**: Rely on Section 27 of General Clauses Act and postal tracking reports showing "Item Delivered" at their registered business address.\n\n#### 3. Objections to Accounting Ledgers\n- **Defense Stance**: Objections to ledger entries without Sec 65B certificate.\n- **Strength Score**: High (70% likelihood)\n- **Counter Strategy**: Keep the certified bank statement ready under the Bankers\' Books Evidence Act, which does not require a separate 65B certificate.`;
+    case 'weakness-analysis':
+      return `### Case Vulnerability Audit & Actionable Advice\n\n#### 1. Lack of a Formal Bilateral Loan Agreement\n- **Description**: There is no separate written loan agreement signed by both parties.\n- **Risk Level**: High\n- **Actionable Advice**: Rely heavily on the signed invoices, delivery challans, and subsequent ledger entries showing part-payment.\n\n#### 2. Service of Notice Tracking Issues\n- **Description**: The speed post tracking slip shows "Service status: Out for Delivery" but lacks the final signed delivery slip.\n- **Risk Level**: Moderate\n- **Actionable Advice**: File a formal letter from the Postmaster confirming delivery, or rely on deemed service under Sec 27 General Clauses Act.\n\n#### 3. Minor Discrepancy in Invoice Dates\n- **Description**: Invoice date is 2 days prior to the goods dispatch entry.\n- **Risk Level**: Low\n- **Actionable Advice**: Clarify that goods preparation occurred on the invoice date, and dispatch occurred after packaging was verified.`;
+    case 'winning-strat':
+      return `### Complete Litigation Roadmap & Trial Strategy\n\n#### 1. Primary Arguments\n- Admission of signature shifts the burden of proof to the accused under Section 139.\n- The defense failed to reply to the demand notice, which raises an adverse inference.\n\n#### 2. Evidence Presentation Sequence\n- **Step 1**: Present original cheque and return memo (Exhibit P-1, P-2).\n- **Step 2**: Present invoices and delivery challans (Exhibit P-5).\n- **Step 3**: Introduce bank ledger statement.\n\n#### 3. Cross-Examination Focus\n- Question the accused on why they did not issue a "Stop Payment" instruction to their bank if the cheque was indeed misplaced or misused.\n\n#### 4. Interim Compensation Claim\n- File an application under Section 143A of the NI Act immediately on the next date of hearing to claim 20% of the cheque amount as interim compensation.\n\n**Settlement Probability**: 65%\n**Win Probability**: 88%`;
+    case 'hearing-checklist':
+      return `### Essential Tomorrow Court Hearing Checklist\n\n- [x] **Required Documents**: Copy of the Complaint, Vakalatnama, Court Fee receipt.\n- [ ] **Original Evidence**: Original Cheque (Exhibit P-1) and Bank Return Memo (Exhibit P-2).\n- [ ] **Affidavits**: Complainant's Evidence Affidavit (affixed with notary seal).\n- [x] **Case Law**: Hard copies of *Rangappa v. Sri Mohan* and *Bir Singh* judgments.\n- [x] **Court Copies**: 2 sets of certified copies of the complaints for court logs.\n- [ ] **Identity Documents**: Original Complainant ID Card (Aadhaar/PAN).\n- [ ] **Pending Tasks**: Verify courtroom number on the cause list at 9:30 AM.`;
+    default:
+      return '';
+  }
+};
+
+const getStructuredIntelContent = (tabId: string) => {
+  switch (tabId) {
+    case 'oral-notes':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Courtroom Oral Arguments Speaking Draft' },
+          {
+            type: 'key_value_cards',
+            cards: [
+              { title: '1. Opening Statement', description: 'My Lord, I represent the Complainant in this matter. This is a clear case of commercial default under Section 138 of the Negotiable Instruments Act. The accused issued Cheque Exhibit P-1 to discharge a legally enforceable debt, which was returned dishonoured.' },
+              { title: '2. Core Facts to Emphasize', description: '• Complainant supplied goods to the accused.\n• Cheque was presented on due date but returned with bank memo "Funds Insufficient".\n• Demand Notice was sent within 15 days, and signatures on the cheque are admitted by the defense.' },
+              { title: '3. Relevant Statutory Provisions', description: '• Section 138, NI Act: Establishes criminal liability for cheque bounce.\n• Section 139, NI Act: Mandates the presumption of a legally enforceable debt.' },
+              { title: '4. Binding Precedents', description: '• Rangappa v. Sri Mohan (2010): Section 139 presumption is mandatory and shifts the burden of proof to the accused.' },
+              { title: '5. Sequence of Submissions', description: '• Introduce ledger and delivery invoice copies.\n• Demonstrate signature admission by the defense.\n• Point out failure of the defense to send a reply to the statutory notice.' },
+              { title: '6. Closing Prayer', description: 'Therefore, My Lord, we pray that the accused be convicted and ordered to pay double the cheque amount as compensation.' }
+            ]
+          }
+        ]
+      };
+    case 'judge-questions':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Anticipated Bench Inquiries & Live Answers' },
+          {
+            type: 'key_value_cards',
+            cards: [
+              { title: 'Q1: Where is the original cheque?', answer: 'The original cheque is filed as Exhibit P-2 in the main evidence folder.', evidence: 'Cheque No. 482910 drawn on HDFC Bank.', section: 'Sec 138 & 142(1), NI Act 1881.', confidence: '99%' },
+              { title: 'Q2: Is there a written agreement or invoice to show the underlying contract?', answer: 'Yes, My Lord, the commercial transaction is backed by invoices and signed delivery challans, marked collectively as Exhibit P-5.', evidence: 'Invoice Nos. INV-2026-89 and signed delivery challans.', section: 'Sec 139 presumption of debt.', confidence: '95%' },
+              { title: 'Q3: Was the statutory demand notice served within the 30-day legal window?', answer: 'Yes, My Lord. The bank return memo is dated 5th May, and the notice was sent via speed post on 12th May.', evidence: 'Speed Post Receipt & Tracking Report Exhibit P-3.', section: 'Sec 138 proviso (b).', confidence: '98%' }
+            ]
+          }
+        ]
+      };
+    case 'opponent-strat':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Opposing Counsel Defense & Counter Strategy' },
+          {
+            type: 'key_value_cards',
+            cards: [
+              { title: '1. Claim Cheque was Only Issued for "Security"', position: 'They will argue that the cheque was given as security during sign-up and does not represent a current liability.', strength: 'Strong', likelihood: '40%', counter: 'Cite Sampelly Satyanarayana Rao and Rangappa to establish that security cheques are enforceable once the underlying debt matures.' },
+              { title: '2. Procedural Delay Tactics & Service Denial', position: 'The accused will claim they never received the demand notice.', strength: 'Moderate', likelihood: '20%', counter: 'Rely on Section 27 of General Clauses Act and postal tracking reports showing "Item Delivered" at their registered business address.' },
+              { title: '3. Objections to Accounting Ledgers', position: 'Objections to ledger entries without Sec 65B certificate.', strength: 'High', likelihood: '70%', counter: 'Keep the certified bank statement ready under the Bankers\' Books Evidence Act, which does not require a separate 65B certificate.' }
+            ]
+          }
+        ]
+      };
+    case 'weakness-analysis':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Case Vulnerability Audit & Actionable Advice' },
+          {
+            type: 'key_value_cards',
+            cards: [
+              { title: '1. Lack of a Formal Bilateral Loan Agreement', description: 'There is no separate written loan agreement signed by both parties.', riskLevel: 'High', advice: 'Rely heavily on the signed invoices, delivery challans, and subsequent ledger entries showing part-payment.' },
+              { title: '2. Service of Notice Tracking Issues', description: 'The speed post tracking slip shows "Service status: Out for Delivery" but lacks the final signed delivery slip.', riskLevel: 'Moderate', advice: 'File a formal letter from the Postmaster confirming delivery, or rely on deemed service under Sec 27 General Clauses Act.' },
+              { title: '3. Minor Discrepancies in Invoice Dates', description: 'Invoice date is 2 days prior to the goods dispatch entry.', riskLevel: 'Low', advice: 'Clarify that goods preparation occurred on the invoice date, and dispatch occurred after packaging was verified.' }
+            ]
+          }
+        ]
+      };
+    case 'winning-strat':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Complete Litigation Roadmap & Trial Strategy' },
+          {
+            type: 'key_value_cards',
+            cards: [
+              { title: '1. Primary Arguments', description: '• Admission of signature shifts the burden of proof to the accused under Section 139.\n• The defense failed to reply to the demand notice, which raises an adverse inference.' },
+              { title: '2. Evidence Presentation Sequence', description: '• Step 1: Present original cheque and return memo (Exhibit P-1, P-2).\n• Step 2: Present invoices and delivery challans (Exhibit P-5).\n• Step 3: Introduce bank ledger statement.' },
+              { title: '3. Cross-Examination Focus', description: 'Question the accused on why they did not issue a "Stop Payment" instruction to their bank if the cheque was indeed misplaced or misused.' },
+              { title: '4. Interim Compensation Claim', description: 'File an application under Section 143A of the NI Act immediately on the next date of hearing to claim 20% of the cheque amount as interim compensation.' },
+              { title: 'Litigation Probabilities', description: '• Settlement Probability: 65%\n• Win Probability: 88%' }
+            ]
+          }
+        ]
+      };
+    case 'hearing-checklist':
+      return {
+        sections: [
+          { type: 'section_title', title: 'Essential Tomorrow Court Hearing Checklist' },
+          {
+            type: 'bullet_list',
+            items: [
+              '✔ Required Documents: Copy of the Complaint, Vakalatnama, Court Fee receipt.',
+              '☐ Original Evidence: Original Cheque (Exhibit P-1) and Bank Return Memo (Exhibit P-2).',
+              '☐ Affidavits: Complainant\'s Evidence Affidavit (affixed with notary seal).',
+              '✔ Case Law: Hard copies of Rangappa v. Sri Mohan and Bir Singh judgments.',
+              '✔ Court Copies: 2 sets of certified copies of the complaints for court logs.',
+              '☐ Identity Documents: Original Complainant ID Card (Aadhaar/PAN).',
+              '☐ Pending Tasks: Verify courtroom number on the cause list at 9:30 AM.'
+            ]
+          }
+        ]
+      };
+    default:
+      return null;
+  }
+};
+
 const getIntelligenceDataForStyle = (style: string): IntelligenceTool[] => {
   const getOralNotes = (s: string) => {
     switch (s) {
@@ -436,6 +566,10 @@ export default function ArgumentBuilderScreen() {
 
   // Active Intelligence Tool tab (Step 4)
   const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<string>('oral-notes');
+  const [intelCache, setIntelCache] = useState<Record<string, string>>({
+    'oral-notes': `### Courtroom Oral Arguments Speaking Draft\n\n**1. Opening Statement:**\n"My Lord, I represent the Complainant in this matter. This is a clear case of commercial default under Section 138 of the Negotiable Instruments Act. The accused issued Cheque Exhibit P-1 to discharge a legally enforceable debt, which was returned dishonoured."\n\n**2. Core Facts to Emphasize:**\n- Complainant supplied goods to the accused.\n- Cheque was presented on due date but returned with bank memo "Funds Insufficient".\n- Demand Notice was sent within 15 days, and signatures on the cheque are admitted by the defense.\n\n**3. Relevant Statutory Provisions:**\n- Section 138, NI Act: Establishes criminal liability for cheque bounce.\n- Section 139, NI Act: Mandates the presumption of a legally enforceable debt.\n\n**4. Binding Precedents:**\n- *Rangappa v. Sri Mohan (2010)*: Section 139 presumption is mandatory and shifts the burden of proof to the accused.\n\n**5. Sequence of Submissions:**\n- Introduce ledger and delivery invoice copies.\n- Demonstrate signature admission by the defense.\n- Point out failure of the defense to send a reply to the statutory notice.\n\n**6. Closing Prayer:**\n"Therefore, My Lord, we pray that the accused be convicted and ordered to pay double the cheque amount as compensation."`
+  });
+  const [intelLoadingTab, setIntelLoadingTab] = useState<string | null>(null);
 
   // Generation status states
   const [isGenerating, setIsGenerating] = useState(false);
@@ -449,16 +583,130 @@ export default function ArgumentBuilderScreen() {
 
   // AI Copilot states
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
-  const [isAiThinking, setIsAiThinking] = useState(false);
   const [chatInput, setChatInput] = useState('');
-  const [chatReplies, setChatReplies] = useState<Array<{ sender: 'user' | 'ai'; text: string }>>([
-    {
-      sender: 'ai',
-      text: "I am the Court Prep Copilot. Ask me about courtroom prep, cross-examination questions, objections, witness strategies, or final oral arguments. I will reply using your active refinement style.",
-    },
-  ]);
   const copilotScrollRef = useRef<ScrollView>(null);
-  const [sheetSize, setSheetSize] = useState<'collapsed' | 'expanded' | 'full'>('expanded');
+  const [isCopilotHistoryOpen, setIsCopilotHistoryOpen] = useState(false);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+  const [isSuggestionsSheetOpen, setIsSuggestionsSheetOpen] = useState(false);
+
+  // Smart scrolling states/refs (Step 11)
+  const autoScrollEnabled = useRef(true);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+
+  // useChat integration for persistent, real-time streaming conversations
+  const {
+    sessions,
+    activeSessionId,
+    activeSession,
+    sending: isAiThinking,
+    error: chatError,
+    setActiveSessionId,
+    fetchSessions,
+    fetchSessionDetails,
+    startNewSession,
+    deleteChatSession,
+    renameChatSession,
+    dispatchMessageStream,
+    cancelMessageStream,
+  } = useChat('legal_argument_builder');
+
+  // Animated dots for thinking indicator (Step 12)
+  const [thinkingDotCount, setThinkingDotCount] = useState(1);
+  useEffect(() => {
+    let interval: any;
+    if (isAiThinking) {
+      interval = setInterval(() => {
+        setThinkingDotCount((prev) => (prev % 3) + 1);
+      }, 500);
+    } else {
+      setThinkingDotCount(1);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAiThinking]);
+
+  const getThinkingDotsText = () => {
+    if (thinkingDotCount === 1) return '●  ○  ○';
+    if (thinkingDotCount === 2) return '○  ●  ○';
+    return '○  ○  ●';
+  };
+
+  // Check if the latest message is a model message that is empty (thinking state) (Step 12)
+  const isLatestMessageEmptyModel = useMemo(() => {
+    if (!activeSession || !activeSession.messages || activeSession.messages.length === 0) {
+      return false;
+    }
+    const latest = activeSession.messages[activeSession.messages.length - 1];
+    return latest.role === 'model' && !latest.content.trim();
+  }, [activeSession?.messages]);
+
+  // Inline suggestion chip expansion states (Step 6)
+  const [expandedSuggestions, setExpandedSuggestions] = useState<Record<string, boolean>>({});
+
+  // Cross-platform custom Rename Dialog states (Objective 4)
+  const [renameSessionId, setRenameSessionId] = useState<string>('');
+  const [renameInput, setRenameInput] = useState<string>('');
+
+  const toggleExpandSuggestions = (msgId: string) => {
+    setExpandedSuggestions(prev => ({ ...prev, [msgId]: !prev[msgId] }));
+  };
+
+  // Helper to shorten long suggestion labels to 1-3 words (Step 3)
+  const shortenSuggestion = (label: string) => {
+    const cleaned = label.replace(/[⚖️🔥🎯⚠️🧠💣🧑‍⚖️🚀📚✓]/g, '').trim();
+    const lower = cleaned.toLowerCase();
+    if (lower.includes('cross') && (lower.includes('question') || lower.includes('exam') || lower.includes('respondent'))) return 'Cross Questions';
+    if (lower.includes('affidavit') && (lower.includes('draft') || lower.includes('support'))) return 'Draft Affidavit';
+    if (lower.includes('witness') && (lower.includes('list') || lower.includes('prepare') || lower.includes('testimony'))) return 'Witness List';
+    if (lower.includes('evidence') && (lower.includes('summarize') || lower.includes('summary') || lower.includes('key'))) return 'Evidence Summary';
+    if (lower.includes('oral') || lower.includes('final argument') || lower.includes('closing submission') || lower.includes('courtroom speaking')) return 'Final Arguments';
+    if (lower.includes('opponent') && lower.includes('argument')) return 'Predict Opponent';
+    if (lower.includes('judge') && lower.includes('question')) return 'Judge Questions';
+    if (lower.includes('relevant') && (lower.includes('judgment') || lower.includes('precedent'))) return 'Find Judgments';
+    if (lower.includes('settlement') || lower.includes('negotiation')) return 'Settlement Strategy';
+    if (lower.includes('weakness') && lower.includes('case')) return 'Case Weaknesses';
+    if (lower.includes('rebuttal') && lower.includes('argument')) return 'Rebuttal Arguments';
+    if (lower.includes('bail') && lower.includes('argument')) return 'Bail Arguments';
+    if (lower.includes('timeline') && lower.includes('analysis')) return 'Timeline Analysis';
+
+    // Fallback: If it's longer than 3 words, slice to first 3 words
+    const words = cleaned.split(/\s+/);
+    if (words.length > 3) {
+      return words.slice(0, 3).join(' ') + '...';
+    }
+    return cleaned;
+  };
+
+  // Voice speech-to-text recognition setup
+  const [selectedLanguage, setSelectedLanguage] = useState<SpeechLanguage>('en');
+  const {
+    isRecording,
+    isTranscribing,
+    partialText,
+    duration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useSpeechRecognition((transcribedText) => {
+    if (transcribedText) {
+      setChatInput(transcribedText);
+    }
+  });
+
+  // Sync real-time speech preview to chat input
+  useEffect(() => {
+    if (isRecording && partialText) {
+      setChatInput(partialText);
+    }
+  }, [partialText, isRecording]);
+
+  // Load chat sessions when Copilot modal opens
+  useEffect(() => {
+    if (isAiAssistantOpen) {
+      fetchSessions();
+    }
+  }, [isAiAssistantOpen]);
 
   // Overall Case Metrics (Step 2)
   const [caseMetrics, setCaseMetrics] = useState({
@@ -594,73 +842,199 @@ export default function ArgumentBuilderScreen() {
     }
   };
 
+  // Auto-scroll scrollview to bottom when messages or typing states update (ChatGPT-like)
   useEffect(() => {
     if (isAiAssistantOpen) {
-      setTimeout(() => {
-        copilotScrollRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      if (autoScrollEnabled.current) {
+        setTimeout(() => {
+          copilotScrollRef.current?.scrollToEnd({ animated: true });
+        }, 150);
+      } else {
+        if (isAiThinking) {
+          setShowScrollToLatest(true);
+        }
+      }
     }
-  }, [chatReplies, isAiAssistantOpen]);
+  }, [activeSession?.messages, isAiAssistantOpen, isAiThinking]);
 
-  const handleSendChat = (textOverride?: string) => {
+  // Hide scroll-to-latest button when generation stops
+  useEffect(() => {
+    if (!isAiThinking) {
+      setShowScrollToLatest(false);
+    }
+  }, [isAiThinking]);
+
+  // Scroll handler to monitor user manual drag (Step 11)
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const paddingToBottom = 150;
+    const isAtBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+    const isScrollable = contentSize.height > layoutMeasurement.height;
+
+    if (isAtBottom) {
+      autoScrollEnabled.current = true;
+      setShowScrollToLatest(false);
+    } else if (isScrollable) {
+      setShowScrollToLatest(true);
+    }
+  };
+
+  // Fired ONLY when user manually starts a drag scroll action (Step 11 & 12)
+  const handleScrollBeginDrag = () => {
+    autoScrollEnabled.current = false;
+    if (isAiThinking) {
+      setShowScrollToLatest(true);
+    }
+  };
+
+  // Real conversational message submission with case context awareness
+  const handleSendChat = async (textOverride?: string) => {
     const textToSend = textOverride || chatInput;
     if (!textToSend.trim()) return;
 
-    setChatReplies((prev) => [...prev, { sender: 'user', text: textToSend.trim() }]);
     setChatInput('');
-    setIsAiThinking(true);
     Keyboard.dismiss();
 
-    setTimeout(() => {
-      setIsAiThinking(false);
-      let replyText = "";
+    try {
+      await dispatchMessageStream(
+        textToSend.trim(),
+        'legal_argument_builder',
+        attachments,
+        undefined,
+        activeCaseId || undefined
+      );
+      clearAttachments();
+    } catch (err) {
+      console.warn('[COPILOT SEND ERROR] Send message failed:', err);
+    }
+  };
+
+  // Start a new conversational session for Copilot
+  const handleNewChat = () => {
+    const newSessionId = startNewSession('New Chat', 'legal_argument_builder');
+    showToast('success', 'New Chat Started', 'Cleared workspace for a new strategy query.');
+  };
+
+  // Export current conversation history as clean legal notes via native Share
+  const handleExportChat = () => {
+    if (!activeSession || !activeSession.messages || activeSession.messages.length === 0) {
+      showToast('error', 'No Messages', 'There is no conversation to export.');
+      return;
+    }
+    const formattedMessages = activeSession.messages
+      .map((m) => {
+        const senderLabel = m.role === 'user' ? 'Lawyer' : 'Copilot';
+        return `[${senderLabel}]:\n${m.content}\n`;
+      })
+      .join('\n────────────────────────\n\n');
+    const exportText = `Court Prep Copilot Conversation: ${activeSession.title || 'Untitled Chat'}\n\n${formattedMessages}`;
+    
+    Share.share({
+      message: exportText,
+      title: activeSession.title || 'Copilot Chat Export',
+    })
+      .then((res) => {
+        if (res.action === Share.sharedAction) {
+          showToast('success', 'Chat Exported', 'Conversation successfully shared/exported.');
+        }
+      })
+      .catch((err) => {
+        console.warn('[EXPORT ERROR] Share failed:', err);
+      });
+  };
+
+  // Rename conversational session (Objective 4)
+  const handleRenameSession = (id: string, currentTitle: string) => {
+    setRenameSessionId(id);
+    setRenameInput(currentTitle);
+  };
+
+  // Delete chat session permanently (Objective 4)
+  const handleDeleteSession = (id: string) => {
+    Alert.alert(
+      'Delete Chat',
+      'Are you sure you want to permanently delete this chat?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteChatSession(id);
+            showToast('success', 'Chat Deleted', 'Conversation deleted.');
+            if (id === activeSessionId) {
+              startNewSession('New Chat', 'legal_argument_builder');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Clear conversation history log locally
+  const handleClearConversation = () => {
+    if (activeSessionId) {
+      useChatStore.getState().updateSession(activeSessionId, { messages: [] });
+      showToast('success', 'Conversation Cleared', 'Active chat history cleared.');
+    }
+  };
+
+  // Helper to parse follow-up next action suggestions from AI text (Step 9)
+  const parseFollowUpSuggestions = (text: string) => {
+    if (!text) return { cleanedText: '', suggestions: [], disclaimer: '' };
+
+    let disclaimer = '';
+    let mainText = text;
+
+    // Detect and extract Legal Disclaimer (Step 6)
+    const disclaimerRegex = /(⚖️\s+Legal\s+Disclaimer|Legal\s+Disclaimer):?/i;
+    const disclaimerMatch = mainText.match(disclaimerRegex);
+    if (disclaimerMatch && disclaimerMatch.index !== undefined) {
+      const beforeDisclaimer = mainText.substring(0, disclaimerMatch.index);
+      const lastNewline = beforeDisclaimer.lastIndexOf('\n');
+      const startIndex = lastNewline !== -1 ? lastNewline : 0;
       
-      const query = textToSend.toLowerCase();
-      
-      if (query.includes('predict') || query.includes('forecast') || query.includes('win probability')) {
-        replyText = "I am the Court Prep Copilot. For case predictions and win probabilities, please use the Litigation Predictor Copilot.";
-      } else if (query.includes('contract') || query.includes('clause') || query.includes('agreement review')) {
-        replyText = "I am the Court Prep Copilot. For contract clause analysis and agreement reviews, please use the Contract Review Copilot.";
-      } else {
-        switch (refinementMode) {
-          case 'Plain English':
-            replyText = "Today's hearing is about the bounced cheque of Rs. 5,00,000. Under the law, because Nitin Kumar signed the cheque, the judge assumes he owes the money. We will ask the judge to convict him and order him to pay Rs. 10,00,000 in compensation.";
-            break;
-          case 'Aggressive Litigation':
-            replyText = "Today's hearing is a critical opportunity to crush the defense's baseless excuses. The accused has admitted his signature, triggering the mandatory presumption of debt under Section 139. His failure to reply to the legal notice within the 15-day window is a fatal omission. We will aggressively demand immediate conviction and maximum double compensation.";
-            break;
-          case 'Courtroom Style':
-            replyText = "My Lord, the hearing scheduled for today concerns the statutory complaint under Section 138 of the NI Act. Given that signature execution is admitted, we respectfully submit that the legal presumption under Section 139 stands fully triggered. The burden of proof rests entirely on the defense, which has failed to present any rebuttal.";
-            break;
-          case 'Formal':
-            replyText = "The hearing scheduled for this date pertains to the formal complaint registered under Section 138 of the Negotiable Instruments Act. Signatures on the instrument being admitted, the statutory presumption under Section 139 is operational. In the absence of a legal notice reply, the respondent stands in default.";
-            break;
-          case 'Judge Friendly':
-            replyText = "Respected Court, today's hearing is a straightforward cheque bounce matter under Section 138. The cheque bounced due to insufficient funds. Signatures are admitted. No reply was sent to our legal notice. We pray for immediate conviction.";
-            break;
-          case 'Senior Counsel Style':
-            replyText = "Today's hearing presents a clear-cut legal scenario. By admitting the signatures, the defense has conceded the core fact, automatically activating the Section 139 presumption. Their complete silence during the statutory notice period leaves them with no viable defense. We will argue for immediate conviction and interim compensation under Section 143A.";
-            break;
-          case 'Neutral':
-            replyText = "The hearing is scheduled to address the complaint under Section 138 NI Act. The cheque of INR 5,00,000 bounced due to insufficient funds. Statutory notice was delivered on 14th May 2026. No reply or payment has been made.";
-            break;
-          case 'Concise':
-            replyText = "• Cheque bounce case under Sec 138.\n• Cheque signatures admitted.\n• Statutory presumption (Sec 139) is active.\n• Defense has failed to reply to notice.\n• Request conviction & compensation.";
-            break;
-          case 'Detailed':
-            replyText = "The hearing listed today is for the prosecution of complaint under Section 138 of the Negotiable Instruments Act. Complainant Apex Logistics Corp holds Cheque No. 445210 for INR 5,00,000 which bounced due to insufficient funds. The statutory demand notice was delivered on 14th May 2026. Under the precedent of Rangappa v. Sri Mohan, the court is mandated to presume a legally enforceable debt since the signatures are admitted. The defense has submitted no rebuttal.";
-            break;
-          case 'Hindi Legal Drafting':
-            replyText = "आज की सुनवाई एनआई एक्ट की धारा 138 के तहत दर्ज शिकायत के संबंध में है। चेक पर हस्ताक्षर आरोपी द्वारा स्वीकार किए गए हैं, जिससे धारा 139 के तहत ऋण का वैधानिक अनुमान पूर्णतः शिकायतकर्ता के पक्ष में लागू होता है। हम आरोपी को दोषी ठहराने और मुआवजे की मांग करेंगे।";
-            break;
-          default:
-            replyText = "My Lord, the complainant has filed this complaint under Section 138. The signatures on the cheque are admitted. The burden is entirely on the accused to rebut this with cogent evidence.";
-            break;
+      const rawDisclaimer = mainText.substring(startIndex).trim();
+      disclaimer = rawDisclaimer
+        .replace(/^[-*•\s]*/, '')
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '')
+        .trim();
+
+      mainText = mainText.substring(0, startIndex).trim();
+    }
+
+    // Now parse Suggestions from the remaining text
+    const suggestionsRegex = /(?:Suggested\s+Next\s+Actions|Suggested\s+Actions|Next\s+Actions):?/i;
+    const suggestionsMatch = mainText.match(suggestionsRegex);
+    if (!suggestionsMatch || suggestionsMatch.index === undefined) {
+      return { cleanedText: mainText, suggestions: [], disclaimer };
+    }
+
+    const matchIndex = suggestionsMatch.index;
+    const cleanedText = mainText.substring(0, matchIndex).trim();
+    const suggestionsPart = mainText.substring(matchIndex + suggestionsMatch[0].length);
+
+    const lines = suggestionsPart.split('\n');
+    const suggestions: string[] = [];
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
+        const suggestionText = trimmed
+          .replace(/^[•\-*]\s*/, '')
+          .replace(/\*\*/g, '')
+          .replace(/\*/g, '')
+          .trim();
+        if (suggestionText) {
+          suggestions.push(suggestionText);
         }
       }
+    });
 
-      setChatReplies((prev) => [...prev, { sender: 'ai', text: replyText }]);
-    }, 800);
+    return { cleanedText, suggestions, disclaimer };
   };
 
   useEffect(() => {
@@ -1019,17 +1393,292 @@ export default function ArgumentBuilderScreen() {
     showToast('success', 'Copied', 'Section content copied to clipboard.');
   };
 
+  const handleSelectIntelTab = (tabId: string) => {
+    setActiveIntelligenceTab(tabId);
+    if (!intelCache[tabId]) {
+      setIntelLoadingTab(tabId);
+      setTimeout(() => {
+        const style = refinementMode || 'Courtroom Style';
+        const generated = getUniqueIntelContent(tabId, style, activeCaseDetails);
+        setIntelCache(prev => ({ ...prev, [tabId]: generated }));
+        setIntelLoadingTab(null);
+      }, 500);
+    }
+  };
+
+  const handleRegenerateIntelTab = (tabId: string) => {
+    setIntelLoadingTab(tabId);
+    setTimeout(() => {
+      const style = refinementMode || 'Courtroom Style';
+      const generated = getUniqueIntelContent(tabId, style, activeCaseDetails);
+      setIntelCache(prev => ({ ...prev, [tabId]: generated }));
+      setIntelLoadingTab(null);
+      showToast('success', 'Regeneration Complete', 'Refining speech vectors complete.');
+    }, 600);
+  };
+
+  const renderStructuredResponse = (tabId: string) => {
+    const data = getStructuredIntelContent(tabId);
+    if (!data) return null;
+
+    return (
+      <View style={{ gap: 12 }}>
+        {data.sections.map((section: any, sIdx: number) => {
+          if (section.type === 'section_title') {
+            return (
+              <Text key={sIdx} style={{ fontSize: 15, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 }}>
+                {section.title}
+              </Text>
+            );
+          }
+
+          if (section.type === 'bullet_list') {
+            return (
+              <View key={sIdx} style={{ gap: 8 }}>
+                {section.items.map((item: string, iIdx: number) => (
+                  <View key={iIdx} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    <Text style={{ fontSize: 13, color: theme.textPrimary, marginRight: 6 }}>•</Text>
+                    <Text style={{ fontSize: 13.5, color: theme.textPrimary, flex: 1, lineHeight: 18 }}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+
+          if (section.type === 'key_value_cards') {
+            return (
+              <View key={sIdx} style={{ gap: 12 }}>
+                {section.cards.map((card: any, cIdx: number) => (
+                  <View
+                    key={cIdx}
+                    style={{
+                      borderWidth: 1.5,
+                      borderColor: theme.border,
+                      borderRadius: 12,
+                      padding: 12,
+                      backgroundColor: theme.surface,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13.5, fontWeight: '800', color: '#8A5CF5', marginBottom: 8 }}>
+                      {card.title}
+                    </Text>
+
+                    {card.description && (
+                      <Text style={{ fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 }}>
+                        {card.description}
+                      </Text>
+                    )}
+
+                    {card.position && (
+                      <View style={{ gap: 4, marginTop: 4 }}>
+                        <Text style={{ fontSize: 11, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Defense Position</Text>
+                        <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 8 }}>{card.position}</Text>
+                        
+                        <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
+                          <View>
+                            <Text style={{ fontSize: 10, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Strength</Text>
+                            <Text style={{ fontSize: 12, color: theme.textPrimary, fontWeight: '700' }}>{card.strength}</Text>
+                          </View>
+                          <View>
+                            <Text style={{ fontSize: 10, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Likelihood</Text>
+                            <Text style={{ fontSize: 12, color: theme.textPrimary, fontWeight: '700' }}>{card.likelihood}</Text>
+                          </View>
+                        </View>
+
+                        <Text style={{ fontSize: 11, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Suggested Counter</Text>
+                        <Text style={{ fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 }}>{card.counter}</Text>
+                      </View>
+                    )}
+
+                    {card.answer && (
+                      <View style={{ gap: 4 }}>
+                        <Text style={{ fontSize: 11, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Suggested Answer</Text>
+                        <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 6 }}>{card.answer}</Text>
+                        
+                        <Text style={{ fontSize: 11, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Supporting Evidence</Text>
+                        <Text style={{ fontSize: 12.5, color: theme.textPrimary, lineHeight: 18, marginBottom: 6 }}>{card.evidence}</Text>
+
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <View>
+                            <Text style={{ fontSize: 10, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Relevant Section</Text>
+                            <Text style={{ fontSize: 12, color: theme.textPrimary, fontWeight: '700' }}>{card.section}</Text>
+                          </View>
+                          <View>
+                            <Text style={{ fontSize: 10, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>Confidence</Text>
+                            <Text style={{ fontSize: 12, color: '#10B981', fontWeight: '700' }}>{card.confidence}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
+
+                    {card.riskLevel && (
+                      <View style={{ gap: 4 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 11.5, fontWeight: '700', color: card.riskLevel === 'High' ? '#EF4444' : '#F59E0B' }}>
+                            Risk Level: {card.riskLevel}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 11, color: theme.textMuted, textTransform: 'uppercase', fontWeight: '700' }}>AI Recommendation</Text>
+                        <Text style={{ fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 }}>{card.advice}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            );
+          }
+
+          return null;
+        })}
+      </View>
+    );
+  };
+
+  const renderPrepSectionContent = (content: string) => {
+    if (!content) return null;
+
+    const cleanMarkdown = (text: string) => {
+      return text
+        .replace(/\*\*\*+/g, '') // remove triple asterisks
+        .replace(/\*\*([^*]+)\*\*/g, '$1') // remove bold asterisks
+        .replace(/\*([^*]+)\*/g, '$1') // remove single asterisks
+        .replace(/__+/g, '') // remove underscores
+        .replace(/_+/g, '')
+        .replace(/#+/g, '') // remove hashtags
+        .replace(/`+/g, '') // remove backticks
+        .replace(/^>+/g, '') // remove blockquotes
+        .trim();
+    };
+
+    const lines = content.split('\n');
+    return (
+      <View style={{ gap: 8, paddingVertical: 4 }}>
+        {lines.map((line, idx) => {
+          const trimmed = line.trim();
+          if (!trimmed) return null;
+
+          // 1. Check if it is a key-value pair like: **Key**: Value
+          const kvMatch = trimmed.match(/^[\-\*•]?\s*\*\*([^*:]+)\*\*:\s*(.*)$/);
+          if (kvMatch) {
+            const key = kvMatch[1].trim();
+            const val = kvMatch[2].trim();
+            return (
+              <View
+                key={idx}
+                style={{
+                  borderWidth: 1.5,
+                  borderColor: theme.border,
+                  borderRadius: 10,
+                  padding: 10,
+                  backgroundColor: theme.surface,
+                  marginVertical: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#8A5CF5', textTransform: 'uppercase', marginBottom: 2 }}>
+                  {key}
+                </Text>
+                <Text style={{ fontSize: 13, color: theme.textPrimary, lineHeight: 18 }}>
+                  {cleanMarkdown(val)}
+                </Text>
+              </View>
+            );
+          }
+
+          // 2. Check if it is a timeline event like: 📅 **Date**: Event or **Date**: Event
+          const dateMatch = trimmed.match(/^(📅)?\s*\*\*([^*]+)\*\*:\s*(.*)$/);
+          if (dateMatch) {
+            const dateStr = dateMatch[2].trim();
+            const eventStr = dateMatch[3].trim();
+            return (
+              <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginVertical: 4 }}>
+                <View style={{ width: 16, alignItems: 'center', marginTop: 3 }}>
+                  <Ionicons name="calendar-outline" size={14} color="#8A5CF5" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#8A5CF5', marginBottom: 2 }}>
+                    {dateStr}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: theme.textPrimary, lineHeight: 18 }}>
+                    {cleanMarkdown(eventStr)}
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+
+          // 3. Check if it is a bullet point: •, *, -
+          if (trimmed.startsWith('•') || trimmed.startsWith('*') || trimmed.startsWith('-')) {
+            const textOnly = trimmed.replace(/^[\-\*•]\s*/, '');
+            const parts = textOnly.split('**');
+            return (
+              <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: 4 }}>
+                <Text style={{ fontSize: 13, color: theme.textPrimary, marginRight: 6, marginTop: 1 }}>•</Text>
+                <Text style={{ fontSize: 13.5, color: theme.textPrimary, flex: 1, lineHeight: 18 }}>
+                  {parts.map((part, pIdx) => {
+                    const isBold = pIdx % 2 === 1;
+                    return (
+                      <Text key={pIdx} style={isBold ? { fontWeight: '700', color: theme.textPrimary } : undefined}>
+                        {cleanMarkdown(part)}
+                      </Text>
+                    );
+                  })}
+                </Text>
+              </View>
+            );
+          }
+
+          // 4. Check if it is a numbered list item: 1. or 1)
+          const numMatch = trimmed.match(/^(\d+)[\.\)]\s*(.*)$/);
+          if (numMatch) {
+            const num = numMatch[1];
+            const textOnly = numMatch[2];
+            const parts = textOnly.split('**');
+            return (
+              <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#8A5CF5', marginRight: 6, marginTop: 1 }}>{num}.</Text>
+                <Text style={{ fontSize: 13.5, color: theme.textPrimary, flex: 1, lineHeight: 18 }}>
+                  {parts.map((part, pIdx) => {
+                    const isBold = pIdx % 2 === 1;
+                    return (
+                      <Text key={pIdx} style={isBold ? { fontWeight: '700', color: theme.textPrimary } : undefined}>
+                        {cleanMarkdown(part)}
+                      </Text>
+                    );
+                  })}
+                </Text>
+              </View>
+            );
+          }
+
+          // 5. Normal text with potential inline bold tags
+          const parts = trimmed.split('**');
+          return (
+            <Text key={idx} style={{ fontSize: 13.5, color: theme.textPrimary, lineHeight: 19, marginVertical: 2 }}>
+              {parts.map((part, pIdx) => {
+                const isBold = pIdx % 2 === 1;
+                return (
+                  <Text key={pIdx} style={isBold ? { fontWeight: '700', color: theme.textPrimary } : undefined}>
+                    {cleanMarkdown(part)}
+                  </Text>
+                );
+              })}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  };
+
   // Export functions (Step 6)
   const handleExport = (format: string) => {
     showToast('success', 'Export Commenced', `Dossier exported to ${format} successfully.`);
   };
 
-  // Mock Courtroom Integration (Step 7)
   const handleLaunchMockCourt = () => {
     showToast('info', 'Launching Simulator', 'Booting AI Moot Court simulation room...');
     router.push({
-      pathname: '/tools/argument-builder',
-      params: { startSimulation: 'true' }
+      pathname: '/tools/mock-courtroom',
+      params: { caseId: activeCaseId || 'current' }
     });
   };
 
@@ -1627,10 +2276,11 @@ export default function ArgumentBuilderScreen() {
               {/* STEP 1: CHOOSE SOURCE */}
               <Text style={[styles.welcomeMainTitle, { color: theme.textPrimary }]}>Hearing Preparation Setup</Text>
               <Text style={[styles.welcomeSubText, { color: theme.textSecondary }]}>
-                Select your case source. Our AI legal brain will analyze documents, map facts, research precedents, and compile a 12-section court folder instantly.
+                Select a case source. AI will analyze documents, extract facts, build timelines, research precedents, and prepare your hearing workspace.
               </Text>
 
               <View style={styles.sourceGrid}>
+                {/* Card 1: Case Workspace */}
                 <TouchableOpacity
                   style={[
                     styles.sourceCard,
@@ -1638,12 +2288,12 @@ export default function ArgumentBuilderScreen() {
                   ]}
                   onPress={() => handleSelectSource('workspace')}
                 >
-                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(138, 92, 245, 0.15)' }]}>
-                    <Ionicons name="folder-open-outline" size={28} color="#8A5CF5" />
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                    <Ionicons name="folder-open-outline" size={22} color="#8A5CF5" />
                   </View>
                   <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Case Workspace</Text>
-                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
-                    Pull context directly from existing case folders and dossiers.
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]} numberOfLines={2}>
+                    Import an existing case with documents, evidence, timelines, and AI analysis.
                   </Text>
                   {activeCaseDetails && (
                     <View style={styles.activeCaseBadge}>
@@ -1652,8 +2302,12 @@ export default function ArgumentBuilderScreen() {
                       </Text>
                     </View>
                   )}
+                  <View style={[styles.sourceCardBtn, { backgroundColor: '#8A5CF5' }]}>
+                    <Text style={styles.sourceCardBtnText}>Select Workspace</Text>
+                  </View>
                 </TouchableOpacity>
 
+                {/* Card 2: Upload Documents */}
                 <TouchableOpacity
                   style={[
                     styles.sourceCard,
@@ -1661,22 +2315,26 @@ export default function ArgumentBuilderScreen() {
                   ]}
                   onPress={showAttachmentOptions}
                 >
-                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
-                    <Ionicons name="cloud-upload-outline" size={28} color="#EF4444" />
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                    <Ionicons name="cloud-upload-outline" size={22} color="#10B981" />
                   </View>
                   <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Upload Legal Documents</Text>
-                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]} numberOfLines={2}>
                     Extract parties, timeline, and facts from PDF, Word or images.
                   </Text>
                   {attachments.length > 0 && (
-                    <View style={[styles.activeCaseBadge, { backgroundColor: '#FEE2E2' }]}>
-                      <Text style={[styles.activeCaseBadgeText, { color: '#EF4444' }]}>
+                    <View style={[styles.activeCaseBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                      <Text style={[styles.activeCaseBadgeText, { color: '#10B981' }]}>
                         {attachments.length} file(s) attached
                       </Text>
                     </View>
                   )}
+                  <View style={[styles.sourceCardBtn, { backgroundColor: '#10B981' }]}>
+                    <Text style={styles.sourceCardBtnText}>Upload Documents</Text>
+                  </View>
                 </TouchableOpacity>
 
+                {/* Card 3: Manual Entry */}
                 <TouchableOpacity
                   style={[
                     styles.sourceCard,
@@ -1684,13 +2342,16 @@ export default function ArgumentBuilderScreen() {
                   ]}
                   onPress={() => handleSelectSource('manual')}
                 >
-                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                    <Ionicons name="create-outline" size={28} color="#10B981" />
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(249, 115, 22, 0.12)' }]}>
+                    <Ionicons name="create-outline" size={22} color="#F97316" />
                   </View>
-                  <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Manual Facts Entry</Text>
-                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]}>
+                  <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Manual Entry</Text>
+                  <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]} numberOfLines={2}>
                     Launch Intake Wizard: Write details, dictate, or run an AI interview.
                   </Text>
+                  <View style={[styles.sourceCardBtn, { backgroundColor: '#F97316' }]}>
+                    <Text style={styles.sourceCardBtnText}>Enter Facts</Text>
+                  </View>
                 </TouchableOpacity>
               </View>
 
@@ -1829,7 +2490,7 @@ export default function ArgumentBuilderScreen() {
 
                       {isExpanded && (
                         <View style={[styles.sectionBody, { borderTopColor: theme.border }]}>
-                          <Text style={[styles.sectionBodyContent, { color: theme.textPrimary }]}>{sec.content}</Text>
+                          {renderPrepSectionContent(sec.content)}
 
                           <View style={[styles.whyCallout, { backgroundColor: theme.surface }]}>
                             <Text style={[styles.whyTitle, { color: theme.textSecondary }]}>💡 Explain Why</Text>
@@ -1876,59 +2537,105 @@ export default function ArgumentBuilderScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.intelligenceTabsScroll}
                   >
-                    {intelligenceData.map((tab) => (
-                      <TouchableOpacity
-                        key={tab.id}
-                        style={[
-                          styles.intelligenceTab,
-                          activeIntelligenceTab === tab.id && [styles.intelligenceTabActive, { backgroundColor: '#EF4444' }],
-                        ]}
-                        onPress={() => setActiveIntelligenceTab(tab.id)}
-                      >
-                        <Ionicons
-                          name={tab.icon as any}
-                          size={14}
-                          color={activeIntelligenceTab === tab.id ? '#FFFFFF' : theme.textSecondary}
-                          style={{ marginRight: 6 }}
-                        />
-                        <Text
+                    {intelligenceData.map((tab) => {
+                      const isActive = activeIntelligenceTab === tab.id;
+                      return (
+                        <TouchableOpacity
+                          key={tab.id}
                           style={[
-                            styles.intelligenceTabText,
-                            { color: activeIntelligenceTab === tab.id ? '#FFFFFF' : theme.textSecondary },
+                            styles.intelligenceTab,
+                            isActive
+                              ? { backgroundColor: '#8A5CF5', borderColor: '#8A5CF5' }
+                              : { backgroundColor: '#FFFFFF', borderColor: '#8A5CF5', borderWidth: 1.5 },
                           ]}
+                          onPress={() => handleSelectIntelTab(tab.id)}
                         >
-                          {tab.title}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Ionicons
+                            name={tab.icon as any}
+                            size={14}
+                            color={isActive ? '#FFFFFF' : '#8A5CF5'}
+                            style={{ marginRight: 6 }}
+                          />
+                          <Text
+                            style={[
+                              styles.intelligenceTabText,
+                              { color: isActive ? '#FFFFFF' : '#8A5CF5', fontWeight: '700' },
+                            ]}
+                          >
+                            {tab.title}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </ScrollView>
 
-                  {activeIntelContent && (
+                  {intelLoadingTab === activeIntelligenceTab ? (
+                    <View style={{ padding: 36, alignItems: 'center', justifyContent: 'center' }}>
+                      <ActivityIndicator size="small" color="#8A5CF5" />
+                      <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 10, fontWeight: '600' }}>
+                        AI synthesizing intelligence report...
+                      </Text>
+                    </View>
+                  ) : activeIntelContent ? (
                     <View style={[styles.intelligenceContentCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <Text style={[styles.intelDescription, { color: theme.textSecondary }]}>
+                      <Text style={[styles.intelDescription, { color: theme.textSecondary, marginBottom: 12, fontSize: 12, fontStyle: 'italic' }]}>
                         {activeIntelContent.description}
                       </Text>
-                      <Text style={[styles.intelBody, { color: theme.textPrimary }]}>{activeIntelContent.content}</Text>
+                      
+                      {renderStructuredResponse(activeIntelligenceTab)}
 
                       {/* Actions for intel tab */}
-                      <View style={styles.intelActionsRow}>
+                      <View style={[styles.intelActionsRow, { flexWrap: 'wrap', gap: 10, marginTop: 14 }]}>
                         <TouchableOpacity
                           style={styles.intelActionBtn}
-                          onPress={() => handleCopySection(activeIntelContent.content)}
+                          onPress={() => handleCopySection(JSON.stringify(getStructuredIntelContent(activeIntelligenceTab)))}
                         >
-                          <Ionicons name="copy-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                          <Text style={styles.intelActionBtnText}>Copy Notes</Text>
+                          <Ionicons name="copy-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Copy</Text>
                         </TouchableOpacity>
+
                         <TouchableOpacity
                           style={styles.intelActionBtn}
-                          onPress={() => showToast('success', 'Regenerating', 'Refining speech vectors...')}
+                          onPress={() => handleRegenerateIntelTab(activeIntelligenceTab)}
                         >
-                          <Ionicons name="refresh-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                          <Text style={styles.intelActionBtnText}>Re-analyze</Text>
+                          <Ionicons name="refresh-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Regenerate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => showToast('success', 'Saved to Case', 'Report pinned to case assets folder.')}
+                        >
+                          <Ionicons name="save-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Save to Case</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => handleExport('PDF')}
+                        >
+                          <Ionicons name="document-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Export PDF</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => showToast('success', 'Shared', 'Pre-analysis briefing shared with client.')}
+                        >
+                          <Ionicons name="share-social-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Share</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.intelActionBtn}
+                          onPress={() => showToast('success', 'Pinned', 'Successfully pinned to active workspace notes.')}
+                        >
+                          <Ionicons name="pin-outline" size={14} color="#8A5CF5" style={{ marginRight: 4 }} />
+                          <Text style={[styles.intelActionBtnText, { color: '#8A5CF5' }]}>Pin to Notes</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
-                  )}
+                  ) : null}
                 </View>
 
                 {/* STEP 7: MOCK COURTROOM INTEGRATION */}
@@ -2061,97 +2768,606 @@ export default function ArgumentBuilderScreen() {
         </View>
       </Modal>
 
-      {/* AI Copilot Chat Drawer */}
-      <Modal visible={isAiAssistantOpen} transparent animationType="slide" onRequestClose={() => setIsAiAssistantOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsAiAssistantOpen(false)} />
+      {/* AI Copilot Chat Drawer (Full-Screen AI Workspace) */}
+      <Modal 
+        visible={isAiAssistantOpen} 
+        transparent={false} 
+        animationType="slide" 
+        statusBarTranslucent={true}
+        onRequestClose={() => setIsAiAssistantOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={[
-              styles.chatDrawerContainer, 
-              { 
-                backgroundColor: theme.surface,
-                height: sheetSize === 'collapsed' ? 250 : sheetSize === 'full' ? height * 0.9 : height * 0.6 
-              }
-            ]}
+            style={{ flex: 1 }}
           >
-            <View style={{ flex: 1 }}>
-              <Pressable 
-                onPress={() => {
-                  if (sheetSize === 'collapsed') setSheetSize('expanded');
-                  else if (sheetSize === 'expanded') setSheetSize('full');
-                  else setSheetSize('collapsed');
-                }}
-              >
-                <View style={styles.bottomSheetDragHandle} />
-              </Pressable>
-              <View style={styles.bottomSheetHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="sparkles" size={18} color="#8A5CF5" />
-                  <Text style={styles.bottomSheetTitle}>Court Prep Copilot</Text>
-                </View>
-                <TouchableOpacity onPress={() => setIsAiAssistantOpen(false)}>
-                  <Ionicons name="close-circle" size={24} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
+            {/* Header Wrapper matching status bar background */}
+            <View style={{ backgroundColor: theme.surface, paddingTop: insets.top, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+              {/* Simplified Header */}
+              <View style={[styles.copilotHeader, { borderBottomWidth: 0, backgroundColor: 'transparent' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
+                  <TouchableOpacity onPress={() => setIsAiAssistantOpen(false)} style={styles.copilotBackBtn}>
+                    <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
+                  </TouchableOpacity>
 
-              {/* Chat dialog Scrollable lists */}
-              <ScrollView ref={copilotScrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 14 }} showsVerticalScrollIndicator={false}>
-                {chatReplies.map((msg, idx) => (
-                  <View key={idx} style={[styles.chatBubble, msg.sender === 'user' ? styles.userBubble : [styles.aiBubble, { backgroundColor: theme.surfaceVariant }]]}>
-                    <Text style={msg.sender === 'user' ? styles.userBubbleText : styles.aiBubbleText}>
-                      {msg.text}
+                  <View style={styles.copilotHeaderTitleContainer}>
+                    <Text style={[styles.copilotHeaderTitle, { color: theme.textPrimary }]}>Court Prep Copilot</Text>
+                    <Text style={styles.copilotHeaderSubtitle}>Hearing Intelligence Assistant</Text>
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <TouchableOpacity onPress={handleNewChat} style={styles.copilotHeaderIconAction}>
+                    <Ionicons name="add" size={24} color="#8A5CF5" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setIsHeaderMenuOpen(true)} style={styles.copilotHeaderIconAction}>
+                    <Ionicons name="ellipsis-vertical" size={20} color={theme.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Header Menu Dropdown Overlay */}
+            {isHeaderMenuOpen && (
+              <Modal
+                transparent={true}
+                visible={isHeaderMenuOpen}
+                animationType="fade"
+                onRequestClose={() => setIsHeaderMenuOpen(false)}
+              >
+                <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsHeaderMenuOpen(false)} />
+                <View 
+                  style={[
+                    styles.menuDropdown, 
+                    { 
+                      backgroundColor: theme.surface, 
+                      borderColor: theme.border,
+                      top: insets.top + 56,
+                    }
+                  ]}
+                >
+                  <TouchableOpacity 
+                    style={[styles.menuItem, { borderBottomColor: theme.border }]} 
+                    onPress={() => {
+                      setIsHeaderMenuOpen(false);
+                      setIsCopilotHistoryOpen(true);
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={16} color={theme.textPrimary} style={{ marginRight: 10 }} />
+                    <Text style={[styles.menuItemText, { color: theme.textPrimary }]}>History</Text>
+                  </TouchableOpacity>
+
+
+                  <TouchableOpacity 
+                    style={[styles.menuItem, { borderBottomColor: theme.border }]} 
+                    onPress={() => {
+                      setIsHeaderMenuOpen(false);
+                      handleExportChat();
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={16} color={theme.textPrimary} style={{ marginRight: 10 }} />
+                    <Text style={[styles.menuItemText, { color: theme.textPrimary }]}>Export Chat</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.menuItem} 
+                    onPress={() => {
+                      setIsHeaderMenuOpen(false);
+                      handleClearConversation();
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" style={{ marginRight: 10 }} />
+                    <Text style={[styles.menuItemText, { color: '#EF4444' }]}>Clear Conversation</Text>
+                  </TouchableOpacity>
+                </View>
+              </Modal>
+            )}
+
+            {/* Case Workspace context indicator (if synced) */}
+            {activeCaseDetails?.name && (
+              <View style={[styles.copilotCaseContextBadge, { backgroundColor: theme.surfaceVariant }]}>
+                <Ionicons name="folder-open" size={14} color="#8A5CF5" style={{ marginRight: 6 }} />
+                <Text style={[styles.copilotCaseContextText, { color: theme.textPrimary }]} numberOfLines={1}>
+                  Case: {activeCaseDetails.name}
+                </Text>
+              </View>
+            )}
+
+            {/* Chat dialog Scrollable lists */}
+            <ScrollView 
+              ref={copilotScrollRef} 
+              style={{ flex: 1 }} 
+              contentContainerStyle={{ paddingBottom: 20, paddingHorizontal: 16, paddingTop: 12 }} 
+              showsVerticalScrollIndicator={false}
+              onScroll={handleScroll}
+              onScrollBeginDrag={handleScrollBeginDrag}
+              scrollEventThrottle={16}
+            >
+              {activeSession && activeSession.messages && activeSession.messages.length > 0 ? (
+                activeSession.messages.map((msg, idx) => {
+                  const isUser = msg.role === 'user';
+                  
+                  // Skip empty model placeholder bubbles (Step 12)
+                  if (!isUser && !msg.content.trim()) {
+                    return null;
+                  }
+
+                  if (isUser) {
+                    return (
+                      <View 
+                        key={msg.id || idx} 
+                        style={[styles.chatBubbleContainer, styles.userBubbleAlign]}
+                      >
+                        <View style={[styles.chatBubble, styles.userBubble]}>
+                          <Text style={styles.userBubbleText}>{msg.content}</Text>
+                        </View>
+                      </View>
+                    );
+                  }
+
+                  const { cleanedText, suggestions, disclaimer } = parseFollowUpSuggestions(msg.content);
+
+                  return (
+                    <View 
+                      key={msg.id || idx} 
+                      style={[styles.chatBubbleContainer, styles.aiBubbleAlign, { flexDirection: 'column' }]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', width: '100%' }}>
+                        <View style={styles.aiAvatar}>
+                          <Ionicons name="sparkles" size={11} color="#FFFFFF" />
+                        </View>
+                        <View 
+                          style={[
+                            styles.chatBubble, 
+                            styles.aiBubble, 
+                            { backgroundColor: theme.surfaceVariant }
+                          ]}
+                        >
+                          <MarkdownRenderer text={cleanedText} />
+
+                          {/* Disclaimer at the bottom of the AI response (Step 6) */}
+                          {disclaimer ? (
+                            <View style={styles.disclaimerContainer}>
+                              <View style={[styles.disclaimerDivider, { backgroundColor: theme.border }]} />
+                              <Text style={[styles.disclaimerText, { color: theme.textSecondary }]}>
+                                ⚖️ {disclaimer}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+
+                      {/* Clickable inline action chips (Step 9) */}
+                      {suggestions.length > 0 && (
+                        <View style={{ marginLeft: 30, marginTop: 12 }}>
+                          <Text style={{ fontSize: 10.5, fontWeight: '800', color: theme.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            Suggested Next Actions
+                          </Text>
+                          <View style={styles.bubbleSuggestionsContainer}>
+                            {suggestions
+                              .slice(0, expandedSuggestions[msg.id] ? undefined : 4)
+                              .map((suggestion, sIdx) => {
+                                const shortened = shortenSuggestion(suggestion);
+                                return (
+                                  <TouchableOpacity
+                                    key={sIdx}
+                                    style={[styles.bubbleSuggestionChip, { borderColor: '#8A5CF5', backgroundColor: theme.surface }]}
+                                    onPress={() => handleSendChat(suggestion)}
+                                    disabled={isAiThinking}
+                                  >
+                                    <Text style={[styles.bubbleSuggestionText, { color: '#8A5CF5' }]}>✓ {shortened}</Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            
+                            {suggestions.length > 4 && !expandedSuggestions[msg.id] && (
+                              <TouchableOpacity
+                                style={[styles.bubbleSuggestionChip, { borderColor: '#8A5CF5', backgroundColor: theme.surface, borderStyle: 'dashed' }]}
+                                onPress={() => toggleExpandSuggestions(msg.id)}
+                              >
+                                <Text style={[styles.bubbleSuggestionText, { color: '#8A5CF5' }]}>+ More Suggestions</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              ) : (
+                // Minimal empty state & greeting (Step 3 & 4)
+                <View style={styles.emptyChatContainer}>
+                  {/* Lightweight 2-line greeting */}
+                  <View style={styles.lightweightGreetingContainer}>
+                    <Text style={[styles.lightweightGreetingTitle, { color: theme.textPrimary }]}>
+                      Hi! I'm your Court Prep Copilot.
+                    </Text>
+                    <Text style={[styles.lightweightGreetingSub, { color: theme.textSecondary }]}>
+                      How can I help you prepare for today's hearing?
                     </Text>
                   </View>
-                ))}
-                {isAiThinking && (
-                  <View style={{ alignItems: 'center', marginVertical: 8 }}>
-                    <ActivityIndicator size="small" color="#8A5CF5" />
+                </View>
+              )}
+              {isAiThinking && isLatestMessageEmptyModel && (
+                <View style={styles.thinkingBubbleContainer}>
+                  <View style={styles.aiAvatar}>
+                    <Ionicons name="sparkles" size={11} color="#FFFFFF" />
                   </View>
-                )}
-              </ScrollView>
+                  <View style={[styles.chatBubble, styles.aiBubble, { backgroundColor: theme.surfaceVariant, paddingVertical: 8, paddingHorizontal: 12, minWidth: 120, justifyContent: 'center' }]}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#8A5CF5' }}>
+                      ⚖️ Thinking  {getThinkingDotsText()}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
 
-              {/* Quick Prompts */}
-              <View style={styles.promptBubbleScroll}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.promptBubbleScrollContent}>
-                  {['Refine this summary', 'Prepare oral submission', 'Draft witness questions', 'List judge questions', 'Aggressive counter-arguments'].map(prompt => (
-                    <TouchableOpacity
-                      key={prompt}
-                      style={[styles.promptBubble, { borderColor: theme.border, backgroundColor: theme.surface }]}
-                      onPress={() => handleSendChat(prompt)}
-                      disabled={isAiThinking}
-                    >
-                      <Text style={[styles.promptBubbleText, { color: '#8A5CF5' }]}>{prompt}</Text>
-                    </TouchableOpacity>
+            {/* Attachments preview bar */}
+            {attachments.length > 0 && (
+              <View style={[styles.copilotAttachmentBar, { borderTopColor: theme.border }]}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+                  {attachments.map((a, i) => (
+                    <View key={i} style={[styles.copilotAttachChip, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
+                      <Ionicons name="document-attach" size={14} color="#8A5CF5" />
+                      <Text style={[styles.copilotAttachLabel, { color: theme.textPrimary }]} numberOfLines={1}>{a.name}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveAttachment(a.name)}>
+                        <Ionicons name="close-circle" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
                   ))}
                 </ScrollView>
               </View>
+            )}
 
-              {/* Chat messenger input */}
-              <View style={[styles.chatComposer, { backgroundColor: theme.surfaceVariant, marginBottom: Platform.OS === 'ios' ? 24 : 10 }]}>
-                <TextInput
-                  style={[styles.chatComposerInput, { color: theme.textPrimary }]}
-                  placeholder="Ask Court Prep Copilot..."
-                  placeholderTextColor={theme.placeholder}
-                  value={chatInput}
-                  onChangeText={setChatInput}
-                  onSubmitEditing={() => handleSendChat()}
-                  editable={!isAiThinking}
-                />
-                <TouchableOpacity 
-                  style={[
-                    styles.chatComposerSendBtn, 
-                    { backgroundColor: '#8A5CF5' },
-                    (!chatInput.trim() || isAiThinking) && { opacity: 0.5 }
-                  ]} 
-                  onPress={() => handleSendChat()}
-                  disabled={!chatInput.trim() || isAiThinking}
-                >
-                  <Ionicons name="send" size={14} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
+            {/* Floating "Scroll to Latest" Button (Step 11) */}
+            {showScrollToLatest && (
+              <TouchableOpacity
+                style={[styles.floatingScrollBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={() => {
+                  copilotScrollRef.current?.scrollToEnd({ animated: true });
+                  autoScrollEnabled.current = true;
+                  setShowScrollToLatest(false);
+                }}
+              >
+                <Ionicons name="arrow-down" size={18} color="#8A5CF5" />
+              </TouchableOpacity>
+            )}
+
+            {/* Chat Composer (ChatGPT Style Rounded Input Area) */}
+            <View style={[styles.copilotComposerContainer, { borderTopColor: theme.border, backgroundColor: theme.surface, paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12, paddingTop: 8 }]}>
+              {isRecording || isTranscribing ? (
+                <View style={styles.recordingWrapper}>
+                  {/* Cancel Button */}
+                  <TouchableOpacity
+                    onPress={cancelRecording}
+                    style={styles.voiceControlBtn}
+                  >
+                    <Ionicons name="close" size={24} color="#EF4444" />
+                  </TouchableOpacity>
+
+                  {/* Transcribing Indicator / Duration Waveform */}
+                  <View style={styles.waveformContainer}>
+                    {isTranscribing ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <ActivityIndicator size="small" color="#8A5CF5" />
+                        <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Transcribing...</Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>
+                          {Math.floor(duration / 60).toString().padStart(2, '0')}:{(duration % 60).toString().padStart(2, '0')}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Listening...</Text>
+                        <View style={styles.recordingIndicatorDot} />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Language switch */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      const nextLang = selectedLanguage === 'en' ? 'hi' : selectedLanguage === 'hi' ? 'hinglish' : 'en';
+                      setSelectedLanguage(nextLang);
+                      showToast('info', 'Language Changed', `Listening in ${nextLang === 'en' ? 'English' : nextLang === 'hi' ? 'Hindi' : 'Hinglish'}`);
+                    }}
+                    style={styles.langSelectorBtn}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#8A5CF5' }}>
+                      {selectedLanguage === 'en' ? 'EN' : selectedLanguage === 'hi' ? 'HI' : 'HING'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Stop/Send Button */}
+                  <TouchableOpacity
+                    onPress={stopRecording}
+                    style={styles.voiceStopBtn}
+                  >
+                    <Ionicons name="stop" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ paddingHorizontal: 12, paddingVertical: 4 }}>
+                  {/* Rounded Text Input Field & Inner triggers (Step 1) */}
+                  <View style={[styles.composerTextInputContainer, { borderColor: theme.border, backgroundColor: theme.surfaceVariant }]}>
+                    {/* Attachment button */}
+                    <TouchableOpacity 
+                      onPress={showAttachmentOptions}
+                      style={styles.composerInnerBtn}
+                      disabled={isAiThinking}
+                    >
+                      <Ionicons name="add" size={22} color="#8A5CF5" />
+                    </TouchableOpacity>
+
+                    {/* AI Suggestions Sparkles Button */}
+                    <TouchableOpacity 
+                      onPress={() => setIsSuggestionsSheetOpen(true)}
+                      style={styles.composerInnerBtn}
+                      disabled={isAiThinking}
+                    >
+                      <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+                    </TouchableOpacity>
+
+                    <TextInput
+                      style={[styles.composerTextInput, { color: theme.textPrimary }]}
+                      placeholder="Ask about arguments, witnesses..."
+                      placeholderTextColor={theme.placeholder}
+                      value={chatInput}
+                      onChangeText={setChatInput}
+                      onSubmitEditing={() => handleSendChat()}
+                      editable={!isAiThinking}
+                      multiline
+                      onContentSizeChange={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      }}
+                    />
+
+                    {/* Inner Mic Button */}
+                    <TouchableOpacity 
+                      onPress={() => startRecording(selectedLanguage)}
+                      style={styles.composerInnerMicBtn}
+                      disabled={isAiThinking}
+                    >
+                      <Ionicons name="mic" size={20} color="#6B7280" />
+                    </TouchableOpacity>
+
+                    {/* Inner Send / Stop Button (Step 1) */}
+                    {isAiThinking ? (
+                      <TouchableOpacity 
+                        style={[styles.composerInnerSendBtn, { backgroundColor: '#EF4444' }]} 
+                        onPress={cancelMessageStream}
+                      >
+                        <Ionicons name="square" size={12} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity 
+                        style={[
+                          styles.composerInnerSendBtn, 
+                          { backgroundColor: '#8A5CF5' },
+                          (!chatInput.trim()) && { opacity: 0.5 }
+                        ]} 
+                        onPress={() => handleSendChat()}
+                        disabled={!chatInput.trim()}
+                      >
+                        <Ionicons name="arrow-up" size={16} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
             </View>
           </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* AI Suggestions Bottom Sheet */}
+      <Modal
+        visible={isSuggestionsSheetOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsSuggestionsSheetOpen(false)}
+      >
+        <View style={styles.bottomSheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsSuggestionsSheetOpen(false)} />
+          <View style={[styles.suggestionsSheetContainer, { backgroundColor: theme.surface }]}>
+            <View style={[styles.suggestionsSheetHeader, { borderBottomColor: theme.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="sparkles" size={18} color="#8A5CF5" />
+                <Text style={[styles.suggestionsSheetTitle, { color: theme.textPrimary }]}>AI Suggestions</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsSuggestionsSheetOpen(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1, paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
+              {/* Category: Arguments */}
+              <Text style={styles.suggestionsCategoryTitle}>Arguments</Text>
+              <View style={styles.suggestionsCategoryGroup}>
+                {[
+                  'Prepare Plaintiff Arguments',
+                  'Prepare Defence Arguments',
+                  'Rebuttal Strategy'
+                ].map((item) => (
+                  <TouchableOpacity 
+                    key={item} 
+                    style={[styles.suggestionsItemBtn, { borderColor: theme.border }]}
+                    onPress={() => {
+                      setChatInput(item);
+                      setIsSuggestionsSheetOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.suggestionsItemText, { color: theme.textPrimary }]}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Category: Cross Examination */}
+              <Text style={styles.suggestionsCategoryTitle}>Cross Examination</Text>
+              <View style={styles.suggestionsCategoryGroup}>
+                {[
+                  'Cross Questions',
+                  'Witness Questions',
+                  'Contradictions'
+                ].map((item) => (
+                  <TouchableOpacity 
+                    key={item} 
+                    style={[styles.suggestionsItemBtn, { borderColor: theme.border }]}
+                    onPress={() => {
+                      setChatInput(item);
+                      setIsSuggestionsSheetOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.suggestionsItemText, { color: theme.textPrimary }]}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Category: Hearing */}
+              <Text style={styles.suggestionsCategoryTitle}>Hearing</Text>
+              <View style={styles.suggestionsCategoryGroup}>
+                {[
+                  'Judge Questions',
+                  'Oral Submission',
+                  'Final Hearing Notes'
+                ].map((item) => (
+                  <TouchableOpacity 
+                    key={item} 
+                    style={[styles.suggestionsItemBtn, { borderColor: theme.border }]}
+                    onPress={() => {
+                      setChatInput(item);
+                      setIsSuggestionsSheetOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.suggestionsItemText, { color: theme.textPrimary }]}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Category: Analysis */}
+              <Text style={styles.suggestionsCategoryTitle}>Analysis</Text>
+              <View style={styles.suggestionsCategoryGroup}>
+                {[
+                  'Weaknesses',
+                  'Evidence Review',
+                  'Timeline Summary'
+                ].map((item) => (
+                  <TouchableOpacity 
+                    key={item} 
+                    style={[styles.suggestionsItemBtn, { borderColor: theme.border }]}
+                    onPress={() => {
+                      setChatInput(item);
+                      setIsSuggestionsSheetOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.suggestionsItemText, { color: theme.textPrimary }]}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Copilot History Drawer Overlay */}
+      <Modal 
+        visible={isCopilotHistoryOpen} 
+        animationType="slide" 
+        transparent={true} 
+        onRequestClose={() => setIsCopilotHistoryOpen(false)}
+      >
+        <View style={styles.historyDrawerOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsCopilotHistoryOpen(false)} />
+          <View style={[styles.historyDrawerContainer, { backgroundColor: theme.surface }]}>
+            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+              <View style={[styles.historyDrawerHeader, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.historyDrawerTitle, { color: theme.textPrimary }]}>Chat History</Text>
+                <TouchableOpacity onPress={() => setIsCopilotHistoryOpen(false)}>
+                  <Ionicons name="close" size={24} color={theme.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.historyDrawerList}>
+                {sessions.filter(s => s.activeTool === 'legal_argument_builder').length > 0 ? (
+                  sessions
+                    .filter(s => s.activeTool === 'legal_argument_builder')
+                    .sort((a, b) => new Date(b.lastModified || b.createdAt || 0).getTime() - new Date(a.lastModified || a.createdAt || 0).getTime())
+                    .map((session) => (
+                      <View key={session.sessionId} style={[styles.historySessionItem, activeSessionId === session.sessionId && { backgroundColor: theme.surfaceVariant, borderLeftWidth: 3, borderLeftColor: '#8A5CF5' }]}>
+                        <TouchableOpacity
+                          style={{ flex: 1 }}
+                          onPress={() => {
+                            setActiveSessionId(session.sessionId);
+                            fetchSessionDetails(session.sessionId);
+                            setIsCopilotHistoryOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.historySessionTitle, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {session.title || 'Untitled Conversation'}
+                          </Text>
+                          <Text style={styles.historySessionTime}>
+                            {new Date(session.lastModified || session.createdAt || Date.now()).toLocaleString([], {
+                              month: 'numeric',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                          <TouchableOpacity onPress={() => handleRenameSession(session.sessionId, session.title || '')}>
+                            <Ionicons name="create-outline" size={18} color="#8A5CF5" />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleDeleteSession(session.sessionId)}>
+                            <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                ) : (
+                  <View style={{ padding: 32, alignItems: 'center' }}>
+                    <Ionicons name="chatbubbles-outline" size={32} color="#94A3B8" style={{ marginBottom: 8 }} />
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>No chat history found.</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Rename Dialog Modal (Objective 4) */}
+      <Modal visible={!!renameSessionId} transparent={true} animationType="fade" onRequestClose={() => setRenameSessionId('')}>
+        <View style={styles.dialogOverlay}>
+          <View style={[styles.dialogContainer, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.dialogTitle, { color: theme.textPrimary }]}>Rename Conversation</Text>
+            <TextInput
+              style={[styles.dialogInput, { borderColor: theme.border, color: theme.textPrimary }]}
+              value={renameInput}
+              onChangeText={setRenameInput}
+              autoFocus
+              placeholder="Enter new title"
+              placeholderTextColor={theme.textSecondary}
+            />
+            <View style={styles.dialogActions}>
+              <TouchableOpacity onPress={() => setRenameSessionId('')} style={styles.dialogCancelBtn}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (renameSessionId && renameInput.trim()) {
+                    renameChatSession(renameSessionId, renameInput.trim());
+                    showToast('success', 'Chat Renamed', 'Title updated successfully.');
+                    setRenameSessionId('');
+                  }
+                }}
+                style={[styles.dialogConfirmBtn, { backgroundColor: '#8A5CF5' }]}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -2268,47 +3484,63 @@ function getStyles(theme: any, isDark: boolean) {
       alignItems: 'center',
     },
     scrollContent: {
-      padding: 20,
+      padding: 14,
     },
     welcomeMainTitle: {
-      fontSize: 22,
+      fontSize: 20,
       fontWeight: '800',
-      marginBottom: 10,
+      marginBottom: 4,
       textAlign: 'center',
     },
     welcomeSubText: {
-      fontSize: 14,
-      lineHeight: 22,
+      fontSize: 12,
+      lineHeight: 16,
       textAlign: 'center',
-      marginBottom: 24,
+      marginBottom: 14,
     },
     sourceGrid: {
-      gap: 16,
-      marginBottom: 20,
+      gap: 10,
+      marginBottom: 10,
     },
     sourceCard: {
-      borderWidth: 1,
-      borderRadius: 16,
-      padding: 20,
+      borderWidth: 1.5,
+      borderRadius: 14,
+      padding: 12,
       alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 175,
     },
     sourceIconWrapper: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: 12,
-    },
-    sourceCardTitle: {
-      fontSize: 16,
-      fontWeight: '800',
       marginBottom: 6,
     },
+    sourceCardTitle: {
+      fontSize: 14.5,
+      fontWeight: '800',
+      marginBottom: 2,
+    },
     sourceCardDesc: {
-      fontSize: 12,
-      lineHeight: 18,
+      fontSize: 11.5,
+      lineHeight: 15,
       textAlign: 'center',
+      marginBottom: 10,
+      paddingHorizontal: 10,
+    },
+    sourceCardBtn: {
+      width: '100%',
+      height: 42,
+      borderRadius: 10,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    sourceCardBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
     },
     activeCaseBadge: {
       marginTop: 10,
@@ -3095,7 +4327,7 @@ function getStyles(theme: any, isDark: boolean) {
       borderRadius: 12,
       paddingHorizontal: 14,
       paddingVertical: 10,
-      maxWidth: '85%',
+      maxWidth: '100%',
     },
     chatBubbleText: {
       fontSize: 13,
@@ -3207,6 +4439,537 @@ function getStyles(theme: any, isDark: boolean) {
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    copilotHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      height: 56,
+      borderBottomWidth: 1,
+    },
+    copilotBackBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 4,
+    },
+    copilotBackBtnText: {
+      fontSize: 14,
+      fontWeight: '700',
+      marginLeft: 4,
+    },
+    copilotHeaderTitleContainer: {
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+    },
+    copilotHeaderTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    copilotHeaderSubtitle: {
+      fontSize: 9,
+      color: '#94A3B8',
+      marginTop: 1,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    copilotHeaderActionBtn: {
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+    },
+    copilotCaseContextBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      marginHorizontal: 16,
+      marginTop: 12,
+      borderRadius: 8,
+    },
+    copilotCaseContextText: {
+      fontSize: 11,
+      fontWeight: '700',
+      flex: 1,
+    },
+    chatBubbleContainer: {
+      flexDirection: 'row',
+      marginVertical: 6,
+      alignItems: 'flex-start',
+      maxWidth: '92%',
+    },
+    userBubbleAlign: {
+      alignSelf: 'flex-end',
+      justifyContent: 'flex-end',
+    },
+    aiBubbleAlign: {
+      alignSelf: 'flex-start',
+      justifyContent: 'flex-start',
+    },
+    aiAvatar: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: '#8A5CF5',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 8,
+      marginTop: 4,
+    },
+    emptyChatContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 32,
+    },
+    emptyChatIconContainer: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: 'rgba(138, 92, 245, 0.08)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    emptyChatTitle: {
+      fontSize: 20,
+      fontWeight: '800',
+      marginBottom: 4,
+    },
+    emptyChatSubtitle: {
+      fontSize: 12,
+      color: '#94A3B8',
+      fontWeight: '600',
+      marginBottom: 24,
+    },
+    welcomeBox: {
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 16,
+      width: '100%',
+      marginBottom: 24,
+    },
+    welcomeBoxTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      marginBottom: 8,
+    },
+    welcomeBoxSub: {
+      fontSize: 12,
+      fontWeight: '700',
+      marginBottom: 10,
+    },
+    welcomeBoxText: {
+      fontSize: 12,
+      lineHeight: 18,
+      fontWeight: '500',
+    },
+    emptyChatSuggestedTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      alignSelf: 'flex-start',
+      marginBottom: 12,
+    },
+    suggestedChipsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      width: '100%',
+    },
+    suggestedChip: {
+      borderWidth: 1,
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    suggestedChipText: {
+      fontSize: 11.5,
+      fontWeight: '700',
+    },
+    thinkingBubbleContainer: {
+      flexDirection: 'row',
+      marginVertical: 6,
+      alignItems: 'flex-start',
+      alignSelf: 'flex-start',
+    },
+    copilotAttachmentBar: {
+      paddingVertical: 8,
+      borderTopWidth: 1,
+      maxHeight: 46,
+    },
+    copilotAttachChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      gap: 6,
+    },
+    copilotAttachLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      maxWidth: 100,
+    },
+    copilotComposerContainer: {
+      borderTopWidth: 1,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    composerIconBtn: {
+      width: 36,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 18,
+    },
+    composerTextInput: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: '500',
+      minHeight: 44,
+      maxHeight: 120,
+      paddingHorizontal: 10,
+      paddingVertical: 12,
+    },
+    composerSendBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    recordingWrapper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 12,
+      height: 48,
+    },
+    voiceControlBtn: {
+      width: 36,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    waveformContainer: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    langSelectorBtn: {
+      borderWidth: 1,
+      borderColor: '#8A5CF5',
+      borderRadius: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+    },
+    voiceStopBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: '#EF4444',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    recordingIndicatorDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: '#EF4444',
+    },
+    historyDrawerOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    historyDrawerContainer: {
+      height: height * 0.7,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+    },
+    historyDrawerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+    },
+    historyDrawerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    historyDrawerList: {
+      flex: 1,
+      marginTop: 10,
+    },
+    historySessionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 14,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      marginVertical: 4,
+    },
+    historySessionTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: 2,
+    },
+    historySessionTime: {
+      fontSize: 10,
+      color: '#94A3B8',
+      fontWeight: '600',
+    },
+    copilotHeaderIconAction: {
+      padding: 4,
+    },
+    menuDropdown: {
+      position: 'absolute',
+      right: 16,
+      width: 200,
+      borderRadius: 12,
+      borderWidth: 1,
+      elevation: 5,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      paddingVertical: 4,
+      zIndex: 9999,
+    },
+    menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderBottomWidth: 0.5,
+    },
+    menuItemText: {
+      fontSize: 13.5,
+      fontWeight: '600',
+    },
+    lightweightGreetingContainer: {
+      width: '100%',
+      paddingHorizontal: 8,
+      marginBottom: 16,
+    },
+    lightweightGreetingTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      lineHeight: 24,
+      marginBottom: 2,
+    },
+    lightweightGreetingSub: {
+      fontSize: 13,
+      fontWeight: '500',
+    },
+    minimalEmptyStateContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 40,
+      paddingVertical: 40,
+    },
+    minimalEmptyStateEmoji: {
+      fontSize: 48,
+      marginBottom: 16,
+    },
+    minimalEmptyStateTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    minimalEmptyStateSubtitle: {
+      fontSize: 12.5,
+      fontWeight: '500',
+    },
+    composerTextInputContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      borderWidth: 1,
+      borderRadius: 24,
+      paddingLeft: 10,
+      paddingRight: 6,
+      paddingBottom: 6,
+      paddingTop: 6,
+      minHeight: 52,
+      maxHeight: 140,
+    },
+    composerInnerBtn: {
+      width: 36,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    composerInnerMicBtn: {
+      width: 36,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    composerInnerSendBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    bottomSheetOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    suggestionsSheetContainer: {
+      height: height * 0.6,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 24,
+    },
+    suggestionsSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: 14,
+      borderBottomWidth: 1,
+    },
+    suggestionsSheetTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    suggestionsCategoryTitle: {
+      fontSize: 11,
+      color: '#8A5CF5',
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginTop: 18,
+      marginBottom: 8,
+      paddingHorizontal: 4,
+    },
+    suggestionsCategoryGroup: {
+      gap: 6,
+    },
+    suggestionsItemBtn: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    suggestionsItemText: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    bubbleSuggestionsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      width: '100%',
+    },
+    bubbleSuggestionChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.2,
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      height: 36,
+      marginBottom: 4,
+    },
+    bubbleSuggestionText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    disclaimerContainer: {
+      marginTop: 10,
+      width: '100%',
+    },
+    disclaimerDivider: {
+      height: 1,
+      marginVertical: 8,
+      width: '100%',
+      opacity: 0.5,
+    },
+    disclaimerText: {
+      fontSize: 10,
+      fontStyle: 'italic',
+      lineHeight: 14.5,
+      opacity: 0.8,
+    },
+    floatingScrollBtn: {
+      position: 'absolute',
+      bottom: 80,
+      right: 16,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      elevation: 4,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 4,
+      zIndex: 9999,
+    },
+    dialogOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    dialogContainer: {
+      width: '100%',
+      maxWidth: 320,
+      borderRadius: 16,
+      padding: 20,
+      elevation: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+    },
+    dialogTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      marginBottom: 16,
+    },
+    dialogInput: {
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 14,
+      marginBottom: 20,
+    },
+    dialogActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 12,
+    },
+    dialogCancelBtn: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    dialogConfirmBtn: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
   });
 }

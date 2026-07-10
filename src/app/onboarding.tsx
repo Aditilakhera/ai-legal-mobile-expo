@@ -1,88 +1,505 @@
 /**
- * AI Legal Mobile - Premium Onboarding Slideshow Screen
- * Presents a 3-page slideshow displaying key capabilities with interactive controls.
+ * AI Legal Mobile - Premium Cinematic Light Theme Onboarding Screen
+ * Features a completely redesigned high-fidelity female chibi Virtual Legal Advisor
+ * modeled 100% exactly after the target cartoon advocate in the reference image:
+ * - Cute chibi proportions (large head, small balanced rounded body, soft curves).
+ * - Thick black outlines on all body, hair, and clothing elements for a premium cartoon feel.
+ * - Hands naturally joined/crossed in front of the body at all times (polite greeting posture).
+ * - Sweeping forehead hair bangs framing the round face, side ear peeks, and blush cheeks.
+ * - Grey/Black coat suit with crossover white shirt collar and double advocate neck bands.
+ * - High performance isolated typewriter text and clean idle animations (blinking, breathing, swaying).
+ * Shshifted slightly downwards and floating panels moved closer to the mascot.
+ * Features an expanded Roadmap Nodes card size (height: 95px, width: 105px) to prevent text clipping.
  */
 
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, Pressable, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  Pressable,
+  Animated,
+  Dimensions,
+  Easing,
+  StatusBar,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Button, Fade, Slide } from '@/components/ui';
+// @ts-ignore
+import { Ionicons } from '@expo/vector-icons';
 
-interface SlideData {
-  title: string;
-  description: string;
-  renderIllustration: () => React.ReactNode;
+const { width, height } = Dimensions.get('window');
+
+interface SpeechToken {
+  text: string;
+  bold?: boolean;
 }
+
+interface SlideInfo {
+  topic: string;
+  tokens: SpeechToken[];
+  icon: string;
+  accentGlow: string;
+}
+
+// ─── High Performance Isolated Typewriter Sub-component ───────────────────
+interface TypewriterTextProps {
+  tokens: SpeechToken[];
+  onComplete?: () => void;
+}
+
+const TypewriterText: React.FC<TypewriterTextProps> = ({ tokens, onComplete }) => {
+  const [visibleChars, setVisibleChars] = useState(0);
+  const totalChars = tokens.reduce((acc, t) => acc + t.text.length, 0);
+
+  useEffect(() => {
+    setVisibleChars(0);
+    const intervalId = setInterval(() => {
+      setVisibleChars((prev) => {
+        if (prev < totalChars) {
+          return prev + 1;
+        } else {
+          clearInterval(intervalId);
+          if (onComplete) onComplete();
+          return prev;
+        }
+      });
+    }, 22); // Paced character addition
+
+    return () => clearInterval(intervalId);
+  }, [tokens]);
+
+  // Slices tokens to render only currently visible character counts
+  let count = 0;
+  const renderedTokens: SpeechToken[] = [];
+  for (const token of tokens) {
+    if (count >= visibleChars) break;
+    const remaining = visibleChars - count;
+    if (token.text.length <= remaining) {
+      renderedTokens.push(token);
+      count += token.text.length;
+    } else {
+      renderedTokens.push({ text: token.text.substring(0, remaining), bold: token.bold });
+      count += remaining;
+    }
+  }
+
+  return (
+    <Text style={styles.speechTextContainer}>
+      {renderedTokens.map((token, idx) => (
+        <Text
+          key={idx}
+          style={[
+            styles.speechBaseText,
+            token.bold && styles.speechBoldText
+          ]}
+        >
+          {token.text}
+        </Text>
+      ))}
+    </Text>
+  );
+};
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(0);
-  const { width } = useWindowDimensions();
 
-  const slides: SlideData[] = [
+  const slides: SlideInfo[] = [
     {
-      title: 'AI Legal Assistant',
-      description: 'Your intelligent legal partner. Ask questions, construct brief reviews, and summarize documents in seconds.',
-      renderIllustration: () => (
-        <View style={styles.illContainer}>
-          <View style={[styles.glowCircle, { backgroundColor: 'rgba(109, 93, 252, 0.08)' }]} />
-          <View style={[styles.mainCircle, { borderColor: '#6D5DFC' }]}>
-            <Text style={{ fontSize: 40 }}>⚖️</Text>
-          </View>
-          <View style={[styles.floatingBubble, { top: 40, left: 40, backgroundColor: '#4F8CFF' }]}>
-            <Text style={{ fontSize: 14, color: '#FFF' }}>⚡</Text>
-          </View>
-          <View style={[styles.floatingBubble, { bottom: 30, right: 30, backgroundColor: '#10B981' }]}>
-            <Text style={{ fontSize: 14, color: '#FFF' }}>✓</Text>
-          </View>
-        </View>
-      ),
+      topic: 'Welcome',
+      tokens: [
+        { text: 'Welcome to ' },
+        { text: 'AI Legal', bold: true },
+        { text: '. I will show you how AI Legal helps ' },
+        { text: 'advocates and law firms', bold: true },
+        { text: ' work ' },
+        { text: 'faster and smarter', bold: true },
+        { text: '.' }
+      ],
+      icon: 'sparkles-outline',
+      accentGlow: '#6D5DFC',
     },
     {
-      title: 'Manage Cases',
-      description: 'Organize every case, calendar hearing, and critical timeline event in one unified secure workspace.',
-      renderIllustration: () => (
-        <View style={styles.illContainer}>
-          <View style={[styles.caseCard, { borderColor: '#E2E8F0', backgroundColor: '#FFF' }]}>
-            <View style={styles.caseHeader}>
-              <View style={[styles.dot, { backgroundColor: '#6D5DFC' }]} />
-              <View style={[styles.line, { width: 80, backgroundColor: '#E2E8F0' }]} />
-            </View>
-            <View style={[styles.line, { width: '100%', height: 6, marginVertical: 6, backgroundColor: '#F1F5F9' }]} />
-            <View style={[styles.line, { width: '80%', height: 6, backgroundColor: '#F1F5F9' }]} />
-            <View style={styles.caseFooter}>
-              <View style={[styles.chip, { backgroundColor: 'rgba(79, 140, 255, 0.1)' }]}>
-                <Text style={{ fontSize: 10, color: '#4F8CFF', fontWeight: '700' }}>Active</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      ),
+      topic: 'Contract Analyzer',
+      tokens: [
+        { text: 'Upload ' },
+        { text: 'any agreement', bold: true },
+        { text: ' and receive an ' },
+        { text: 'AI-powered legal review', bold: true },
+        { text: ', clause analysis, compliance checks and risk detection.' }
+      ],
+      icon: 'document-text-outline',
+      accentGlow: '#3B82F6',
     },
     {
-      title: 'AI-Powered Legal Tools',
-      description: 'Draft legal agreements, perform contract audits, retrieve precedents, and analyze admissibility in one app.',
-      renderIllustration: () => (
-        <View style={styles.illContainer}>
-          <View style={styles.toolsGrid}>
-            <View style={[styles.toolItem, { backgroundColor: 'rgba(109, 93, 252, 0.08)' }]}>
-              <Text style={{ fontSize: 24 }}>📝</Text>
-            </View>
-            <View style={[styles.toolItem, { backgroundColor: 'rgba(79, 140, 255, 0.08)' }]}>
-              <Text style={{ fontSize: 24 }}>🔍</Text>
-            </View>
-            <View style={[styles.toolItem, { backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}>
-              <Text style={{ fontSize: 24 }}>🛡️</Text>
-            </View>
-            <View style={[styles.toolItem, { backgroundColor: 'rgba(245, 158, 11, 0.08)' }]}>
-              <Text style={{ fontSize: 24 }}>📊</Text>
-            </View>
-          </View>
-        </View>
-      ),
+      topic: 'Case Predictor',
+      tokens: [
+        { text: 'Analyze ' },
+        { text: 'evidence', bold: true },
+        { text: ', estimate ' },
+        { text: 'litigation outcomes', bold: true },
+        { text: ' and identify strengths, weaknesses and courtroom scenarios.' }
+      ],
+      icon: 'stats-chart-outline',
+      accentGlow: '#EF4444',
+    },
+    {
+      topic: 'Strategy Engine',
+      tokens: [
+        { text: 'Generate complete ' },
+        { text: 'litigation strategy', bold: true },
+        { text: ' including arguments, ' },
+        { text: 'evidence roadmap', bold: true },
+        { text: ', negotiation tactics and court prep.' }
+      ],
+      icon: 'trail-sign-outline',
+      accentGlow: '#10B981',
+    },
+    {
+      topic: 'AI Drafting',
+      tokens: [
+        { text: 'Draft ' },
+        { text: 'professional legal documents', bold: true },
+        { text: ' instantly with AI while maintaining legal ' },
+        { text: 'formatting and structure', bold: true },
+        { text: '.' }
+      ],
+      icon: 'create-outline',
+      accentGlow: '#F59E0B',
+    },
+    {
+      topic: 'Ready',
+      tokens: [
+        { text: 'You are now ready to ' },
+        { text: 'experience AI Legal', bold: true },
+        { text: '. Let\'s get started with your ' },
+        { text: 'litigation dashboard', bold: true },
+        { text: '.' }
+      ],
+      icon: 'shield-checkmark-outline',
+      accentGlow: '#6366F1',
     },
   ];
+
+  // ─── Animation Values ──────────────────────────────────────────────────
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
+  // Character Base Animations
+  const breathing = useRef(new Animated.Value(0)).current;
+  const blinking = useRef(new Animated.Value(1)).current;
+  const mouthSpeech = useRef(new Animated.Value(1)).current;
+  const bodyWeightShift = useRef(new Animated.Value(0)).current;
+
+  // Position shifts between slides (shifted downwards by 35px)
+  const charX = useRef(new Animated.Value(0)).current;
+  const charY = useRef(new Animated.Value(45)).current;
+
+  // Looking direction sequence values (programmed eyes & head tilt)
+  const eyeOffsetX = useRef(new Animated.Value(0)).current;
+  const eyeOffsetY = useRef(new Animated.Value(0)).current;
+  const headTurn = useRef(new Animated.Value(0)).current;
+  const hairTilt = useRef(new Animated.Value(0)).current;
+
+  // Background Hologram aura pulse
+  const holoPulse = useRef(new Animated.Value(1)).current;
+  const floatIcons = useRef(new Animated.Value(0)).current;
+
+  // Feature animation values
+  const laserScannerY = useRef(new Animated.Value(0)).current;
+  const outcomeDialProgress = useRef(new Animated.Value(0)).current;
+  const roadFilingProgress = useRef(new Animated.Value(0)).current;
+  const documentTyping = useRef(new Animated.Value(0)).current;
+
+  // Looking target state selector: 'user' | 'text' | 'feature'
+  const [lookTarget, setLookTarget] = useState<'user' | 'text' | 'feature'>('user');
+
+  // ─── Play Continuous Idle Animations ─────────────────────────────────────
+  useEffect(() => {
+    // 1. Natural Breathing loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathing, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathing, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // 2. Weight shifting / organic sway
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bodyWeightShift, {
+          toValue: 1,
+          duration: 3500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(bodyWeightShift, {
+          toValue: 0,
+          duration: 3500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // 3. Floating legal elements loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatIcons, {
+          toValue: 1,
+          duration: 2800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatIcons, {
+          toValue: 0,
+          duration: 2800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // 4. Background Hologram Glow Pulsing
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(holoPulse, {
+          toValue: 1.12,
+          duration: 1900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(holoPulse, {
+          toValue: 0.9,
+          duration: 2100,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  // Eye blinking loops
+  useEffect(() => {
+    let blinkTimer: any;
+    const triggerBlink = () => {
+      Animated.sequence([
+        Animated.timing(blinking, {
+          toValue: 0.1,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(blinking, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      const nextTime = 2800 + Math.random() * 2200;
+      blinkTimer = setTimeout(triggerBlink, nextTime);
+    };
+
+    triggerBlink();
+    return () => clearTimeout(blinkTimer);
+  }, []);
+
+  // Dialogue look sequences and mouth loop coordination
+  useEffect(() => {
+    const totalSlideChars = slides[currentSlide].tokens.reduce((acc, t) => acc + t.text.length, 0);
+    const typingDuration = totalSlideChars * 22;
+
+    // Reset looking target
+    setLookTarget('user');
+
+    // Mouth movement animation loop
+    mouthSpeech.setValue(1);
+    const mouthSequence = Animated.loop(
+      Animated.sequence([
+        Animated.timing(mouthSpeech, {
+          toValue: 0.3,
+          duration: 80,
+          useNativeDriver: true,
+        }),
+        Animated.timing(mouthSpeech, {
+          toValue: 1,
+          duration: 90,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    mouthSequence.start();
+
+    // Stop speaking after text finishes
+    const mouthStopTimer = setTimeout(() => {
+      mouthSequence.stop();
+      mouthSpeech.setValue(1);
+    }, typingDuration);
+
+    // Schedule looking sequence changes
+    const lookFeatureTimer = setTimeout(() => {
+      setLookTarget('feature');
+    }, typingDuration * 0.25);
+
+    const lookTextTimer = setTimeout(() => {
+      setLookTarget('text');
+    }, typingDuration * 0.65);
+
+    const lookUserTimer = setTimeout(() => {
+      setLookTarget('user');
+    }, typingDuration * 0.85);
+
+    return () => {
+      mouthSequence.stop();
+      clearTimeout(mouthStopTimer);
+      clearTimeout(lookFeatureTimer);
+      clearTimeout(lookTextTimer);
+      clearTimeout(lookUserTimer);
+    };
+  }, [currentSlide]);
+
+  // Animate head, eye pupils, and hair based on looking target state
+  useEffect(() => {
+    let eyeX = 0;
+    let eyeY = 0;
+    let turnX = 0;
+    let hairAngle = 0;
+
+    if (lookTarget === 'text') {
+      eyeX = -1.8;
+      eyeY = 1.5;
+      turnX = -2.5;
+      hairAngle = -1.0;
+    } else if (lookTarget === 'feature') {
+      const isRight = currentSlide === 2 || currentSlide === 4;
+      eyeX = isRight ? 2.0 : -2.0;
+      eyeY = -0.5;
+      turnX = isRight ? 4 : -4;
+      hairAngle = isRight ? 1.5 : -1.5;
+    } else {
+      eyeX = 0;
+      eyeY = 0;
+      turnX = 0;
+      hairAngle = 0;
+    }
+
+    Animated.parallel([
+      Animated.timing(eyeOffsetX, { toValue: eyeX, duration: 250, useNativeDriver: true }),
+      Animated.timing(eyeOffsetY, { toValue: eyeY, duration: 250, useNativeDriver: true }),
+      Animated.timing(headTurn, { toValue: turnX, duration: 300, useNativeDriver: true }),
+      Animated.timing(hairTilt, { toValue: hairAngle, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, [lookTarget, currentSlide]);
+
+  // Coordinator transitions (Baseline Y values shifted down by 35px)
+  useEffect(() => {
+    // Reset view entry transitions
+    fadeAnim.setValue(0);
+    slideAnim.setValue(15);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Reset feature parameters
+    laserScannerY.setValue(0);
+    outcomeDialProgress.setValue(0);
+    roadFilingProgress.setValue(0);
+    documentTyping.setValue(0);
+
+    // Dynamic waist-up pose adjustments per slide context
+    let targetX = 0;
+    let targetY = 45; // baseline target Y shifted down to 45 (was 10)
+
+    if (currentSlide === 0) {
+      targetX = 0;
+      targetY = 50; // was 15
+    } else if (currentSlide === 1) {
+      targetX = 25;
+      targetY = 40; // was 10
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(laserScannerY, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(laserScannerY, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else if (currentSlide === 2) {
+      targetX = -25;
+      targetY = 40; // was 10
+
+      Animated.timing(outcomeDialProgress, {
+        toValue: 0.85,
+        duration: 1500,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }).start();
+    } else if (currentSlide === 3) {
+      targetX = 0;
+      targetY = 50; // was 15
+
+      Animated.timing(roadFilingProgress, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    } else if (currentSlide === 4) {
+      targetX = 25;
+      targetY = 40; // was 10
+
+      Animated.timing(documentTyping, {
+        toValue: 1,
+        duration: 1800,
+        useNativeDriver: true,
+      }).start();
+    } else if (currentSlide === 5) {
+      targetX = 0;
+      targetY = 35; // was 5
+    }
+
+    Animated.parallel([
+      Animated.timing(charX, {
+        toValue: targetX,
+        duration: 650,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(charY, {
+        toValue: targetY,
+        duration: 650,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [currentSlide]);
 
   const handleNext = () => {
     if (currentSlide < slides.length - 1) {
@@ -92,76 +509,470 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleBack = () => {
-    if (currentSlide > 0) {
-      setCurrentSlide((prev) => prev - 1);
-    }
+  const handleSkip = () => {
+    router.push('/auth/login');
   };
 
-  const currentData = slides[currentSlide];
+  // Interpolate breathing transforms (Chibi body sway & head bounce)
+  const breathingScaleY = breathing.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.018],
+  });
+
+  const breathingTranslateY = breathing.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -2.5],
+  });
+
+  const weightShiftTranslateX = bodyWeightShift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-1.2, 1.2],
+  });
+
+  const floatTranslateY = floatIcons.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -12],
+  });
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        {/* Onboarding Header */}
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+      {/* LIGHT THEME Backdrops & Courthouse outlines */}
+      <View style={styles.backdropBackground}>
+        {/* Courthouse architectural outline wireframe */}
+        <View style={styles.courthouseSilhouette}>
+          <View style={styles.roofTriangle} />
+          <View style={styles.topFrieze} />
+          <View style={styles.pillarsRow}>
+            <View style={styles.pillarLine} />
+            <View style={styles.pillarLine} />
+            <View style={styles.pillarLine} />
+            <View style={styles.pillarLine} />
+            <View style={styles.pillarLine} />
+          </View>
+          <View style={styles.pillarSteps} />
+        </View>
+
+        {/* Purple/Blue glowing accents */}
+        <Animated.View
+          style={[
+            styles.glowCore,
+            {
+              backgroundColor: '#6D5DFC',
+              opacity: 0.08,
+              top: height * 0.15,
+              right: 20,
+              transform: [{ scale: holoPulse }],
+            },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.glowCore,
+            {
+              backgroundColor: '#3B82F6',
+              opacity: 0.06,
+              bottom: height * 0.35,
+              left: 10,
+              transform: [{ scale: holoPulse }],
+            },
+          ]}
+        />
+      </View>
+
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        
+        {/* Header navigation bar skip btn */}
         <View style={styles.header}>
-          {currentSlide > 0 ? (
-            <Pressable onPress={handleBack} accessibilityLabel="Go back to previous slide" accessibilityRole="button">
-              <Text style={styles.navText}>Back</Text>
-            </Pressable>
-          ) : (
-            <View />
-          )}
-
           {currentSlide < slides.length - 1 ? (
-            <Pressable onPress={() => router.push('/auth/login')} accessibilityLabel="Skip onboarding" accessibilityRole="button">
-              <Text style={styles.navText}>Skip</Text>
+            <Pressable style={styles.skipBtn} onPress={handleSkip}>
+              <Text style={styles.skipText}>Skip</Text>
             </Pressable>
           ) : (
             <View />
           )}
         </View>
 
-        {/* Content Slides Block */}
-        <View style={styles.slideBlock}>
-          <Fade duration={400} key={`ill-${currentSlide}`}>
-            <View style={styles.illWrapper}>
-              {currentData.renderIllustration()}
-            </View>
-          </Fade>
+        {/* Half-body Senior Counsel Workspace (Top 42% screen portion) */}
+        <View style={styles.workspace}>
+          
+          {/* Animated Female Chibi Advisor (Waist-up, exactly like first reference image) */}
+          <Animated.View
+            style={[
+              styles.characterWrapper,
+              {
+                transform: [
+                  { translateX: charX },
+                  { translateY: charY },
+                  { scale: 1.15 }
+                ],
+              },
+            ]}
+          >
+            <View style={styles.waistShadow} />
 
-          <Slide duration={500} key={`text-${currentSlide}`} style={styles.textContainer}>
-            <Text style={styles.title}>{currentData.title}</Text>
-            <Text style={styles.description}>{currentData.description}</Text>
-          </Slide>
+            {/* Back hair block (flows down behind head to shoulders - exactly like first reference illustration) */}
+            <Animated.View
+              style={[
+                styles.hairBackPanel,
+                {
+                  transform: [
+                    { translateY: breathingTranslateY },
+                    { translateX: weightShiftTranslateX }
+                  ]
+                }
+              ]}
+            />
+
+            {/* Torso, Dress & Crossed Arms (Hands remain naturally joined in front of body at all times) */}
+            <Animated.View
+              style={[
+                styles.torso,
+                {
+                  transform: [
+                    { translateY: breathingTranslateY },
+                    { translateX: weightShiftTranslateX },
+                    { scaleY: breathingScaleY }
+                  ]
+                }
+              ]}
+            >
+              {/* White crossover shirt collar (Exact crossover design) */}
+              <View style={styles.shirtCrossoverWrapper}>
+                <View style={styles.shirtCollarLeft} />
+                <View style={styles.shirtCollarRight} />
+              </View>
+
+              {/* Slender advocate coat (Grey/black chibi suit blazer with V-neck shape) */}
+              <View style={styles.coatBlazer}>
+                <View style={styles.coatLapelLeft} />
+                <View style={styles.coatLapelRight} />
+              </View>
+
+              {/* Advocate double neck bands */}
+              <View style={styles.advocateBandsRow}>
+                <View style={styles.legalNeckBand} />
+                <View style={styles.legalNeckBand} />
+              </View>
+
+              {/* LEFT ARM & SLEEVE (Sleeves curve inward to meet at center - exactly like first reference) */}
+              <View style={styles.sleeveLeft} />
+
+              {/* RIGHT ARM & SLEEVE (Sleeves curve inward to meet at center - exactly like first reference) */}
+              <View style={styles.sleeveRight} />
+
+              {/* JOINED HANDS (Hands resting politely over each other in front of body) */}
+              <View style={styles.joinedHandsOverlay}>
+                <View style={styles.joinedPalmBack} />
+                <View style={styles.joinedPalmFront}>
+                  {/* Natural overlapping finger markings */}
+                  <View style={styles.joinedFingerMark} />
+                  <View style={styles.joinedFingerMark} />
+                  <View style={styles.joinedFingerMark} />
+                </View>
+              </View>
+            </Animated.View>
+
+            {/* Head / Face features (No glasses, blush cheeks, dark oval eyes with white highlight reflection points) */}
+            <Animated.View
+              style={[
+                styles.head,
+                {
+                  transform: [
+                    {
+                      rotate: headTurn.interpolate({
+                        inputRange: [-10, 10],
+                        outputRange: ['-10deg', '10deg'],
+                      })
+                    },
+                    { translateY: breathingTranslateY },
+                    { translateX: weightShiftTranslateX },
+                  ]
+                }
+              ]}
+            >
+              {/* Cute Chibi side ears peeking out from hair */}
+              <View style={styles.sideEarLeft} />
+              <View style={styles.sideEarRight} />
+
+              {/* Face Panel (Light skin tone, soft rounded cheek boundaries) */}
+              <View style={styles.facePanel}>
+                
+                {/* Subtle curve nose bridge */}
+                <View style={styles.facialNose} />
+
+                {/* Cute Pink Blush Circles on cheeks (exactly like first reference) */}
+                <View style={styles.blushCheekLeft} />
+                <View style={styles.blushCheekRight} />
+
+                {/* Expressive dark eyes (Proper scaleY blinking + eyelashes curves + white light highlights) */}
+                <View style={styles.eyesRow}>
+                  <View style={styles.eyeContainer}>
+                    <Animated.View 
+                      style={[
+                        styles.eyeGlobe, 
+                        { 
+                          transform: [
+                            { scaleY: blinking },
+                            { translateX: eyeOffsetX },
+                            { translateY: eyeOffsetY }
+                          ] 
+                        }
+                      ]} 
+                    >
+                      <View style={styles.eyePupilDark}>
+                        <View style={styles.eyeReflectionDot} />
+                      </View>
+                    </Animated.View>
+                    {/* Eyelash curve detail */}
+                    <View style={styles.eyeLashCurveLeft} />
+                  </View>
+
+                  <View style={styles.eyeContainer}>
+                    <Animated.View 
+                      style={[
+                        styles.eyeGlobe, 
+                        { 
+                          transform: [
+                            { scaleY: blinking },
+                            { translateX: eyeOffsetX },
+                            { translateY: eyeOffsetY }
+                          ] 
+                        }
+                      ]} 
+                    >
+                      <View style={styles.eyePupilDark}>
+                        <View style={styles.eyeReflectionDot} />
+                      </View>
+                    </Animated.View>
+                    {/* Eyelash curve detail */}
+                    <View style={styles.eyeLashCurveRight} />
+                  </View>
+                </View>
+
+                {/* Thin high curved eyebrows */}
+                <View style={styles.eyebrowsRow}>
+                  <View style={styles.eyebrowLeft} />
+                  <View style={styles.eyebrowRight} />
+                </View>
+
+                {/* Gentle smiling curved mouth (curved line - exactly like first reference) */}
+                <View style={styles.smileHolder}>
+                  <Animated.View style={[styles.smilingMouthCurve, { transform: [{ scaleY: mouthSpeech }] }]}>
+                    <View style={styles.smilingMouthLine} />
+                  </Animated.View>
+                </View>
+
+              </View>
+              
+              {/* Premium hair front bangs (Soft sweeping forehead locks - exactly like first reference) */}
+              <Animated.View 
+                style={[
+                  styles.professionalHair,
+                  {
+                    transform: [
+                      {
+                        rotate: hairTilt.interpolate({
+                          inputRange: [-10, 10],
+                          outputRange: ['-10deg', '10deg'],
+                        })
+                      }
+                    ]
+                  }
+                ]}
+              >
+                {/* Hair cap layer */}
+                <View style={styles.hairCapDome} />
+                
+                {/* Sweeping forehead bang strands slanting from upper right down to left forehead */}
+                <View style={styles.sweepingBangStrand1} />
+                <View style={styles.sweepingBangStrand2} />
+                <View style={styles.sweepingBangStrand3} />
+
+                {/* Left/Right hair framing sides overlapping onto cheeks */}
+                <View style={styles.hairFrameSideLeft} />
+                <View style={styles.hairFrameSideRight} />
+              </Animated.View>
+            </Animated.View>
+
+          </Animated.View>
+
+          {/* Interactive Feature Animations floating next to guide character (Shifted closer to character) */}
+          <View style={styles.overlayIllustration} pointerEvents="none">
+            
+            {/* Slide 2: Contract page scanner */}
+            {currentSlide === 1 && (
+              <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], right: '47%', top: '26%' }]}>
+                <View style={styles.docMiniLayout}>
+                  <View style={styles.docHeader}>
+                    <Ionicons name="document-text" size={13} color="#6D5DFC" />
+                    <Text style={styles.docTitleText}>NDA_Review.pdf</Text>
+                  </View>
+                  <View style={[styles.miniTextLine, { width: '85%' }]} />
+                  <View style={[styles.miniTextLine, { width: '70%' }]} />
+                  
+                  {/* Highlighted risk warning block */}
+                  <View style={styles.glowClauseBadge}>
+                    <Text style={styles.glowClauseText}>Indemnity: High Risk</Text>
+                  </View>
+
+                  {/* Laser Scan line */}
+                  <Animated.View
+                    style={[
+                      styles.laserLine,
+                      {
+                        transform: [
+                          {
+                            translateY: laserScannerY.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 75],
+                            })
+                          }
+                        ]
+                      }
+                    ]}
+                  />
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Slide 3: Case Estimator meter */}
+            {currentSlide === 2 && (
+              <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], left: '47%', top: '26%' }]}>
+                <View style={styles.predictMiniLayout}>
+                  <Text style={styles.cardHeaderSmall}>Win Probability</Text>
+                  
+                  {/* Gauge indicator */}
+                  <View style={styles.arcContainer}>
+                    <View style={styles.arcOuterBack} />
+                    <View style={styles.arcOuterFill} />
+                    <View style={styles.arcCenterTextBlock}>
+                      <Text style={styles.arcValue}>85%</Text>
+                      <Text style={styles.arcLabel}>Success rate</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.badgeRow}>
+                    <View style={[styles.miniBadge, { backgroundColor: '#ECFDF5' }]}><Text style={styles.miniBadgeText}>Strong Fact</Text></View>
+                  </View>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Slide 4: Strategy Roadmap timeline (Roadmap card height: 95px, width: 105px to fit text correctly) */}
+            {currentSlide === 3 && (
+              <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], top: '24%', right: '20%' }]}>
+                <View style={styles.roadmapMiniLayout}>
+                  <Text style={styles.cardHeaderSmall}>Roadmap Nodes</Text>
+                  <View style={{ gap: 6, marginTop: 4 }}>
+                    {[
+                      { icon: 'checkmark-circle', t: 'Legal Notice Sent', col: '#10B981' },
+                      { icon: 'time-outline', t: 'Reply Written Statement', col: '#6D5DFC' },
+                      { icon: 'arrow-forward-circle', t: 'Trial Evidence Audit', col: '#94A3B8' },
+                    ].map((stepItem, idx) => (
+                      <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name={stepItem.icon as any} size={11} color={stepItem.col} />
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: '#1E293B' }}>{stepItem.t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Slide 5: AI Drafting typed Document */}
+            {currentSlide === 4 && (
+              <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], right: '47%', top: '26%' }]}>
+                <View style={styles.docMiniLayout}>
+                  <View style={styles.docHeader}>
+                    <Ionicons name="create-outline" size={13} color="#F59E0B" />
+                    <Text style={styles.docTitleText}>Legal_Notice.docx</Text>
+                  </View>
+                  <View style={[styles.miniTextLine, { width: '80%', backgroundColor: '#F59E0B' }]} />
+                  <View style={[styles.miniTextLine, { width: '90%' }]} />
+                  <View style={[styles.miniTextLine, { width: '60%' }]} />
+
+                  {/* Typing draft indicator */}
+                  <View style={[styles.glowClauseBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                    <Text style={[styles.glowClauseText, { color: '#D97706' }]}>Draft Formatted: OK</Text>
+                  </View>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Slide 6: Point indicators success check */}
+            {currentSlide === 5 && (
+              <View style={[styles.miniAppCard, { right: '42%', top: '24%' }]}>
+                <View style={styles.successCheckGlow}>
+                  <Ionicons name="checkmark-sharp" size={28} color="#FFFFFF" />
+                </View>
+              </View>
+            )}
+
+          </View>
         </View>
 
-        {/* Footer Actions */}
-        <View style={styles.footer}>
-          {/* Pagination Indicators */}
-          <View style={styles.dotsContainer}>
-            {slides.map((_, idx) => (
-              <View
-                key={idx}
-                style={[
-                  styles.dotIndicator,
-                  {
-                    backgroundColor: idx === currentSlide ? '#6D5DFC' : '#E2E8F0',
-                    width: idx === currentSlide ? 24 : 8,
-                  },
-                ]}
-              />
-            ))}
+        {/* Guided Dialogue Bubble Card (HIGH-CONTRAST READABILITY & PERFORMANCE REDESIGN) */}
+        <Animated.View
+          style={[
+            styles.dialogContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
+          {/* Header indicator category label */}
+          <View style={styles.slideHeader}>
+            <Ionicons name={slides[currentSlide].icon as any} size={18} color="#6D5DFC" style={{ marginRight: 6 }} />
+            <Text style={styles.topicLabel}>{slides[currentSlide].topic}</Text>
           </View>
 
-          {/* Action Trigger button */}
-          <Button
-            title={currentSlide === slides.length - 1 ? 'Get Started' : 'Next'}
-            variant="primary"
-            onPress={handleNext}
-            style={styles.actionBtn}
-          />
-        </View>
+          {/* High Contrast, Large Readable Text Bubble (Automatic wraps - Isolated rendering to avoid main thread recursion) */}
+          <View style={styles.speechTextWrapper}>
+            <TypewriterText tokens={slides[currentSlide].tokens} />
+          </View>
+
+          {/* Action Row & Pagination slide indices */}
+          <View style={styles.controlsRow}>
+            
+            {/* Pagination dots indicators */}
+            <View style={styles.dotsIndicator}>
+              {slides.map((_, sIdx) => (
+                <View
+                  key={sIdx}
+                  style={[
+                    styles.indicatorDot,
+                    {
+                      backgroundColor: sIdx === currentSlide ? '#6D5DFC' : '#E2E8F0',
+                      width: sIdx === currentSlide ? 18 : 6,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+
+            {/* Action flow routing buttons */}
+            {currentSlide < slides.length - 1 ? (
+              <Pressable style={styles.nextBtn} onPress={handleNext}>
+                <Text style={styles.nextBtnText}>Next</Text>
+                <Ionicons name="arrow-forward" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+              </Pressable>
+            ) : (
+              <View style={styles.finalButtonsRow}>
+                <Pressable style={[styles.outlineBtn, { flex: 1.2 }]} onPress={() => router.push('/auth/signup')}>
+                  <Text style={styles.outlineBtnText}>Register</Text>
+                </Pressable>
+                <Pressable style={[styles.fillBtn, { flex: 1.8 }]} onPress={handleNext}>
+                  <Text style={styles.fillBtnText}>Get Started</Text>
+                </Pressable>
+              </View>
+            )}
+
+          </View>
+        </Animated.View>
+
       </SafeAreaView>
     </View>
   );
@@ -170,161 +981,815 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC', // Off-white clean layout
   },
-  safeArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingBottom: 24,
+  backdropBackground: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+    backgroundColor: '#F8FAFC',
+    overflow: 'hidden',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    height: 48,
-  },
-  navText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  slideBlock: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  illWrapper: {
-    height: 220,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  textContainer: {
-    alignItems: 'center',
-    marginTop: 32,
-    paddingHorizontal: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0F172A',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  description: {
-    fontSize: 15,
-    color: '#475569',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  footer: {
-    alignItems: 'center',
-    gap: 24,
-    marginTop: 16,
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  dotIndicator: {
-    height: 8,
-    borderRadius: 4,
-  },
-  actionBtn: {
-    width: '100%',
-    height: 48,
+  glowCore: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
   },
 
-  // Geometric Illustrations Style assets
-  illContainer: {
-    width: 200,
-    height: 200,
+  // Courthouse Outline Background wireframe structure
+  courthouseSilhouette: {
+    position: 'absolute',
+    bottom: height * 0.45,
+    alignSelf: 'center',
+    width: width * 0.85,
+    height: 120,
+    opacity: 0.12,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  roofTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 150,
+    borderRightWidth: 150,
+    borderBottomWidth: 32,
+    borderStyle: 'solid',
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#64748B',
+  },
+  topFrieze: {
+    width: 290,
+    height: 8,
+    backgroundColor: '#64748B',
+    marginVertical: 2,
+  },
+  pillarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: 270,
+    height: 60,
+  },
+  pillarLine: {
+    width: 8,
+    height: '100%',
+    backgroundColor: '#64748B',
+  },
+  pillarSteps: {
+    width: 300,
+    height: 10,
+    backgroundColor: '#64748B',
+  },
+
+  safeArea: {
+    flex: 1,
+    zIndex: 10,
+  },
+  header: {
+    height: 48,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  skipBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  skipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  workspace: {
+    flex: 1.1,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
   },
-  glowCircle: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+  overlayIllustration: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
   },
-  mainCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 2,
+
+  // ─── Slender Chibi Character Composition (Clean outlines, rounded forms) ───
+  characterWrapper: {
+    width: 140,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
+    marginTop: 45, // Shifted down for perfect layout integration
+  },
+  waistShadow: {
+    position: 'absolute',
+    bottom: -10,
+    width: 90,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.05)',
+    transform: [{ scaleX: 0.8 }],
+    zIndex: 1,
+  },
+  hairBackPanel: {
+    position: 'absolute',
+    bottom: 40,
+    width: 76,
+    height: 95,
+    backgroundColor: '#1E293B', // Voluminous back hair plate wrapping head
+    borderRadius: 25,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    zIndex: 9,
+  },
+  torso: {
+    width: 82, // Balanced small body proportions
+    height: 80,
+    position: 'absolute',
+    bottom: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  shirtCrossoverWrapper: {
+    width: 24,
+    height: 14,
+    position: 'absolute',
+    top: -2,
+    zIndex: 15,
+    flexDirection: 'row',
+  },
+  shirtCollarLeft: {
+    flex: 1,
     backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 10,
+    transform: [{ rotate: '30deg' }],
+    borderColor: '#0F172A',
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+  },
+  shirtCollarRight: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderBottomRightRadius: 10,
+    transform: [{ rotate: '-30deg' }],
+    borderColor: '#0F172A',
+    borderLeftWidth: 2,
+    borderBottomWidth: 2,
+  },
+  coatBlazer: {
+    width: 68, // Chibi small torso width
+    height: 72,
+    backgroundColor: '#27272A', // Chibi grey/black coat suit
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    position: 'absolute',
+    bottom: 0,
+    zIndex: 12,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+  },
+  coatLapelLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 10,
+    width: 10,
+    height: 40,
+    backgroundColor: '#18181B',
+    borderColor: '#0F172A',
+    borderRightWidth: 1.5,
+    transform: [{ rotate: '12deg' }],
+  },
+  coatLapelRight: {
+    position: 'absolute',
+    top: 0,
+    right: 10,
+    width: 10,
+    height: 40,
+    backgroundColor: '#18181B',
+    borderColor: '#0F172A',
+    borderLeftWidth: 1.5,
+    transform: [{ rotate: '-12deg' }],
+  },
+  advocateBandsRow: {
+    position: 'absolute',
+    top: 10,
+    zIndex: 16,
+    flexDirection: 'row',
+    gap: 1.5,
+  },
+  legalNeckBand: {
+    width: 4.5,
+    height: 18,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#0F172A',
+    borderWidth: 1.5,
+    borderBottomLeftRadius: 1,
+    borderBottomRightRadius: 1,
+  },
+
+  // ─── Folded/Crossed Sleeves (Joint/Connected naturally to chest - no awkward pivots) ───
+  sleeveLeft: {
+    position: 'absolute',
+    top: 16,
+    left: -2,
+    width: 22,
+    height: 38,
+    backgroundColor: '#27272A',
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    borderTopLeftRadius: 10,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 6,
+    transform: [{ rotate: '32deg' }],
+    zIndex: 13,
+  },
+  sleeveRight: {
+    position: 'absolute',
+    top: 16,
+    right: -2,
+    width: 22,
+    height: 38,
+    backgroundColor: '#27272A',
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    borderTopRightRadius: 10,
+    borderBottomRightRadius: 12,
+    borderBottomLeftRadius: 6,
+    transform: [{ rotate: '-32deg' }],
+    zIndex: 13,
+  },
+
+  // ─── Joined Hands Overlay (Resting politely in front of body at all times) ───
+  joinedHandsOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    width: 28,
+    height: 18,
+    zIndex: 20,
+    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  joinedPalmBack: {
+    position: 'absolute',
+    width: 22,
+    height: 12,
+    backgroundColor: '#FCD5BE', // Skin color
+    borderRadius: 6,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    transform: [{ rotate: '-12deg' }],
+  },
+  joinedPalmFront: {
+    position: 'absolute',
+    width: 22,
+    height: 12,
+    backgroundColor: '#FCD5BE', // Overlapping skin palm
+    borderRadius: 6,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    transform: [{ rotate: '12deg' }],
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 2,
+  },
+  joinedFingerMark: {
+    width: 1.5,
+    height: 4,
+    backgroundColor: '#EAA882',
+    borderRadius: 0.5,
+    marginTop: 2,
+  },
+
+  // ─── Chibi Head Composition ───
+  head: {
+    width: 60,
+    height: 64,
+    position: 'absolute',
+    bottom: 74,
+    alignItems: 'center',
+    zIndex: 22,
+  },
+  sideEarLeft: {
+    position: 'absolute',
+    left: 2,
+    top: 26,
+    width: 8,
+    height: 12,
+    backgroundColor: '#FCD5BE',
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    borderTopLeftRadius: 5,
+    borderBottomLeftRadius: 5,
+    zIndex: 19,
+  },
+  sideEarRight: {
+    position: 'absolute',
+    right: 2,
+    top: 26,
+    width: 8,
+    height: 12,
+    backgroundColor: '#FCD5BE',
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    borderTopRightRadius: 5,
+    borderBottomRightRadius: 5,
+    zIndex: 19,
+  },
+  facePanel: {
+    width: 50, // Large cute expressive head proportions
+    height: 52,
+    backgroundColor: '#FCD5BE',
+    borderRadius: 24, // Rounded soft curves
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    zIndex: 22,
+  },
+  facialNose: {
+    position: 'absolute',
+    top: 26,
+    width: 2.2,
+    height: 4,
+    backgroundColor: '#EAA882',
+    borderRadius: 1,
+    zIndex: 34,
+  },
+  blushCheekLeft: {
+    position: 'absolute',
+    left: 6,
+    bottom: 15,
+    width: 9,
+    height: 7,
+    backgroundColor: '#FCA5A5', // Blush circles under the eyes
+    borderRadius: 4.5,
+    opacity: 0.75,
+    zIndex: 28,
+  },
+  blushCheekRight: {
+    position: 'absolute',
+    right: 6,
+    bottom: 15,
+    width: 9,
+    height: 7,
+    backgroundColor: '#FCA5A5',
+    borderRadius: 4.5,
+    opacity: 0.75,
+    zIndex: 28,
+  },
+  eyesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 28,
+    position: 'absolute',
+    top: 18,
+    zIndex: 30,
+  },
+  eyeContainer: {
+    width: 9,
+    height: 10,
+    position: 'relative',
+  },
+  eyeGlobe: {
+    width: 9,
+    height: 9,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4.5,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyePupilDark: {
+    width: 6,
+    height: 6,
+    backgroundColor: '#1E293B',
+    borderRadius: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  eyeReflectionDot: {
+    position: 'absolute',
+    top: 0.8,
+    left: 0.8,
+    width: 2,
+    height: 2,
+    backgroundColor: '#FFFFFF', // High-fidelity reflection
+    borderRadius: 1,
+  },
+  eyeLashCurveLeft: {
+    position: 'absolute',
+    top: -1,
+    left: -1.5,
+    width: 11,
+    height: 3,
+    borderTopWidth: 2,
+    borderColor: '#0F172A',
+    borderTopLeftRadius: 5,
+    borderTopRightRadius: 2,
+  },
+  eyeLashCurveRight: {
+    position: 'absolute',
+    top: -1,
+    right: -1.5,
+    width: 11,
+    height: 3,
+    borderTopWidth: 2,
+    borderColor: '#0F172A',
+    borderTopRightRadius: 5,
+    borderTopLeftRadius: 2,
+  },
+  eyebrowsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 30,
+    position: 'absolute',
+    top: 10,
+    zIndex: 32,
+  },
+  eyebrowLeft: {
+    width: 9,
+    height: 2,
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 1,
+    borderTopRightRadius: 1,
+    transform: [{ rotate: '5deg' }],
+  },
+  eyebrowRight: {
+    width: 9,
+    height: 2,
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 1,
+    borderTopRightRadius: 1,
+    transform: [{ rotate: '-5deg' }],
+  },
+  smileHolder: {
+    position: 'absolute',
+    bottom: 9,
+    width: 16,
+    height: 8,
+    alignItems: 'center',
+  },
+  smilingMouthCurve: {
+    width: 12,
+    height: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smilingMouthLine: {
+    width: 10,
+    height: 4,
+    borderBottomWidth: 2,
+    borderColor: '#0F172A',
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 5,
+  },
+  
+  // ─── High Fidelity Hair Sweeping Bangs & Frame (Exactly like first reference) ───
+  professionalHair: {
+    position: 'absolute',
+    top: -6,
+    width: 60,
+    height: 28,
+    zIndex: 21,
+  },
+  hairCapDome: {
+    position: 'absolute',
+    width: '100%',
+    height: 20,
+    backgroundColor: '#1E293B',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    borderWidth: 2,
+    borderColor: '#0F172A',
+  },
+  sweepingBangStrand1: {
+    position: 'absolute',
+    left: 14,
+    top: 12,
+    width: 22,
+    height: 14,
+    backgroundColor: '#1E293B', // Forehead sweeping lock 1
+    borderBottomRightRadius: 8,
+    borderColor: '#0F172A',
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    transform: [{ rotate: '18deg' }],
+  },
+  sweepingBangStrand2: {
+    position: 'absolute',
+    left: 4,
+    top: 9,
+    width: 18,
+    height: 11,
+    backgroundColor: '#1E293B', // Forehead sweeping lock 2
+    borderBottomRightRadius: 6,
+    borderColor: '#0F172A',
+    borderBottomWidth: 1.5,
+    borderRightWidth: 1.5,
+    transform: [{ rotate: '24deg' }],
+  },
+  sweepingBangStrand3: {
+    position: 'absolute',
+    right: 4,
+    top: 8,
+    width: 16,
+    height: 10,
+    backgroundColor: '#111827', // Darker backdrop strand
+    borderBottomLeftRadius: 6,
+    transform: [{ rotate: '-18deg' }],
+  },
+  hairFrameSideLeft: {
+    position: 'absolute',
+    left: -2,
+    top: 6,
+    width: 12,
+    height: 32,
+    backgroundColor: '#1E293B', // Side lock framing cheeks down to shoulder
+    borderTopLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    zIndex: 25,
+  },
+  hairFrameSideRight: {
+    position: 'absolute',
+    right: -2,
+    top: 6,
+    width: 12,
+    height: 32,
+    backgroundColor: '#1E293B', // Side lock framing cheeks down to shoulder
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
+    borderColor: '#0F172A',
+    borderWidth: 2,
+    zIndex: 25,
+  },
+
+  // ─── Floating Illustration Card Panels ──────────────────────────────────
+  miniAppCard: {
+    position: 'absolute',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 4,
   },
-  floatingBubble: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  caseCard: {
-    width: 180,
-    height: 110,
-    borderRadius: 16,
+  docMiniLayout: {
+    width: 95,
+    height: 105,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
     borderWidth: 1.5,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
+    padding: 6,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  caseHeader: {
+  docHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    gap: 2,
+    marginBottom: 6,
   },
-  dot: {
-    width: 8,
-    height: 8,
+  docTitleText: {
+    fontSize: 7.5,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  miniTextLine: {
+    height: 3,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 2,
+    marginVertical: 2,
+  },
+  glowClauseBadge: {
+    marginTop: 8,
+    backgroundColor: '#FEE2E2',
     borderRadius: 4,
+    padding: 3,
+    borderWidth: 0.5,
+    borderColor: '#FCA5A5',
   },
-  line: {
-    height: 8,
-    borderRadius: 4,
+  glowClauseText: {
+    fontSize: 6,
+    fontWeight: '800',
+    color: '#EF4444',
   },
-  caseFooter: {
-    marginTop: 14,
-    alignItems: 'flex-start',
+  laserLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1.5,
+    backgroundColor: '#6D5DFC',
   },
-  chip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  predictMiniLayout: {
+    width: 100,
+    height: 110,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderWidth: 1.5,
+    padding: 6,
   },
-  toolsGrid: {
+  cardHeaderSmall: {
+    fontSize: 7.5,
+    fontWeight: '800',
+    color: '#64748B',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  arcContainer: {
+    height: 48,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  arcOuterBack: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 3,
+    borderColor: '#F1F5F9',
+  },
+  arcOuterFill: {
+    position: 'absolute',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 3,
+    borderColor: '#EF4444',
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+    transform: [{ rotate: '45deg' }],
+  },
+  arcCenterTextBlock: {
+    position: 'absolute',
+    alignItems: 'center',
+  },
+  arcValue: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#1E293B',
+  },
+  arcLabel: {
+    fontSize: 4.5,
+    color: '#64748B',
+  },
+  badgeRow: {
+    marginTop: 6,
+    alignItems: 'center',
+  },
+  miniBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  miniBadgeText: {
+    fontSize: 6,
+    fontWeight: '800',
+  },
+  roadmapMiniLayout: {
+    width: 105, // slightly wider to fit text wrapping
+    height: 95, // expanded height to encapsulate "Trial Evidence Audit" node inside white border
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderWidth: 1.5,
+    padding: 6,
+  },
+  successCheckGlow: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#6D5DFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ─── Guided Dialogue Bubble Card (CRITICAL READABILITY DESIGN) ─────────────────
+  dialogContainer: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)', // High Contrast premium glassmorphism
+    borderColor: '#E2E8F0',
+    borderWidth: 1.5,
+    padding: 24, // Generous padding
+    gap: 12,
+    shadowColor: '#6D5DFC', // Subtle glow around the panel
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  slideHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    width: 120,
+    alignItems: 'center',
+  },
+  topicLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#6D5DFC',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  speechTextWrapper: {
+    minHeight: 80, // avoids jumps while typing
     justifyContent: 'center',
   },
-  toolItem: {
-    width: 50,
-    height: 50,
+  speechTextContainer: {
+    fontSize: 18, // Increased font size for maximum legibility
+    lineHeight: 28, // Apple/Linear level line spacing
+    letterSpacing: 0.2, // Improved letter spacing
+    color: '#0F172A', // Crisp dark text
+  },
+  speechBaseText: {
+    fontSize: 18,
+    lineHeight: 28,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  speechBoldText: {
+    fontWeight: '800',
+    color: '#6D5DFC', // Bold keywords highlighted in deep purple accent
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  dotsIndicator: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  indicatorDot: {
+    height: 6,
+    borderRadius: 3,
+  },
+  nextBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6D5DFC',
+    paddingHorizontal: 18,
+    paddingVertical: 9,
     borderRadius: 12,
-    justifyContent: 'center',
+  },
+  nextBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  finalButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
+    marginLeft: 24,
+    justifyContent: 'flex-end',
+  },
+  fillBtn: {
+    backgroundColor: '#6D5DFC',
+    height: 40,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fillBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  outlineBtn: {
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outlineBtnText: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

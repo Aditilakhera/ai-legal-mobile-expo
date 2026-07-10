@@ -3,7 +3,7 @@
  * Handles general copilot messaging flows, streaming response assembly, and session logs history.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { useChatStore } from '../store/chat';
 import { ChatService } from '../services/chat.service';
 import { streamAIResponse } from '../api/client';
@@ -11,14 +11,24 @@ import { ChatMessage, ChatSession } from '../types';
 import { useUserStore } from '../store/user';
 import { useLocalLanguageStore } from '../localization';
 
-export function useChat() {
+export function useChat(activeToolNamespace = 'legal_my_case') {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const sessions = useChatStore((s) => s.sessions);
-  const activeSessionId = useChatStore((s) => s.activeSessionId);
-  const setActiveSessionId = useChatStore((s) => s.setActiveSessionId);
+  // Subscribe to all sessions but filter them by tool namespace (Objective 1)
+  const allSessions = useChatStore((s) => s.sessions);
+  const sessions = useMemo(() => {
+    return allSessions.filter((s) => s.activeTool === activeToolNamespace);
+  }, [allSessions, activeToolNamespace]);
+
+  // Subscribe to tool-specific active session ID (Objective 1)
+  const activeSessionId = useChatStore((s) => s.activeSessionIdByTool[activeToolNamespace] || null);
+
+  const setActiveSessionId = useCallback((sessionId: string | null) => {
+    useChatStore.getState().setActiveSessionIdForTool(activeToolNamespace, sessionId);
+  }, [activeToolNamespace]);
+
   const addMessage = useChatStore((s) => s.addMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const addSession = useChatStore((s) => s.addSession);
@@ -83,7 +93,7 @@ export function useChat() {
   /**
    * Start a brand new workspace session.
    */
-  const startNewSession = (title = 'New Legal Query', activeTool = 'legal_my_case') => {
+  const startNewSession = (title = 'New Legal Query', activeTool = activeToolNamespace) => {
     const newSessionId = `session_${Date.now()}`;
     const newSession: ChatSession = {
       sessionId: newSessionId,
@@ -159,7 +169,7 @@ export function useChat() {
    */
   const dispatchMessageStream = async (
     content: string, 
-    activeTool = 'legal_my_case', 
+    activeTool = activeToolNamespace, 
     attachments: any[] = [], 
     editMessageId?: string,
     projectId?: string

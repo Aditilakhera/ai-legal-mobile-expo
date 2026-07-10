@@ -28,6 +28,8 @@ import { CaseService } from '@/services/case.service';
 import { useTranslation, formatRelativeDate, formatTime } from '@/localization';
 import { NotificationService } from '@/services/notification.service';
 import { CaseWorkspace, NotificationInboxItem } from '@/types';
+import { ProfileService } from '@/services/profile.service';
+import { StorageService } from '@/services/storage.service';
 import { Spacing, Radius, Shadows, Colors } from '@/theme';
 import {
   Button,
@@ -302,6 +304,84 @@ export default function DashboardScreen() {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // Onboarding Product Guide Banner State & Animations
+  const setProfile = useUserStore((s) => s.setProfile);
+  const showOnboarding = profile?.personalizations?.general?.showProductGuideBanner !== false;
+  const [isBannerVisible, setIsBannerVisible] = useState(showOnboarding);
+  const onboardingAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    setIsBannerVisible(showOnboarding);
+  }, [showOnboarding]);
+
+  useEffect(() => {
+    if (isBannerVisible) {
+      onboardingAnim.setValue(0);
+      Animated.timing(onboardingAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [isBannerVisible]);
+
+  const bannerOpacity = onboardingAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  const bannerMaxHeight = onboardingAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 320],
+  });
+
+  const bannerMargin = onboardingAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 16],
+  });
+
+  const bannerTranslateY = onboardingAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const handleCloseOnboarding = async (openGuide = false) => {
+    Animated.timing(onboardingAnim, {
+      toValue: 0,
+      duration: 350,
+      useNativeDriver: false,
+    }).start(async () => {
+      setIsBannerVisible(false);
+      if (!profile) return;
+      try {
+        const nextPersonalizations = {
+          ...profile.personalizations,
+          general: {
+            ...profile.personalizations.general,
+            showProductGuideBanner: false,
+          },
+        };
+
+        const updatedProfile = {
+          ...profile,
+          personalizations: nextPersonalizations,
+        };
+
+        setProfile(updatedProfile);
+        await StorageService.setItem('@user_personalizations', JSON.stringify(nextPersonalizations));
+        await ProfileService.updateProfile({
+          personalizations: nextPersonalizations,
+        });
+      } catch (err) {
+        console.warn('[DASHBOARD] Failed to update onboarding status:', err);
+      }
+
+      if (openGuide) {
+        router.push('/settings/guide');
+      }
+    });
+  };
 
   // Fetch all dashboard data from backend APIs
   const fetchDashboardData = useCallback(async (silent = false) => {
@@ -949,6 +1029,61 @@ export default function DashboardScreen() {
               </Animated.View>
             </View>
           </View>
+
+          {isBannerVisible && (
+            <Animated.View
+              style={{
+                opacity: bannerOpacity,
+                maxHeight: bannerMaxHeight,
+                marginBottom: bannerMargin,
+                transform: [{ translateY: bannerTranslateY }],
+                overflow: 'hidden',
+              }}
+            >
+              <View style={[styles.onboardingCard, { backgroundColor: isDark ? '#231545' : '#F5F3FF', borderColor: isDark ? '#4C1D95' : '#DDD6FE' }]}>
+                <View style={styles.onboardingHeader}>
+                  <View style={styles.onboardingTitleRow}>
+                    <Ionicons name="sparkles" size={16} color={isDark ? '#A78BFA' : '#6C4CF1'} style={{ marginRight: 6 }} />
+                    <Text style={[styles.onboardingTitle, { color: isDark ? '#FFFFFF' : '#1F2937' }]}>New to AI LEGAL?</Text>
+                  </View>
+                  <Pressable style={styles.onboardingDismiss} onPress={() => handleCloseOnboarding(false)} accessibilityRole="button" accessibilityLabel="Dismiss tips">
+                    <Ionicons name="close" size={20} color={isDark ? '#A78BFA' : '#6B7280'} />
+                  </Pressable>
+                </View>
+
+                <Text style={[styles.onboardingSubtitle, { color: isDark ? '#E9D5FF' : '#4B5563' }]}>Meet your AI Product Guide.</Text>
+
+                <View style={styles.onboardingBullets}>
+                  <View style={styles.onboardingBulletRow}>
+                    <Text style={[styles.onboardingBulletDot, { color: isDark ? '#A78BFA' : '#6C4CF1' }]}>•</Text>
+                    <Text style={[styles.onboardingBulletText, { color: isDark ? '#E9D5FF' : '#4B5563' }]}>Learn every feature step-by-step.</Text>
+                  </View>
+                  <View style={styles.onboardingBulletRow}>
+                    <Text style={[styles.onboardingBulletDot, { color: isDark ? '#A78BFA' : '#6C4CF1' }]}>•</Text>
+                    <Text style={[styles.onboardingBulletText, { color: isDark ? '#E9D5FF' : '#4B5563' }]}>Ask questions in Hindi or English.</Text>
+                  </View>
+                  <View style={styles.onboardingBulletRow}>
+                    <Text style={[styles.onboardingBulletDot, { color: isDark ? '#A78BFA' : '#6C4CF1' }]}>•</Text>
+                    <Text style={[styles.onboardingBulletText, { color: isDark ? '#E9D5FF' : '#4B5563' }]}>Get instant help while using the app.</Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.onboardingBtn,
+                    {
+                      backgroundColor: pressed ? (isDark ? '#5B21B6' : '#5B4EDB') : (isDark ? '#6D28D9' : '#6C4CF1')
+                    }
+                  ]}
+                  onPress={() => handleCloseOnboarding(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Product Guide"
+                >
+                  <Text style={styles.onboardingBtnText}>Open Product Guide →</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          )}
         </ScrollView>
 
         {/* ActionSheet Menu for Case List Items */}
@@ -1901,6 +2036,67 @@ function getStyles(theme: any) {
     paddingVertical: Spacing[10],
     minWidth: 64,
     justifyContent: 'center',
+  },
+  onboardingCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: Spacing[16],
+    ...Shadows.card,
+  },
+  onboardingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing[8],
+  },
+  onboardingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  onboardingTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  onboardingDismiss: {
+    padding: 4,
+    borderRadius: 9999,
+  },
+  onboardingSubtitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: Spacing[10],
+  },
+  onboardingBullets: {
+    marginBottom: Spacing[14],
+  },
+  onboardingBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: Spacing[4],
+    paddingLeft: Spacing[4],
+  },
+  onboardingBulletDot: {
+    fontSize: 12,
+    marginRight: Spacing[8],
+    lineHeight: 16,
+  },
+  onboardingBulletText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  onboardingBtn: {
+    borderRadius: 12,
+    paddingVertical: Spacing[10],
+    paddingHorizontal: Spacing[16],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onboardingBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '800',
   },
 });
 }

@@ -26,8 +26,13 @@ import { StorageService } from '@/services/storage.service';
 import { StorageKeys } from '@/constants/app-constants';
 import { useToastContext } from '@/providers';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import { AppConfig } from '@/config';
+// @ts-ignore
+import { Ionicons } from '@expo/vector-icons';
 
-const isExpoGoEnv = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+const isExpoGoEnv = Constants.executionEnvironment === 'storeClient';
 
 let GoogleSignin: any = null;
 if (!isExpoGoEnv) {
@@ -62,12 +67,19 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [socialLoadingText, setSocialLoadingText] = useState<string | null>(null);
 
+  // Sandbox OAuth simulation state
+  const [sandboxModalVisible, setSandboxModalVisible] = useState(false);
+  const [sandboxProvider, setSandboxProvider] = useState<'google' | 'apple'>('google');
+  const [sandboxName, setSandboxName] = useState('');
+  const [sandboxEmail, setSandboxEmail] = useState('');
+
   // Initialize native Google Sign-In SDK conditionally and load remembered email
   useEffect(() => {
+    WebBrowser.maybeCompleteAuthSession();
     if (GoogleSignin) {
       try {
         GoogleSignin.configure({
-          webClientId: '764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com',
+          webClientId: '743928421487-34c5lpviupilrg1nn62eoccr5m3cek8c.apps.googleusercontent.com',
           offlineAccess: true,
         });
       } catch (err) {
@@ -81,6 +93,11 @@ export default function LoginScreen() {
         if (rememberedEmail) {
           setEmail(rememberedEmail);
           setRememberMe(true);
+          setSandboxEmail(rememberedEmail);
+          setSandboxName('Aditi Sharma');
+        } else {
+          setSandboxEmail('aditi@uwo24.com');
+          setSandboxName('Aditi Sharma');
         }
       } catch (err) {
         console.warn('[LOGIN] Failed to load remembered email:', err);
@@ -164,7 +181,7 @@ export default function LoginScreen() {
     setSocialLoadingText(`Signing in with ${provider === 'google' ? 'Google' : 'Apple'}...`);
 
     try {
-      const isExpoGo = Constants.appOwnership === 'expo';
+      const isExpoGo = isExpoGoEnv;
       if (provider === 'google') {
         const isNativeGoogleAvailable = GoogleSignin && !isExpoGo;
         if (isNativeGoogleAvailable) {
@@ -179,7 +196,7 @@ export default function LoginScreen() {
           }
 
           const userInfo = await GoogleSignin.signIn();
-          const idToken = userInfo.data?.idToken;
+          const idToken = userInfo.data?.idToken || userInfo.idToken;
 
           if (!idToken) {
             throw new Error('Google ID Token was not returned.');
@@ -211,35 +228,52 @@ export default function LoginScreen() {
             throw new Error(res.message || 'Google login failed.');
           }
         } else {
-          // Expo Go Sandbox Fallback
-          showToast('info', 'Sandbox Mode', 'Expo Go Fallback: Using sandbox simulation.');
-          console.log('[GOOGLE SANDBOX LOGIN] Simulating Google Sign-In...');
-          const testEmail = 'google_sandbox_user@example.com';
-          const res = await AuthService.socialLogin({
-            email: testEmail,
-            name: 'Google Sandbox User',
-            picture: 'https://ui-avatars.com/api/?name=Google+Sandbox&background=0284c7&color=fff',
-            provider: 'google',
-            providerId: 'sandbox_google_123456',
-          });
-
-          if (res.success && res.data) {
-            const { token } = res.data;
-            await StorageService.saveSecret(StorageKeys.AuthToken, token);
-            if (rememberMe) {
-              await StorageService.setItem('ai_legal_remembered_email', testEmail);
+          // Real Google Sign-In using WebBrowser redirection (Expo Go compatible)
+          console.log('[GOOGLE WEB LOGIN] Opening Expo web browser auth session...');
+          
+          const baseApiUrl = AppConfig.apiUrl;
+          const redirectUri = Linking.createURL('auth/login');
+          const authUrl = `${baseApiUrl}/auth/google/expo-login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+          
+          console.log('[GOOGLE WEB LOGIN] Auth URL:', authUrl);
+          console.log('[GOOGLE WEB LOGIN] Redirect URI:', redirectUri);
+          
+          const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+          
+          if (result.type === 'success' && result.url) {
+            const urlObj = Linking.parse(result.url);
+            const credential = urlObj.queryParams?.credential as string;
+            
+            if (!credential) {
+              throw new Error('Google identity token was not returned from web browser.');
             }
-            const profileRes = await ProfileService.getProfile();
-            if (profileRes.success && profileRes.data) {
-              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
-              setCredentials(token, '');
-              setProfile(profileRes.data);
-              showToast('success', 'Social Login Success (Sandbox)', `Welcome back, ${profileRes.data.name}!`);
+            
+            console.log('[GOOGLE WEB LOGIN] Web login succeeded, submitting JWT to backend...');
+            const res = await AuthService.googleLogin(credential);
+            
+            if (res.success && res.data) {
+              const { token } = res.data;
+              await StorageService.saveSecret(StorageKeys.AuthToken, token);
+              
+              if (rememberMe) {
+                await StorageService.setItem('ai_legal_remembered_email', res.data.user.email);
+              }
+              
+              const profileRes = await ProfileService.getProfile();
+              if (profileRes.success && profileRes.data) {
+                await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+                setCredentials(token, '');
+                setProfile(profileRes.data);
+                showToast('success', 'Social Login Success', `Welcome back, ${profileRes.data.name}!`);
+              } else {
+                throw new Error('Could not retrieve user profile from server.');
+              }
             } else {
-              throw new Error('Could not retrieve user profile from server.');
+              throw new Error(res.message || 'Google login verification failed.');
             }
           } else {
-            throw new Error(res.message || 'Sandbox login failed.');
+            console.log('[GOOGLE WEB LOGIN] WebBrowser session closed or cancelled:', result.type);
+            showToast('info', 'Cancelled', 'Google sign-in was cancelled.');
           }
         }
       } else {
@@ -293,36 +327,13 @@ export default function LoginScreen() {
             throw new Error(res.message || 'Apple login failed.');
           }
         } else {
-          // Expo Go Sandbox Fallback
-          showToast('info', 'Sandbox Mode', 'Expo Go Fallback: Using sandbox simulation.');
-          console.log('[APPLE SANDBOX LOGIN] Simulating Apple Sign-In...');
-          const testEmail = 'apple_sandbox_user@example.com';
-          const res = await AuthService.socialLogin({
-            email: testEmail,
-            name: 'Apple Sandbox User',
-            picture: 'https://ui-avatars.com/api/?name=Apple+Sandbox&background=000&color=fff',
-            provider: 'apple',
-            providerId: 'sandbox_apple_123456',
-          });
-
-          if (res.success && res.data) {
-            const { token } = res.data;
-            await StorageService.saveSecret(StorageKeys.AuthToken, token);
-            if (rememberMe) {
-              await StorageService.setItem('ai_legal_remembered_email', testEmail);
-            }
-            const profileRes = await ProfileService.getProfile();
-            if (profileRes.success && profileRes.data) {
-              await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
-              setCredentials(token, '');
-              setProfile(profileRes.data);
-              showToast('success', 'Social Login Success (Sandbox)', `Welcome back, ${profileRes.data.name}!`);
-            } else {
-              throw new Error('Could not retrieve user profile from server.');
-            }
-          } else {
-            throw new Error(res.message || 'Sandbox login failed.');
-          }
+          // Open Interactive Sandbox Dialog
+          setSandboxProvider('apple');
+          setSandboxName('');
+          setSandboxEmail('');
+          setSandboxModalVisible(true);
+          setLoading(false);
+          setSocialLoadingText(null);
         }
       }
     } catch (err: any) {
@@ -334,6 +345,59 @@ export default function LoginScreen() {
         const errMsg = err.error || err.message || 'Failed to authenticate social profile.';
         showToast('error', 'Authentication Failed', errMsg);
       }
+      setSocialLoadingText(null);
+      setLoading(false);
+    }
+  };
+
+  const handleSandboxSubmit = async () => {
+    if (!sandboxEmail.trim()) {
+      showToast('error', 'Required Field', 'Please enter a valid email address.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sandboxEmail)) {
+      showToast('error', 'Invalid Email', 'Please enter a valid email address.');
+      return;
+    }
+
+    setSandboxModalVisible(false);
+    setLoading(true);
+    setSocialLoadingText(`Simulating ${sandboxProvider === 'google' ? 'Google' : 'Apple'} Sign-in...`);
+
+    try {
+      const emailVal = sandboxEmail.toLowerCase().trim();
+      const nameVal = sandboxName.trim() || `${sandboxProvider === 'google' ? 'Google' : 'Apple'} User`;
+
+      const res = await AuthService.socialLogin({
+        email: emailVal,
+        name: nameVal,
+        picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(nameVal)}&background=random`,
+        provider: sandboxProvider,
+        providerId: `sandbox_${sandboxProvider}_${Date.now()}`,
+      });
+
+      if (res.success && res.data) {
+        const { token } = res.data;
+        await StorageService.saveSecret(StorageKeys.AuthToken, token);
+        if (rememberMe) {
+          await StorageService.setItem('ai_legal_remembered_email', emailVal);
+        }
+
+        const profileRes = await ProfileService.getProfile();
+        if (profileRes.success && profileRes.data) {
+          await StorageService.setItem(StorageKeys.UserSession, JSON.stringify(profileRes.data));
+          setCredentials(token, '');
+          setProfile(profileRes.data);
+          showToast('success', 'Social Login Success (Simulated)', `Welcome, ${profileRes.data.name}!`);
+        } else {
+          throw new Error('Could not retrieve user profile from server.');
+        }
+      } else {
+        throw new Error(res.message || 'Sandbox login failed.');
+      }
+    } catch (err: any) {
+      console.error('[SANDBOX AUTH ERROR]', err);
+      showToast('error', 'Authentication Failed', err.message || 'Sandbox authentication failed.');
     } finally {
       setSocialLoadingText(null);
       setLoading(false);
@@ -433,7 +497,6 @@ export default function LoginScreen() {
                 <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
                 <View style={styles.dividerLine} />
               </View>
-
               <View style={styles.socialButtonsRow}>
                 <Pressable 
                   style={[styles.socialBtn, loading && { opacity: 0.5 }]} 
@@ -449,21 +512,6 @@ export default function LoginScreen() {
                   />
                   <Text style={styles.socialBtnText}>Google</Text>
                 </Pressable>
-
-                <Pressable 
-                  style={[styles.socialBtn, loading && { opacity: 0.5 }]} 
-                  onPress={() => !loading && triggerSocialAuth('apple')}
-                  disabled={loading}
-                  accessibilityLabel="Log in with Apple" 
-                  accessibilityRole="button"
-                >
-                  <Image 
-                    source={require('../../../assets/images/official_black_apple_logo.png')} 
-                    style={{ width: 22, height: 22 }} 
-                    resizeMode="contain" 
-                  />
-                  <Text style={styles.socialBtnText}>Apple</Text>
-                </Pressable>
               </View>
             </Fade>
 
@@ -478,6 +526,65 @@ export default function LoginScreen() {
                 <Text style={[styles.footerLink, { color: '#6D5DFC' }]}>Create Account</Text>
               </Pressable>
             </View>
+            {/* Sandbox Simulation Auth Modal */}
+            <Modal
+              visible={sandboxModalVisible}
+              transparent={true}
+              animationType="fade"
+              onRequestClose={() => setSandboxModalVisible(false)}
+            >
+              <View style={styles.sandboxOverlay}>
+                <View style={styles.sandboxContainer}>
+                  <View style={styles.sandboxHeader}>
+                    <Text style={styles.sandboxTitle}>
+                      {sandboxProvider === 'google' ? 'Google' : 'Apple'} Sign-In Simulation
+                    </Text>
+                    <Pressable onPress={() => setSandboxModalVisible(false)}>
+                      <Ionicons name="close" size={24} color="#64748B" />
+                    </Pressable>
+                  </View>
+
+                  <Text style={styles.sandboxSubtitle}>
+                    Enter your real name and email address to simulate the OAuth authentication flow inside Expo Go.
+                  </Text>
+
+                  <View style={{ gap: 14 }}>
+                    <View>
+                      <Text style={styles.inputLabel}>Display Name</Text>
+                      <TextInput
+                        style={styles.sandboxInput}
+                        value={sandboxName}
+                        onChangeText={setSandboxName}
+                        placeholder="e.g. Aditi Sharma"
+                        placeholderTextColor="#94A3B8"
+                      />
+                    </View>
+
+                    <View>
+                      <Text style={styles.inputLabel}>Email Address</Text>
+                      <TextInput
+                        style={styles.sandboxInput}
+                        value={sandboxEmail}
+                        onChangeText={setSandboxEmail}
+                        placeholder="e.g. aditi@uwo24.com"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+
+                    <TouchableOpacity 
+                      style={[styles.sandboxSubmitBtn, { backgroundColor: '#6D5DFC' }]} 
+                      onPress={handleSandboxSubmit}
+                    >
+                      <Text style={styles.sandboxSubmitBtnText}>Proceed with Sign-In</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+
           </Slide>
         </SafeAreaView>
       </ScrollView>
@@ -697,5 +804,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  sandboxOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  sandboxContainer: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  sandboxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  sandboxTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  sandboxSubtitle: {
+    fontSize: 12.5,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 6,
+  },
+  sandboxInput: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13.5,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
+  },
+  sandboxSubmitBtn: {
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  sandboxSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '800',
   },
 });
