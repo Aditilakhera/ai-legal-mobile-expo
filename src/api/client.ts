@@ -175,7 +175,7 @@ apiClient.interceptors.response.use(
             }
           })
           .catch((refreshError) => {
-            console.error('[API CLIENT] Token refresh failed, terminating session', refreshError);
+            console.warn('[API CLIENT] Token refresh failed, terminating session:', refreshError.message || refreshError);
             processQueue(refreshError, null);
             handleSessionExpired();
             reject(parseApiError(refreshError));

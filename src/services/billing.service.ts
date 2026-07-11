@@ -57,6 +57,14 @@ export class BillingService {
   }
 
   /**
+   * Create a Razorpay Order for a subscription plan.
+   */
+  static async createSubscriptionOrder(planId: string, billingCycle: 'monthly' | 'yearly'): Promise<ApiResponse<{ order: any; key: string; isFree?: boolean }>> {
+    const response = await apiClient.post('/subscription/create-order', { planId, billingCycle });
+    return response.data;
+  }
+
+  /**
    * Verify third-party checkout callback transaction signature.
    */
   static async verifyPayment(payload: {
@@ -64,6 +72,28 @@ export class BillingService {
     paymentToken: string;
   }): Promise<ApiResponse<{ success: boolean; subscription: SubscriptionStatus }>> {
     const response = await apiClient.post(API_ENDPOINTS.Subscription.VerifyPayment, payload);
+    return response.data;
+  }
+
+  /**
+   * Verify Razorpay payment signature on the backend to activate plan.
+   */
+  static async verifySubscriptionPayment(payload: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    planId: string;
+    billingCycle: 'monthly' | 'yearly';
+  }): Promise<ApiResponse<{ success: boolean; user: any; subscription: any }>> {
+    const response = await apiClient.post('/subscription/verify-payment', payload);
+    return response.data;
+  }
+
+  /**
+   * Restore past active subscription purchases for the current user.
+   */
+  static async restoreSubscription(): Promise<ApiResponse<{ success: boolean; user: any; message: string }>> {
+    const response = await apiClient.post('/subscription/restore', {});
     return response.data;
   }
 }

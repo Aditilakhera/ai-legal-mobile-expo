@@ -725,6 +725,17 @@ export default function StrategyEngineScreen() {
     setExpandedSuggestions((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  useEffect(() => {
+    if (step === 'HOME' && attachments.length > 0) {
+      const file = attachments[0];
+      clearAttachments();
+      setIsUploadOpen(false);
+      setSelectedDocId('contract_dispute');
+      showToast('success', 'File Selected', `Pleading document "${file.name}" linked into Strategy builder.`);
+      handleStartAnalysis();
+    }
+  }, [attachments, step]);
+
   // Suggestions categories for ✨ sheet
   const STRATEGY_SUGGESTIONS_SHEET = {
     'Litigation Planning': [
@@ -1703,42 +1714,17 @@ export default function StrategyEngineScreen() {
       </Modal>
 
       {/* Upload pleadings modal selection */}
-      <Modal visible={isUploadOpen} transparent animationType="slide" onRequestClose={() => setIsUploadOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsUploadOpen(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.bottomSheetContainer}>
-                <View style={styles.bottomSheetDragHandle} />
-                <View style={styles.bottomSheetHeader}>
-                  <Text style={styles.bottomSheetTitle}>Upload Court pleadings</Text>
-                  <TouchableOpacity onPress={() => setIsUploadOpen(false)}>
-                    <Ionicons name="close-circle" size={24} color="#94A3B8" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={{ flex: 1 }}>
-                  {MOCK_STRATEGY_DOCS.map((doc) => (
-                    <TouchableOpacity
-                      key={doc.id}
-                      style={[styles.caseItemRow, { borderBottomColor: theme.border }]}
-                      onPress={() => {
-                        handleSelectDoc(doc.id);
-                        setIsUploadOpen(doc.id === 'contract_dispute'); // quick select
-                        handleStartAnalysis();
-                      }}
-                    >
-                      <Ionicons name="document-outline" size={18} color="#6D5DFC" style={{ marginRight: 10 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.caseItemText, { color: theme.textPrimary }]}>{doc.name}</Text>
-                        <Text style={{ fontSize: 10, color: theme.textSecondary }}>{doc.type} • {doc.size}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+      <AttachmentBottomSheet
+        visible={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onSelectOption={handleSelectOption}
+      />
+
+      <CustomCameraModal
+        visible={isCameraVisible && step === 'HOME'}
+        onClose={hideCamera}
+        onConfirm={handleCameraConfirm}
+      />
 
       {/* Manual Strategy form popup */}
       <Modal visible={isManualFormOpen} transparent={false} animationType="slide" onRequestClose={() => setIsManualFormOpen(false)}>

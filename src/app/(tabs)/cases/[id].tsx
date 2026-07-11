@@ -21,6 +21,7 @@ import {
   TouchableWithoutFeedback,
   Image,
   Keyboard,
+  Switch,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -41,6 +42,7 @@ import { streamAIResponse } from '@/api/client';
 import { useTranslation, formatRelativeDate } from '@/localization';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NewCaseIntelligenceModal } from '@/components/NewCaseIntelligenceModal';
+import { ClientConnectModule } from '@/components/ClientConnectModule';
 import {
   CaseWorkspace,
   CaseDocument,
@@ -350,9 +352,9 @@ export default function WorkspaceDetailScreen() {
               setHistorySessions([]);
               setSessionId(null);
               setMessages([]);
-              
+
               for (const session of currentSessions) {
-                ChatService.deleteSession(session.sessionId).catch(() => {});
+                ChatService.deleteSession(session.sessionId).catch(() => { });
               }
               showToast('success', 'History Cleared', 'All conversation logs removed.');
             } catch (err) {
@@ -457,6 +459,21 @@ export default function WorkspaceDetailScreen() {
   // Active section state
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<string>(tab || 'overview');
 
+  // DMS States
+  const [dmsTab, setDmsTab] = useState<'documents' | 'evidence'>('documents');
+  const [dmsSortBy, setDmsSortBy] = useState<'newest' | 'oldest' | 'name' | 'size' | 'pinned'>('newest');
+  const [dmsFilter, setDmsFilter] = useState<'all' | 'pdf' | 'docx' | 'images' | 'pinned' | 'trash'>('all');
+  const [selectedDmsItems, setSelectedDmsItems] = useState<string[]>([]);
+  const [uploadingProgress, setUploadingProgress] = useState<number | null>(null);
+  const [renamingItem, setRenamingItem] = useState<any | null>(null);
+  const [renamingName, setRenamingName] = useState<string>('');
+  const [editingNotesItem, setEditingNotesItem] = useState<any | null>(null);
+  const [editingNotesText, setEditingNotesText] = useState<string>('');
+  const [previewItem, setPreviewItem] = useState<any | null>(null);
+  const [deletingItem, setDeletingItem] = useState<any | null>(null);
+  const [trashList, setTrashList] = useState<string[]>([]);
+  const [pinnedList, setPinnedList] = useState<string[]>([]);
+
   const [aiSummary, setAiSummary] = useState<any>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -485,7 +502,7 @@ export default function WorkspaceDetailScreen() {
     setIsGeneratingSummary(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
       const newSummary = {
         executive: {
           dispute: `Dispute regarding ${workspace.caseType || 'legal parameters'} between ${workspace.clientName || 'Plaintiff'} and ${workspace.opponentName || workspace.accused || 'Defendant'}.`,
@@ -669,6 +686,9 @@ export default function WorkspaceDetailScreen() {
   const [timelineSortAsc, setTimelineSortAsc] = useState(true);
   const [isAnalyzingTimeline, setIsAnalyzingTimeline] = useState(false);
 
+  // DMS Workspace State Variables
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+
   // Case note autosave buffer
   const [caseNotes, setCaseNotes] = useState('');
 
@@ -824,7 +844,7 @@ export default function WorkspaceDetailScreen() {
   const [isPreparingHearing, setIsPreparingHearing] = useState(false);
   const [expandedArguments, setExpandedArguments] = useState<Record<string, boolean>>({});
   const [pinnedArguments, setPinnedArguments] = useState<Record<string, boolean>>({});
-  
+
   // Custom states for CRUD
   const [petitionerArguments, setPetitionerArguments] = useState<any[]>([]);
   const [respondentArguments, setRespondentArguments] = useState<any[]>([]);
@@ -877,7 +897,7 @@ export default function WorkspaceDetailScreen() {
   const [isTaskFormModalOpen, setIsTaskFormModalOpen] = useState(false);
   const [taskFormType, setTaskFormType] = useState<'add' | 'edit'>('add');
   const [taskFormTargetId, setTaskFormTargetId] = useState<string | null>(null);
-  
+
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
@@ -1002,7 +1022,7 @@ export default function WorkspaceDetailScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
       if (result.canceled) return;
-      
+
       const file = result.assets[0];
       setOrderUploadProgress(10);
       setOrderOcrScanning(true);
@@ -1030,7 +1050,7 @@ export default function WorkspaceDetailScreen() {
       setTimeout(async () => {
         setOrderUploadProgress(100);
         setOrderOcrScanning(false);
-        
+
         // Auto select mock text matching user upload or default
         const matchedMock = MOCK_COURT_ORDERS.find(
           m => file.name.toLowerCase().includes(m.name.split('.')[0].toLowerCase())
@@ -1046,7 +1066,7 @@ export default function WorkspaceDetailScreen() {
         let caseNumber = 'Arb. P. 445/2026';
         let purpose = 'Compliance & Evidentiary Arguments';
         let courtroom = 'Courtroom No. 302';
-        
+
         if (file.name.toLowerCase().includes('summons') || file.name.toLowerCase().includes('eviction')) {
           judgeName = 'Judge Roy';
           courtName = 'District Court of Delhi';
@@ -1367,8 +1387,8 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
   };
 
   const handlePromoteOrderSuggestion = async (
-    orderId: string, 
-    type: 'task' | 'timeline' | 'hearing' | 'argument' | 'research' | 'evidence', 
+    orderId: string,
+    type: 'task' | 'timeline' | 'hearing' | 'argument' | 'research' | 'evidence',
     itemIndex: number
   ) => {
     const currentOrders = workspace?.courtOrders || [];
@@ -1377,7 +1397,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
 
     const orderCopy = { ...currentOrders[orderIndex] };
     let updatePayload: any = {};
-    
+
     if (type === 'task') {
       const taskSuggestions = [...(orderCopy.suggestedTasks || [])];
       if (taskSuggestions[itemIndex].accepted) return;
@@ -1395,7 +1415,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         checklist: []
       };
       updatePayload.tasks = [newTask, ...currentTasks];
-    } 
+    }
     else if (type === 'timeline') {
       const timelineSuggestions = [...(orderCopy.suggestedTimeline || [])];
       if (timelineSuggestions[itemIndex].accepted) return;
@@ -1526,7 +1546,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
 
     const orderCopy = { ...currentOrders[orderIndex] };
     let updatePayload: any = {};
-    
+
     // Batch promotion logic
     if (syncOptions.tasks && orderCopy.suggestedTasks) {
       const currentTasks = workspace?.tasks || [];
@@ -1698,7 +1718,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         setLatestAnalysis(null);
         setViewedAnalysisRun(null);
       }
-      
+
       const historyRes = await WorkspaceService.getAnalysisHistory(caseId);
       if (historyRes && historyRes.success && historyRes.data) {
         setAnalysisHistory(historyRes.data);
@@ -1716,11 +1736,11 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     setIsAnalyzing(true);
     setCurrentAnalysisStep(0);
     setAnalysisProgressLabel('Initializing Analysis...');
-    
+
     // Set up local fallback timer
     let fallbackTimer: any = null;
     let fallbackStep = 0;
-    
+
     const steps = [
       'Reading Case Details',
       'Reviewing Timeline',
@@ -1731,7 +1751,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       'Finding Similar Judgments',
       'Preparing Legal Strategy'
     ];
-    
+
     fallbackTimer = setInterval(() => {
       fallbackStep += 1;
       if (fallbackStep <= 8) {
@@ -1750,17 +1770,17 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     try {
       const res = await WorkspaceService.triggerCompleteAnalysis(id);
       if (fallbackTimer) clearInterval(fallbackTimer);
-      
+
       if (res && res.success && res.data) {
         setCurrentAnalysisStep(9);
         setAnalysisProgressLabel('Completed');
         setLatestAnalysis(res.data);
         setViewedAnalysisRun(res.data);
-        
+
         // Sync metrics and notes
         await fetchWorkspaceDetails(id);
         await fetchAnalysisDetails(id);
-        
+
         setIsAnalyzing(false);
         setActiveWorkspaceTab('analysis');
         showToast('success', 'Analysis Completed', 'Your complete AI legal analysis report is ready.');
@@ -1770,7 +1790,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     } catch (err: any) {
       if (fallbackTimer) clearInterval(fallbackTimer);
       setIsAnalyzing(false);
-      
+
       const errData = err.response?.data;
       if (errData && errData.success === false && (errData.type === 'garbage_summary' || errData.type === 'insufficient_data')) {
         setValidationError({
@@ -1897,12 +1917,12 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
 
       const seq = ci.strategy?.trialSequence?.length > 0
         ? ci.strategy.trialSequence.map((s: any, idx: number) => ({
-            step: s.step || idx + 1,
-            id: `seq${idx + 1}`,
-            title: s.title || 'Trial Step',
-            detail: s.detail || '',
-            status: s.status || 'Primary'
-          }))
+          step: s.step || idx + 1,
+          id: `seq${idx + 1}`,
+          title: s.title || 'Trial Step',
+          detail: s.detail || '',
+          status: s.status || 'Primary'
+        }))
         : [];
       setTrialStrategySequence(seq);
     }
@@ -1940,7 +1960,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         if (caseSession) {
           setSessionId(caseSession.sessionId);
           setActiveTool('caseAssistant');
-          
+
           // Fetch complete message logs
           const detailsRes = await ChatService.getSessionDetails(caseSession.sessionId);
           const detailSession = (detailsRes as any).data || detailsRes;
@@ -2144,15 +2164,15 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       } else {
         console.error('[COPILOT SEND] Error:', err);
         showToast('error', 'Copilot Offline', 'Unable to receive AI suggestions.');
-        
+
         setMessages((prev) =>
           prev.map((m) =>
             m.id === aiMsgId
               ? {
-                  ...m,
-                  content: '⚠️ Failed to connect to the legal AI gateway. Please check your internet connection.',
-                  isProcessing: false,
-                }
+                ...m,
+                content: '⚠️ Failed to connect to the legal AI gateway. Please check your internet connection.',
+                isProcessing: false,
+              }
               : m
           )
         );
@@ -2203,9 +2223,9 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     }
     setActiveTool(toolId);
     closeToolMenu();
-    
+
     const displayName = toolItems.find(t => t.id === toolId)?.name || toolId;
-    
+
     // Add centered status chip log
     const statusMsg: ChatMessage = {
       id: `status-${Date.now()}`,
@@ -2214,7 +2234,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, statusMsg]);
-    
+
     // Show center toast popup
     setCenterToast(`Switched to ${displayName}`);
     setTimeout(() => {
@@ -2358,7 +2378,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
               <Ionicons name="close" size={20} color="#4B5563" />
             </Pressable>
           </View>
-          
+
           <ScrollView
             style={styles.toolSelectorScroll}
             showsVerticalScrollIndicator={false}
@@ -2460,7 +2480,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
           >
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
-          
+
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginLeft: 8 }}>
             <Ionicons name="sparkles" size={18} color="#8A5CF5" />
             <Text style={{ fontSize: 16, fontWeight: '800', color: '#1F2937' }}>{activeToolItem.name}</Text>
@@ -2487,9 +2507,9 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         {/* Chat Message List */}
         <View style={styles.assistantChatArea}>
           {messages.length === 0 ? (
-            <ChatWelcome 
-              title={activeToolItem.name} 
-              subtitle={activeToolItem.subtitle || (workspace?.name ? `Ask about ${workspace.name}...` : "Ask about this case...")} 
+            <ChatWelcome
+              title={activeToolItem.name}
+              subtitle={activeToolItem.subtitle || (workspace?.name ? `Ask about ${workspace.name}...` : "Ask about this case...")}
               iconSource={activeToolItem.imageSource}
               suggestedChips={activeToolItem.suggestedChips}
               onSelectSuggestedPrompt={(promptText) => handleSend(promptText)}
@@ -2508,17 +2528,17 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
                 const layoutHeight = e.nativeEvent.layoutMeasurement.height;
                 const distanceFromBottom = contentHeight - (offset + layoutHeight);
                 isAtBottomRef.current = distanceFromBottom <= 50;
-                
+
                 const isScrollingUp = offset < lastOffsetRef.current;
                 lastOffsetRef.current = offset;
 
                 if (distanceFromBottom <= 50) {
                   handleScrollAction(false);
                 } else {
-                  const shouldShow = isScrollingUp && 
-                                     distanceFromBottom > 100 && 
-                                     messages.length > 4 && 
-                                     inputVal.trim() === '';
+                  const shouldShow = isScrollingUp &&
+                    distanceFromBottom > 100 &&
+                    messages.length > 4 &&
+                    inputVal.trim() === '';
                   handleScrollAction(shouldShow);
                 }
               }}
@@ -2837,7 +2857,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
   };
 
   // Hook validation guard
-  function useAuthGuard() {}
+  function useAuthGuard() { }
 
   // Optimistic backend data sync helper
   const handleUpdateField = async (updatedFields: Partial<CaseWorkspace>) => {
@@ -2871,7 +2891,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       showToast('error', 'Validation Error', 'Task title is required.');
       return;
     }
-    
+
     const newTask: any = {
       _id: 'task_' + Date.now().toString(),
       title: taskForm.title.trim(),
@@ -2893,7 +2913,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
 
     const updatedTasks = [...(workspace.tasks || []), newTask];
     await handleUpdateField({ tasks: updatedTasks });
-    
+
     // Reset Form & Close Modal
     setTaskForm({
       title: '',
@@ -3164,7 +3184,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
   };
 
   // --- CASE NOTES ACTION HANDLERS ---
-  
+
   // Create or edit a Note
   const handleSaveNote = async () => {
     if (!id || !workspace) return;
@@ -3174,7 +3194,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     }
 
     setNotesAutosaveStatus('Saving...');
-    
+
     // Auto-generate details based on template and fields if content is blank
     let finalContent = noteForm.content;
     if (!finalContent.trim()) {
@@ -3198,7 +3218,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     // Simulate AI entity extraction
     const extractedEntities: { text: string; type: string }[] = [];
     const lowerContent = finalContent.toLowerCase();
-    
+
     // Entity keyword scanner
     if (lowerContent.includes('hdfc') || lowerContent.includes('bank')) extractedEntities.push({ text: 'HDFC Bank', type: 'Evidence' });
     if (lowerContent.includes('limitation act')) extractedEntities.push({ text: 'Limitation Act', type: 'Act' });
@@ -3281,15 +3301,15 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
       };
       updatedNotes.push(newNote);
       showToast('success', 'Note Created', `"${cleanTitle}" saved in second brain.`);
-      
+
       if (triggerChronologyWarning) {
         Alert.alert(
           'Chronology Detected',
           'This case note contains chronological dates or events. Would you like to map these timeline details directly into the case timeline?',
           [
             { text: 'Ignore', style: 'cancel' },
-            { 
-              text: 'Add to Timeline', 
+            {
+              text: 'Add to Timeline',
               onPress: () => {
                 const simulatedTimeline = [...(workspace.facts || []), {
                   id: 'fact_note_gen_' + Date.now().toString(),
@@ -3595,7 +3615,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
   // Accept suggested action from notes co-counsel insights
   const handleAcceptSuggestedAction = async (noteId: string, actionIndex: number) => {
     if (!id || !workspace) return;
-    
+
     let targetAction: any = null;
     const updatedNotes = (workspace.notes || []).map((n: any) => {
       if (n._id === noteId || n.id === noteId) {
@@ -3758,7 +3778,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         compliance: [],
       }
     };
-    
+
     // Add timeline milestone for hearing scheduled
     const hearingFact: CaseFact = {
       id: `fact_hearing_${Date.now()}`,
@@ -3781,7 +3801,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
         ]
       }
     });
-    
+
     setIsModalOpen(false);
     showToast('success', 'Hearing Scheduled', 'Upcoming hearing added to calendar.');
   };
@@ -3870,7 +3890,7 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     const notes = manualData?.notes || logEvidenceForm.notes;
     const tagsText = manualData?.tags || logEvidenceForm.tags;
     const size = manualData?.fileSize || logEvidenceForm.fileSize;
-    
+
     if (!name.trim()) {
       showToast('error', 'Validation Error', 'Evidence file name is required.');
       return;
@@ -3880,35 +3900,35 @@ Manual case decree logged. Directives: ${logOrderForm.notesText}`;
     setIsEvidenceUploadOpen(false);
     setIsOcrAnalyzing(true);
     setOcrProgressStep(0);
-    
+
     const ocrSteps = [
       'Reading document raw layers...',
       'Extracting optical characters (OCR)...',
       'Structuring extracted text buffer...',
       'Checking signatures and stamps...'
     ];
-    
+
     for (let i = 0; i < ocrSteps.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 600));
       setOcrProgressStep(i + 1);
     }
-    
+
     setIsOcrAnalyzing(false);
     setIsAnalyzingEvidence(true);
     setAiAnalysisProgressStep(0);
-    
+
     const aiSteps = [
       'Analyzing relevance under Indian Evidence Act...',
       'Detecting critical timeline entity entries...',
       'Identifying potential legal vulnerabilities...',
       'Finalizing exhibit summary report...'
     ];
-    
+
     for (let i = 0; i < aiSteps.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 600));
       setAiAnalysisProgressStep(i + 1);
     }
-    
+
     setIsAnalyzingEvidence(false);
 
     const currentEvidence = workspace.evidence || [];
@@ -3990,7 +4010,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
 
     const updatedEvidence = [newEvidenceItem, ...currentEvidence];
     const currentFacts = workspace.facts || [];
-    
+
     handleUpdateField({
       evidence: updatedEvidence,
       facts: [...currentFacts, evidenceFact],
@@ -4067,7 +4087,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
 
     const currentDocs = workspace.documents || [];
     const currentFacts = workspace.facts || [];
-    
+
     const orderFact: CaseFact = {
       date: courtOrderForm.date,
       event: `Court Order: ${courtOrderForm.title}`,
@@ -4154,7 +4174,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
     if (!isBackground) {
       setIsRegeneratingResearch(true);
     }
-    
+
     // Setup steps for UI display
     setResearchRegenSteps([
       'Scanning case summary and active timeline events...',
@@ -4173,7 +4193,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
     try {
       const clientName = workspace.clientName || 'Plaintiff';
       const opponentName = workspace.opponentName || workspace.accused || 'Defendant';
-      
+
       const res = await DraftService.executeTool({
         toolName: 'legal_research_assistant',
         message: `Perform legal research for case: "${workspace.name}". Client: "${clientName}". Opponent: "${opponentName}". Case Type: "${workspace.caseType || ''}". Court: "${workspace.courtName || ''}". Summary: "${workspace.summary || workspace.caseSummary || ''}".`,
@@ -4185,9 +4205,9 @@ Signatures: Match validated by Plaintiff Advocate.`;
           summary: workspace.summary || workspace.caseSummary,
         }
       });
-      
+
       clearInterval(stepInterval);
-      
+
       if (res && res.success) {
         setAiResearchReply(res.reply);
         setIsResearchGenerated(true);
@@ -4235,7 +4255,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
     setIsSearchingResearch(true);
     setTimeout(() => {
       const query = q.toLowerCase();
-      
+
       const baseLaws = [
         {
           act: "Indian Contract Act, 1872",
@@ -4350,14 +4370,14 @@ Signatures: Match validated by Plaintiff Advocate.`;
         }
       ];
 
-      const filteredLaws = baseLaws.filter(l => 
+      const filteredLaws = baseLaws.filter(l =>
         l.act.toLowerCase().includes(query) ||
         l.section.toLowerCase().includes(query) ||
         l.description.toLowerCase().includes(query) ||
         l.reason.toLowerCase().includes(query)
       );
 
-      const filteredJudgments = baseJudgments.filter(j => 
+      const filteredJudgments = baseJudgments.filter(j =>
         j.name.toLowerCase().includes(query) ||
         j.court.toLowerCase().includes(query) ||
         j.citation.toLowerCase().includes(query) ||
@@ -4384,7 +4404,7 @@ Signatures: Match validated by Plaintiff Advocate.`;
 
   useEffect(() => {
     if (!workspace) return;
-    
+
     // Set initial values on first load
     if (prevDocCount.current === undefined) {
       prevDocCount.current = workspace.documents?.length || 0;
@@ -4613,11 +4633,11 @@ Through Counsel
   const handleEditorTextChange = (text: string) => {
     setEditorContent(text);
     setAutosaveStatus('Saving...');
-    
+
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
     }
-    
+
     autosaveTimerRef.current = setTimeout(() => {
       handleAutosaveContent(text);
     }, 1500);
@@ -4754,7 +4774,7 @@ Through Counsel
       }
 
       showToast('info', 'Uploading...', `Uploading ${asset.name}`);
-      
+
       const res = await UploadService.uploadCaseDocument(
         id,
         asset.uri,
@@ -4790,6 +4810,182 @@ Through Counsel
       console.error('[DocumentPicker] Pick & Upload error:', err);
       showToast('error', 'Upload Failed', err.message || 'Failed to select or upload document.');
     }
+  };
+
+  // DMS Handlers
+  useEffect(() => {
+    if (activeWorkspaceTab === 'documents' && attachments.length > 0) {
+      const file = attachments[0];
+      clearAttachments();
+      setIsUploadOpen(false);
+      handleDmsUpload(file);
+    }
+  }, [attachments, activeWorkspaceTab]);
+
+  const handleDmsUpload = async (file: ChatAttachment) => {
+    if (!id || !workspace) return;
+    try {
+      setUploadingProgress(10);
+      const timer = setInterval(() => {
+        setUploadingProgress((prev) => {
+          if (prev === null) {
+            clearInterval(timer);
+            return null;
+          }
+          if (prev >= 90) {
+            clearInterval(timer);
+            return 90;
+          }
+          return prev + 15;
+        });
+      }, 150);
+
+      // Determine upload type based on active tab
+      const isEvTab = dmsTab === 'evidence';
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+
+      let uploadRes;
+      if (!isEvTab) {
+        // Upload to Documents
+        const docType = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt) ? 'Proof' : (['doc', 'docx'].includes(fileExt) ? 'Agreement' : 'Other');
+        uploadRes = await UploadService.uploadCaseDocument(
+          id as string,
+          file.url,
+          file.name,
+          file.type || 'application/octet-stream',
+          docType
+        );
+      } else {
+        // Upload to Evidence
+        const evType = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt) ? 'Images' : (['mp4', 'mov'].includes(fileExt) ? 'Videos' : 'Document');
+        uploadRes = await UploadService.uploadEvidence(
+          id as string,
+          file.url,
+          file.name,
+          file.type || 'application/octet-stream',
+          { type: evType }
+        );
+      }
+
+      setUploadingProgress(100);
+      setTimeout(() => {
+        setUploadingProgress(null);
+      }, 500);
+
+      if (uploadRes.success && uploadRes.data) {
+        const newItem = uploadRes.data;
+        const uploadFact: CaseFact = {
+          date: new Date().toLocaleDateString(),
+          event: `${isEvTab ? 'Evidence Exhibit' : 'Case Document'} Uploaded: ${newItem.name}`,
+          description: `Uploaded case file "${newItem.name}" to the workspace vault.`
+        };
+
+        if (!isEvTab) {
+          const currentDocs = (workspace.documents || []) as CaseDocument[];
+          handleUpdateField({
+            documents: [...currentDocs, newItem as CaseDocument] as CaseDocument[],
+            facts: [...(workspace.facts || []), uploadFact] as any,
+            intelligence: workspace.intelligence
+          });
+        } else {
+          const currentEv = (workspace.evidence || []) as CaseEvidence[];
+          handleUpdateField({
+            evidence: [...currentEv, newItem as CaseEvidence] as CaseEvidence[],
+            facts: [...(workspace.facts || []), uploadFact] as any,
+            intelligence: workspace.intelligence
+          });
+        }
+
+        showToast('success', 'Upload Successful', `"${newItem.name}" has been uploaded & parsed by OCR.`);
+      } else {
+        showToast('error', 'Upload Failed', uploadRes.error || 'Failed to sync file to repository.');
+      }
+    } catch (error: any) {
+      setUploadingProgress(null);
+      console.error('[handleDmsUpload] Error:', error);
+      showToast('error', 'Upload Failed', error.message || 'File transmission error.');
+    }
+  };
+
+  const togglePinItem = (itemId: string) => {
+    setPinnedList((prev) => {
+      const isPinned = prev.includes(itemId);
+      if (isPinned) {
+        showToast('info', 'Unpinned', 'Document unpinned from workspace top.');
+        return prev.filter(id => id !== itemId);
+      } else {
+        showToast('success', 'Pinned', 'Document pinned to top.');
+        return [...prev, itemId];
+      }
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingItem) return;
+    const itemId = deletingItem._id || deletingItem.id;
+    setTrashList((prev) => [...prev, itemId]);
+    showToast('info', 'Moved to Trash', `"${deletingItem.name}" soft-deleted.`);
+    setDeletingItem(null);
+  };
+
+  const handleRestoreItem = (item: any) => {
+    const itemId = item._id || item.id;
+    setTrashList((prev) => prev.filter(id => id !== itemId));
+    showToast('success', 'Restored', `"${item.name}" restored to active vault.`);
+  };
+
+  const handleRenameSubmit = () => {
+    if (!renamingItem || !renamingName.trim()) return;
+    const itemId = renamingItem._id || renamingItem.id;
+
+    if (dmsTab === 'documents') {
+      const updatedDocs = (workspace?.documents || []).map(d => {
+        if (d._id === itemId) return { ...d, name: renamingName.trim() };
+        return d;
+      });
+      handleUpdateField({ documents: updatedDocs });
+    } else {
+      const updatedEv = (workspace?.evidence || []).map(e => {
+        if (e.id === itemId || e._id === itemId) return { ...e, name: renamingName.trim() };
+        return e;
+      });
+      handleUpdateField({ evidence: updatedEv });
+    }
+
+    showToast('success', 'Renamed', `File renamed to "${renamingName.trim()}"`);
+    setRenamingItem(null);
+  };
+
+  const handleSaveNotes = () => {
+    if (!editingNotesItem) return;
+    const itemId = editingNotesItem._id || editingNotesItem.id;
+
+    if (dmsTab === 'documents') {
+      const updatedDocs = (workspace?.documents || []).map(d => {
+        if (d._id === itemId) return { ...d, extractedData: { ...(d.extractedData || {}), notes: editingNotesText } };
+        return d;
+      });
+      handleUpdateField({ documents: updatedDocs });
+    } else {
+      const updatedEv = (workspace?.evidence || []).map(e => {
+        if (e.id === itemId || e._id === itemId) return { ...e, notes: editingNotesText };
+        return e;
+      });
+      handleUpdateField({ evidence: updatedEv });
+    }
+
+    showToast('success', 'Notes Saved', 'Observations updated.');
+    setEditingNotesItem(null);
+  };
+
+  const handleVerifyEvidence = (item: any, nextStatus: 'Verified' | 'Pending' | 'Rejected') => {
+    const itemId = item.id || item._id;
+    const updatedEv = (workspace?.evidence || []).map(e => {
+      if (e.id === itemId || e._id === itemId) return { ...e, status: nextStatus };
+      return e;
+    });
+    handleUpdateField({ evidence: updatedEv });
+    showToast('success', 'Status Updated', `Evidence changed to ${nextStatus}.`);
   };
 
   // --- RENDER SECTIONS ---
@@ -4872,7 +5068,7 @@ Through Counsel
     const recommendation = aiData.latestAdvice || ci.recommendations?.[0] || workspace?.intelligence?.strategyRecommendations?.[0] || (isGarbage ? 'Please provide clear case facts.' : 'No active AI recommendations.');
     const nextAction = aiData.recommendedAction || ci.tasks?.[0]?.title || (isGarbage ? 'Update Case Brief Summary' : 'Review case files');
     const evidenceAlert = aiData.evidenceAlerts || (ci.missingEvidence?.[0] ? `Missing: ${ci.missingEvidence[0]}` : 'No critical evidence issues detected.');
-    
+
     const nextDeadlineTask = (workspace?.tasks || []).find((t: any) => t.status !== 'Completed' && t.deadline);
     const nextDeadline = aiData.nextDeadline || (nextDeadlineTask ? `${nextDeadlineTask.title} (${nextDeadlineTask.deadline})` : 'No pending procedural deadlines.');
     const confidenceVal = aiData.confidence !== undefined ? aiData.confidence : (isGarbage ? 0 : Number(workspace?.intelligence?.strengthScore || 70));
@@ -4967,6 +5163,7 @@ Through Counsel
       { id: 'documents', label: t('workspace.documents'), desc: t('workspace.documentsCount', { count: workspace?.documents?.length || 0 }), icon: 'document-text-outline', color: '#3B82F6' },
       { id: 'evidence', label: t('workspace.evidenceVault'), desc: t('workspace.evidenceCount', { count: workspace?.evidence?.length || 0 }), icon: 'shield-checkmark-outline', color: '#06B6D4' },
       { id: 'research', label: t('workspace.researchLaws'), desc: t('workspace.savedPrecedentsCount', { count: workspace?.savedPrecedents?.length || 0 }), icon: 'library-outline', color: '#14B8A6' },
+      { id: 'client-connect', label: 'AI Client Connect ⭐ NEW', desc: 'Smart client communication system', icon: 'chatbubble-ellipses-outline', color: '#7C3AED' },
       { id: 'contracts', label: t('cases.contracts'), desc: t('workspace.contractsStatus'), icon: 'briefcase-outline', color: '#8B5CF6' },
       { id: 'arguments', label: t('workspace.arguments'), desc: t('workspace.argumentsCount', { count: 3 }), icon: 'alert-circle-outline', color: '#EF4444' },
       { id: 'tasks', label: t('workspace.tasks'), desc: t('workspace.pendingTasksCount', { count: (workspace?.tasks || []).filter(t => t.status !== 'Completed').length }), icon: 'list-outline', color: '#10B981' },
@@ -4999,7 +5196,7 @@ Through Counsel
     );
   };
 
-    const renderTimelinePreview = () => {
+  const renderTimelinePreview = () => {
     const factsList = (workspace?.facts || []).map((item: any) => ({
       date: item.date,
       title: item.event || item.title,
@@ -5038,7 +5235,7 @@ Through Counsel
             return new Date(year, month, day);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       return new Date(0);
     };
 
@@ -5255,17 +5452,17 @@ Through Counsel
     // Dashboard calculations
     const totalOrders = courtOrdersList.length;
     const pendingCompliance = courtOrdersList.reduce(
-      (acc, o) => acc + (o.complianceItems || []).filter((c: any) => c.status === 'Pending').length, 
+      (acc, o) => acc + (o.complianceItems || []).filter((c: any) => c.status === 'Pending').length,
       0
     );
     const upcomingHearingsCount = courtOrdersList.reduce(
-      (acc, o) => acc + (o.suggestedHearings || []).filter((h: any) => !h.accepted).length, 
+      (acc, o) => acc + (o.suggestedHearings || []).filter((h: any) => !h.accepted).length,
       0
     );
     const analyzedCount = courtOrdersList.filter(o => o.status === 'AI Analyzed' || o.status === 'Completed').length;
-    
+
     const pendingSuggestionsCount = courtOrdersList.reduce(
-      (acc, o) => acc + 
+      (acc, o) => acc +
         (o.suggestedTasks || []).filter((t: any) => !t.accepted).length +
         (o.suggestedTimeline || []).filter((t: any) => !t.accepted).length +
         (o.suggestedHearings || []).filter((h: any) => !h.accepted).length +
@@ -5278,14 +5475,14 @@ Through Counsel
     // Filters and search logic
     const filteredOrders = courtOrdersList.filter((order) => {
       const metadata = order.metadata || {};
-      const matchesSearch = 
+      const matchesSearch =
         order.name.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
         (metadata.courtName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
         (metadata.judgeName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
         (metadata.caseNumber || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
         (metadata.orderType || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
         (order.ocrText || '').toLowerCase().includes(orderSearchQuery.toLowerCase());
-      
+
       if (orderFilter === 'All') return matchesSearch;
       if (orderFilter === 'Latest') return matchesSearch;
       if (orderFilter === 'Interim Orders') {
@@ -5342,42 +5539,16 @@ Through Counsel
           </View>
         </View>
 
-        {/* Dashboard KPIs Grid */}
-        <View style={styles.orderDashboardContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.metricsContainer}>
-            <View style={[styles.orderMetricCard, { borderLeftColor: '#6D5DFC' }]}>
-              <Text style={styles.orderMetricValue}>{totalOrders}</Text>
-              <Text style={styles.orderMetricLabel}>Total Orders</Text>
-            </View>
-            <View style={[styles.orderMetricCard, { borderLeftColor: '#EF4444' }]}>
-              <Text style={styles.orderMetricValue}>{pendingCompliance}</Text>
-              <Text style={styles.orderMetricLabel}>Compliance Pending</Text>
-            </View>
-            <View style={[styles.orderMetricCard, { borderLeftColor: '#F59E0B' }]}>
-              <Text style={styles.orderMetricValue}>{upcomingHearingsCount}</Text>
-              <Text style={styles.orderMetricLabel}>Upcoming Hearings</Text>
-            </View>
-            <View style={[styles.orderMetricCard, { borderLeftColor: '#10B981' }]}>
-              <Text style={styles.orderMetricValue}>{analyzedCount}</Text>
-              <Text style={styles.orderMetricLabel}>Orders Analyzed</Text>
-            </View>
-            <View style={[styles.orderMetricCard, { borderLeftColor: '#3B82F6' }]}>
-              <Text style={styles.orderMetricValue}>{pendingSuggestionsCount}</Text>
-              <Text style={styles.orderMetricLabel}>Pending Suggestions</Text>
-            </View>
-          </ScrollView>
-        </View>
-
         {/* Quick Actions Row */}
         <View style={styles.orderQuickActionsRow}>
-          <TouchableOpacity 
-            style={[styles.orderQuickBtn, { backgroundColor: '#6D5DFC' }]} 
+          <TouchableOpacity
+            style={[styles.orderQuickBtn, { backgroundColor: '#6D5DFC' }]}
             onPress={handleUploadCourtOrder}
           >
             <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
             <Text style={styles.orderQuickBtnText}>Upload Order</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.orderQuickBtn, styles.orderQuickBtnOutline]}
             onPress={() => {
               setLogOrderForm({
@@ -5426,7 +5597,7 @@ Through Counsel
         <View style={styles.orderFiltersWrapper}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {[
-              'All', 'Latest', 'Interim Orders', 'Final Orders', 'Compliance Pending', 
+              'All', 'Latest', 'Interim Orders', 'Final Orders', 'Compliance Pending',
               'Hearing Orders', 'Bail Orders', 'Stay Orders', 'Judgments', 'AI Analyzed'
             ].map((filt) => {
               const isActive = orderFilter === filt;
@@ -5501,7 +5672,7 @@ Through Counsel
                       Uploaded by {order.uploadedBy} on {order.createdAt ? order.createdAt.split('T')[0] : 'Today'}
                     </Text>
                     <View style={styles.orderCardActions}>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.orderActionIconBtn}
                         onPress={() => {
                           setSelectedCourtOrder(order);
@@ -5510,13 +5681,13 @@ Through Counsel
                       >
                         <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
                       </TouchableOpacity>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.orderActionIconBtn}
                         onPress={() => handleReanalyzeCourtOrder(order._id || order.id)}
                       >
                         <Ionicons name="refresh" size={16} color="#10B981" />
                       </TouchableOpacity>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.orderActionIconBtn}
                         onPress={() => handleDeleteCourtOrder(order._id || order.id)}
                       >
@@ -5541,14 +5712,14 @@ Through Counsel
             <View style={styles.orderOcrLoaderBox}>
               <Text style={styles.ocrLoaderTitle}>🧠 AI Court Order Analyzer</Text>
               <ActivityIndicator size="large" color="#6D5DFC" style={styles.ocrLoaderSpinner} />
-              
+
               <View style={styles.ocrProgressBarWrapper}>
                 <View style={[styles.ocrProgressBarFill, { width: `${orderUploadProgress}%` }]} />
               </View>
               <Text style={styles.ocrProgressPercentage}>{orderUploadProgress}% Completed</Text>
-              
+
               <Text style={styles.ocrLoaderStepText}>{ocrScanningText}</Text>
-              
+
               <View style={styles.ocrPipelineIndicators}>
                 <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 0 && styles.ocrPipelineStepActive]} />
                 <View style={[styles.ocrPipelineStep, activeOrderOcrStep >= 1 && styles.ocrPipelineStepActive]} />
@@ -5682,13 +5853,13 @@ Through Counsel
               </ScrollView>
 
               <View style={styles.orderFormFooter}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.orderFormBtn, styles.orderFormBtnCancel]}
                   onPress={() => setIsOrderFormOpen(false)}
                 >
                   <Text style={styles.orderFormBtnCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.orderFormBtn, styles.orderFormBtnSubmit]}
                   onPress={handleManualAddCourtOrder}
                 >
@@ -5709,7 +5880,7 @@ Through Counsel
             <SafeAreaView style={styles.orderDrawerContainer}>
               {/* Header */}
               <View style={styles.orderDrawerHeader}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.orderDrawerBackBtn}
                   onPress={() => setIsOrderViewerOpen(false)}
                 >
@@ -5721,7 +5892,7 @@ Through Counsel
                     {selectedCourtOrder.metadata?.orderType} • {selectedCourtOrder.metadata?.caseNumber}
                   </Text>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.orderDrawerCloseBtn}
                   onPress={() => setIsOrderViewerOpen(false)}
                 >
@@ -5751,7 +5922,7 @@ Through Counsel
 
               {/* Content Panel Scroll */}
               <ScrollView contentContainerStyle={styles.orderDrawerContentScroll}>
-                
+
                 {/* 1. PDF Viewer Simulation */}
                 <View style={styles.pdfViewerCard}>
                   <View style={styles.pdfViewerHeader}>
@@ -5767,7 +5938,7 @@ Through Counsel
                 {syncActiveSubTab === 'Metadata' && (
                   <View style={styles.syncTabContentBox}>
                     <Text style={styles.drawerSectionHeading}>🏛️ Extracted Court Metadata</Text>
-                    
+
                     <View style={styles.metadataGrid}>
                       <View style={styles.metadataGridRow}>
                         <View style={styles.metadataGridCol}>
@@ -5857,18 +6028,18 @@ Through Counsel
                       (selectedCourtOrder.complianceItems || []).map((comp: any, idx: number) => (
                         <View key={idx} style={styles.complianceDrawerItem}>
                           <View style={styles.complianceDrawerLeft}>
-                            <Ionicons 
-                              name={comp.status === 'Completed' ? 'checkbox' : 'square-outline'} 
-                              size={20} 
-                              color={comp.status === 'Completed' ? '#10B981' : '#9CA3AF'} 
+                            <Ionicons
+                              name={comp.status === 'Completed' ? 'checkbox' : 'square-outline'}
+                              size={20}
+                              color={comp.status === 'Completed' ? '#10B981' : '#9CA3AF'}
                               onPress={async () => {
                                 // Toggle status locally and update Project db
                                 const updatedOrders = (workspace.courtOrders || []).map(o => {
                                   if (o._id === selectedCourtOrder._id || o.id === selectedCourtOrder.id) {
                                     const updatedCompList = [...(o.complianceItems || [])];
-                                    updatedCompList[idx] = { 
-                                      ...updatedCompList[idx], 
-                                      status: updatedCompList[idx].status === 'Completed' ? 'Pending' : 'Completed' 
+                                    updatedCompList[idx] = {
+                                      ...updatedCompList[idx],
+                                      status: updatedCompList[idx].status === 'Completed' ? 'Pending' : 'Completed'
                                     };
                                     return { ...o, complianceItems: updatedCompList };
                                   }
@@ -6054,7 +6225,7 @@ Through Counsel
                 {syncActiveSubTab === 'Risk & Links' && (
                   <View style={styles.syncTabContentBox}>
                     <Text style={styles.drawerSectionHeading}>🚨 AI Procedural Risk Analysis</Text>
-                    
+
                     <View style={styles.riskBadgeCard}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={styles.riskCardLabel}>Limitation Period Risk</Text>
@@ -6084,7 +6255,7 @@ Through Counsel
 
                     <Text style={styles.drawerSectionHeading}>🔗 Linked Modules Shortcuts</Text>
                     <View style={styles.drawerLinksGrid}>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.drawerLinkCard}
                         onPress={() => {
                           setIsOrderViewerOpen(false);
@@ -6095,7 +6266,7 @@ Through Counsel
                         <Text style={styles.drawerLinkLabel}>Hearings ({selectedCourtOrder.linkedRecords?.hearingsCount || 0})</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.drawerLinkCard}
                         onPress={() => {
                           setIsOrderViewerOpen(false);
@@ -6106,7 +6277,7 @@ Through Counsel
                         <Text style={styles.drawerLinkLabel}>Tasks ({selectedCourtOrder.linkedRecords?.tasksCount || 0})</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.drawerLinkCard}
                         onPress={() => {
                           setIsOrderViewerOpen(false);
@@ -6126,9 +6297,9 @@ Through Counsel
                   <Text style={styles.syncPanelDesc}>
                     Select modules to synchronize directives. Clicking batch sync promoter will immediately commit all approved items.
                   </Text>
-                  
+
                   <View style={styles.syncCheckboxesGrid}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, timeline: !syncOptions.timeline })}
                     >
@@ -6136,7 +6307,7 @@ Through Counsel
                       <Text style={styles.syncCheckboxLabel}>Sync Timeline Chronology</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, hearings: !syncOptions.hearings })}
                     >
@@ -6144,7 +6315,7 @@ Through Counsel
                       <Text style={styles.syncCheckboxLabel}>Sync Hearing Dates</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, tasks: !syncOptions.tasks })}
                     >
@@ -6152,7 +6323,7 @@ Through Counsel
                       <Text style={styles.syncCheckboxLabel}>Sync Directives to Tasks</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, evidence: !syncOptions.evidence })}
                     >
@@ -6160,7 +6331,7 @@ Through Counsel
                       <Text style={styles.syncCheckboxLabel}>Sync Missing Evidence List</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, research: !syncOptions.research })}
                     >
@@ -6168,7 +6339,7 @@ Through Counsel
                       <Text style={styles.syncCheckboxLabel}>Sync Cited Legal Statutes</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncCheckboxRow}
                       onPress={() => setSyncOptions({ ...syncOptions, arguments: !syncOptions.arguments })}
                     >
@@ -6178,7 +6349,7 @@ Through Counsel
                   </View>
 
                   {selectedCourtOrder.status !== 'Completed' ? (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.syncBatchBtn}
                       onPress={() => handleSynchronizeWorkspace(selectedCourtOrder._id || selectedCourtOrder.id)}
                     >
@@ -6208,8 +6379,8 @@ Through Counsel
       for (let j = i + 1; j < list.length; j++) {
         const titleI = (list[i].event || list[i].title || '').toLowerCase();
         const titleJ = (list[j].event || list[j].title || '').toLowerCase();
-        if (list[i].date === list[j].date && 
-            (titleI.includes(titleJ) || titleJ.includes(titleI) || (list[i].category && list[i].category === list[j].category))) {
+        if (list[i].date === list[j].date &&
+          (titleI.includes(titleJ) || titleJ.includes(titleI) || (list[i].category && list[i].category === list[j].category))) {
           pairs.push([list[i], list[j]]);
         }
       }
@@ -6237,7 +6408,7 @@ Through Counsel
     const list = [...(workspace.facts || [])];
     const ev1 = list[idx1];
     const ev2 = list[idx2];
-    
+
     const mergedEvent = {
       ...ev1,
       event: ev1.event || (ev1 as any).title || 'Merged Event',
@@ -6248,10 +6419,10 @@ Through Counsel
       isAiGenerated: true,
       sourceDoc: `${(ev1 as any).sourceDoc || 'File'} & ${(ev2 as any).sourceDoc || 'File'}`
     };
-    
+
     list[idx1] = mergedEvent;
     list.splice(idx2, 1);
-    
+
     handleUpdateField({ facts: list as any });
     setShowDuplicateMergeSuggestion(false);
     showToast('success', 'Events Merged', 'Duplicate timeline entries merged successfully.');
@@ -6419,7 +6590,7 @@ Through Counsel
       <View style={styles.suggestionsContainer}>
         {/* Section title */}
         <Text style={styles.suggestionsHeader}>{t('workspace.aiInsights')}</Text>
-        
+
         {/* Limitation Warnings */}
         {warnings.map((w: any, idx: number) => (
           <View key={`warn-${idx}`} style={[styles.suggestionCard, styles.warningCard]}>
@@ -6522,7 +6693,7 @@ Through Counsel
         (item.category || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.date || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.displayDate || '').toLowerCase().includes(searchQuery.toLowerCase());
-      
+
       if (!matchesSearch) return false;
       if (timelineCategoryFilter === 'All') return true;
 
@@ -6655,7 +6826,7 @@ Through Counsel
                   <View style={[
                     styles.timelineDot,
                     item.importance === 'High' ? styles.dotHigh :
-                    item.importance === 'Medium' ? styles.dotMedium : styles.dotLow
+                      item.importance === 'Medium' ? styles.dotMedium : styles.dotLow
                   ]} />
                 </View>
                 <View style={styles.timelineCard}>
@@ -6671,12 +6842,12 @@ Through Counsel
                         <View style={[
                           styles.badge,
                           item.importance === 'High' ? styles.badgeHigh :
-                          item.importance === 'Medium' ? styles.badgeMedium : styles.badgeLow
+                            item.importance === 'Medium' ? styles.badgeMedium : styles.badgeLow
                         ]}>
                           <Text style={[
                             styles.badgeText,
                             item.importance === 'High' ? { color: '#EF4444' } :
-                            item.importance === 'Medium' ? { color: '#F59E0B' } : { color: '#6D5DFC' }
+                              item.importance === 'Medium' ? { color: '#F59E0B' } : { color: '#6D5DFC' }
                           ]}>{item.importance}</Text>
                         </View>
                       ) : null}
@@ -6704,7 +6875,7 @@ Through Counsel
   // Hearings Tab
   const renderHearingsTab = () => {
     const list = workspace?.hearings || [];
-    
+
     // Overview metrics
     const courtName = workspace?.courtName || (list.length > 0 ? list[0].courtName : 'District Court');
     const caseStage = workspace?.stage || 'Court';
@@ -6857,12 +7028,12 @@ Through Counsel
           {['All', 'Upcoming', 'Completed', 'Adjourned', 'Orders Reserved', 'Cancelled', 'With Documents'].map((filt) => {
             const localizedFilt = filt === 'All' ? t('common.all') || t('hearings.all') || 'All'
               : filt === 'Upcoming' ? t('hearings.upcoming')
-              : filt === 'Completed' ? t('common.completed') || t('hearings.completed') || 'Completed'
-              : filt === 'Adjourned' ? t('hearings.adjourned')
-              : filt === 'Orders Reserved' ? t('hearings.ordersReserved')
-              : filt === 'Cancelled' ? t('hearings.cancelled')
-              : filt === 'With Documents' ? t('hearings.withDocuments')
-              : filt;
+                : filt === 'Completed' ? t('common.completed') || t('hearings.completed') || 'Completed'
+                  : filt === 'Adjourned' ? t('hearings.adjourned')
+                    : filt === 'Orders Reserved' ? t('hearings.ordersReserved')
+                      : filt === 'Cancelled' ? t('hearings.cancelled')
+                        : filt === 'With Documents' ? t('hearings.withDocuments')
+                          : filt;
             return (
               <TouchableOpacity
                 key={filt}
@@ -6927,10 +7098,10 @@ Through Counsel
                           <Text style={[styles.badgeText, { color: statusColor }]}>
                             {h.status === 'Completed' ? t('common.completed') || t('hearings.completed') || 'Completed'
                               : h.status === 'Upcoming' || h.status === 'Scheduled' || h.status === 'Ongoing' ? t('hearings.upcoming')
-                              : h.status === 'Adjourned' ? t('hearings.adjourned')
-                              : h.status === 'Orders Reserved' ? t('hearings.ordersReserved')
-                              : h.status === 'Cancelled' ? t('hearings.cancelled')
-                              : h.status}
+                                : h.status === 'Adjourned' ? t('hearings.adjourned')
+                                  : h.status === 'Orders Reserved' ? t('hearings.ordersReserved')
+                                    : h.status === 'Cancelled' ? t('hearings.cancelled')
+                                      : h.status}
                           </Text>
                         </View>
                         {h.isAiEnriched && (
@@ -7012,7 +7183,7 @@ Through Counsel
                     {isChecklistExpanded && h.checklist && (
                       <View style={styles.checklistContainer}>
                         <Text style={styles.checklistSectionTitle}>{t('hearings.prepChecklistTitle')}</Text>
-                        
+
                         {/* Documents */}
                         <View style={styles.checklistCategory}>
                           <Text style={styles.checklistCategoryTitle}>{t('hearings.documentsNeeded')}</Text>
@@ -7371,114 +7542,562 @@ Through Counsel
     );
   };
 
-  // Documents Tab
-  const renderDocumentsTab = () => {
-    const list = workspace?.documents || [];
-    const filteredList = list.filter(d => {
-      const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            (d.tags || []).some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesCategory = timelineCategoryFilter === 'All' || d.type === timelineCategoryFilter;
-      return matchesSearch && matchesCategory;
+  const getFilteredDmsList = () => {
+    const list = (dmsTab === 'documents' ? (workspace?.documents || []) : (workspace?.evidence || [])) as any[];
+
+    // Filter out soft-deleted items unless dmsFilter === 'trash'
+    let result = list.filter(item => {
+      const itemId = item._id || item.id;
+      const isTrash = trashList.includes(itemId);
+      if (dmsFilter === 'trash') return isTrash;
+      return !isTrash;
     });
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(item =>
+        (item.name || '').toLowerCase().includes(query) ||
+        (item.type || '').toLowerCase().includes(query) ||
+        (item.tags || []).some((t: string) => t.toLowerCase().includes(query)) ||
+        (item.description || '').toLowerCase().includes(query)
+      );
+    }
+
+    // Pinned filter
+    if (dmsFilter === 'pinned') {
+      result = result.filter(item => pinnedList.includes(item._id || item.id));
+    } else if (dmsFilter === 'pdf') {
+      result = result.filter(item => (item.name || '').toLowerCase().endsWith('.pdf'));
+    } else if (dmsFilter === 'docx') {
+      result = result.filter(item => (item.name || '').toLowerCase().endsWith('.docx') || (item.name || '').toLowerCase().endsWith('.doc'));
+    } else if (dmsFilter === 'images') {
+      result = result.filter(item => {
+        const ext = (item.name || '').toLowerCase().split('.').pop() || '';
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+      });
+    }
+
+    // Sorting logic
+    result.sort((a, b) => {
+      const aId = a._id || a.id;
+      const bId = b._id || b.id;
+
+      // Pinned first if sorted by pinned
+      if (dmsSortBy === 'pinned') {
+        const aPinned = pinnedList.includes(aId) ? 1 : 0;
+        const bPinned = pinnedList.includes(bId) ? 1 : 0;
+        return bPinned - aPinned;
+      }
+
+      if (dmsSortBy === 'name') {
+        return (a.name || '').localeCompare(b.name || '');
+      }
+
+      if (dmsSortBy === 'oldest') {
+        const aDate = new Date(a.uploadDate || a.uploadedDate || 0).getTime();
+        const bDate = new Date(b.uploadDate || b.uploadedDate || 0).getTime();
+        return aDate - bDate;
+      }
+
+      if (dmsSortBy === 'size') {
+        const aSize = parseFloat(a.fileSize || '0') || 0;
+        const bSize = parseFloat(b.fileSize || '0') || 0;
+        return bSize - aSize;
+      }
+
+      // Default 'newest'
+      const aDate = new Date(a.uploadDate || a.uploadedDate || 0).getTime();
+      const bDate = new Date(b.uploadDate || b.uploadedDate || 0).getTime();
+      return bDate - aDate;
+    });
+
+    return result;
+  };
+
+  // Redesigned Case Documents & Evidence DMS Vault Tab
+  const renderDocumentsTab = () => {
+    const isEvTab = dmsTab === 'evidence';
+    const activeList = getFilteredDmsList();
 
     return (
       <View style={styles.tabContent}>
-        <View style={styles.moduleHeaderRow}>
-          <Text style={styles.moduleTitle}>{t('documents.title')}</Text>
+        {/* Unified Top DMS Segmented Tab bar */}
+        <View style={styles.dmsTabSelectorContainer}>
           <Pressable
-            style={styles.moduleHeaderBtn}
-            onPress={handleSimulatedFileUpload}
+            style={[styles.dmsTabBtn, dmsTab === 'documents' && styles.dmsTabBtnActive]}
+            onPress={() => { setDmsTab('documents'); setSelectedDmsItems([]); }}
           >
-            <Ionicons name="cloud-upload-outline" size={16} color="#6D5DFC" />
-            <Text style={styles.moduleHeaderBtnText}>{t('documents.attach')}</Text>
+            <Ionicons name="document-text-outline" size={16} color={dmsTab === 'documents' ? '#FFFFFF' : theme.textSecondary} />
+            <Text style={[styles.dmsTabBtnText, dmsTab === 'documents' && styles.dmsTabBtnTextActive]}>
+              Documents
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.dmsTabBtn, dmsTab === 'evidence' && styles.dmsTabBtnActive]}
+            onPress={() => { setDmsTab('evidence'); setSelectedDmsItems([]); }}
+          >
+            <Ionicons name="shield-checkmark-outline" size={16} color={dmsTab === 'evidence' ? '#FFFFFF' : theme.textSecondary} />
+            <Text style={[styles.dmsTabBtnText, dmsTab === 'evidence' && styles.dmsTabBtnTextActive]}>
+              Evidence Vault
+            </Text>
           </Pressable>
         </View>
 
-        {/* Category filters */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.horizontalPillsScroll, { marginBottom: 12 }]}>
-          {['All', 'Notice', 'Agreement', 'Proof', 'Filing', 'Other'].map((filt) => {
-            const localizedFilt = filt === 'All' ? t('common.all') || t('documents.all') || 'All'
-              : filt === 'Notice' ? t('documents.notice')
-              : filt === 'Agreement' ? t('documents.agreement')
-              : filt === 'Proof' ? t('documents.proof')
-              : filt === 'Filing' ? t('documents.filing')
-              : filt === 'Other' ? t('documents.other')
-              : filt;
-            return (
-              <TouchableOpacity
-                key={filt}
-                style={[styles.filterPill, timelineCategoryFilter === filt && styles.filterPillActive]}
-                onPress={() => setTimelineCategoryFilter(filt)}
-              >
-                <Text style={[styles.filterPillText, timelineCategoryFilter === filt && { color: '#FFFFFF' }]}>
-                  {localizedFilt}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        {/* Header Title with Upload Action */}
+        <View style={[styles.moduleHeaderRow, { marginTop: 12 }]}>
+          <Text style={styles.moduleTitle}>
+            {isEvTab ? 'Secure Evidence Locker' : 'Case Pleadings & Briefs'}
+          </Text>
+          <Pressable
+            style={styles.moduleHeaderBtn}
+            onPress={() => setIsUploadOpen(true)}
+          >
+            <Ionicons name="cloud-upload-outline" size={16} color="#6D5DFC" />
+            <Text style={styles.moduleHeaderBtnText}>Attach File</Text>
+          </Pressable>
+        </View>
 
+        {/* Upload progress bar if active */}
+        {uploadingProgress !== null && (
+          <View style={[styles.uploadProgressCard, { backgroundColor: theme.surfaceVariant, borderColor: theme.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>Ingesting legal document...</Text>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: '#6D5DFC' }}>{uploadingProgress}%</Text>
+            </View>
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { width: `${uploadingProgress}%`, backgroundColor: '#6D5DFC' }]} />
+            </View>
+          </View>
+        )}
+
+        {/* DMS Search Bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={16} color="#9CA3AF" />
           <TextInput
             style={styles.searchInput}
-            placeholder={t('documents.searchPlaceholder')}
+            placeholder={`Search by name, OCR keywords, or tags...`}
             placeholderTextColor="#9CA3AF"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
         </View>
 
-        {filteredList.length === 0 ? (
-          <Text style={styles.emptyText}>{t('documents.noDocuments')}</Text>
-        ) : (
-          <View style={styles.cardList}>
-            {filteredList.map((d) => (
-              <Pressable
-                key={d._id}
-                style={({ pressed }) => [styles.itemCard, pressed && styles.pressed]}
-                onPress={() =>
-                  router.push({
-                    pathname: '/workspace/document-viewer',
-                    params: {
-                      id: id,
-                      docId: d._id,
-                      url: d.url,
-                      title: d.name,
-                      type: d.type,
-                    },
-                  })
-                }
+        {/* DMS Filter Pills Row */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.horizontalPillsScroll, { marginBottom: 12 }]}>
+          {['all', 'pdf', 'docx', 'images', 'pinned', 'trash'].map((filt) => {
+            const localizedLabel = filt === 'all' ? 'All Files'
+              : filt === 'pdf' ? 'PDFs'
+                : filt === 'docx' ? 'Word Docs'
+                  : filt === 'images' ? 'Images'
+                    : filt === 'pinned' ? '📌 Pinned'
+                      : '🗑️ Trash';
+            return (
+              <TouchableOpacity
+                key={filt}
+                style={[styles.filterPill, dmsFilter === filt && styles.filterPillActive]}
+                onPress={() => setDmsFilter(filt as any)}
               >
-                <View style={styles.itemCardHeader}>
-                  <Text style={styles.itemCardTitle}>📄 {d.name}</Text>
-                  <Ionicons name="eye-outline" size={16} color="#6D5DFC" />
-                </View>
-                <Text style={styles.itemCardBody}><Text style={{ fontWeight: 'bold' }}>{t('documents.class')}: </Text>{d.type} • <Text style={{ fontWeight: 'bold' }}>{t('documents.uploaded')}: </Text>{d.uploadDate}</Text>
-                
-                {/* Meta details / OCR extraction parameters */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                  <View style={[styles.tagBadge, { backgroundColor: '#EBF5FF' }]}>
-                    <Text style={[styles.tagBadgeText, { color: '#1E40AF' }]}>{t('documents.ocrSafe')}</Text>
-                  </View>
-                  {(d.tags || []).map((tag, idx) => (
-                    <View key={idx} style={styles.tagBadge}>
-                      <Text style={styles.tagBadgeText}>{tag}</Text>
-                    </View>
-                  ))}
-                </View>
+                <Text style={[styles.filterPillText, dmsFilter === filt && { color: '#FFFFFF' }]}>
+                  {localizedLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-                {d.extractedData && (
-                  <View style={styles.docExtractedBox}>
-                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#6B7280', textTransform: 'uppercase' }}>{t('documents.aiParsedMetadata')}</Text>
-                    {d.extractedData.issuer && <Text style={styles.docExtractedText}>{t('documents.issuer')}: {d.extractedData.issuer}</Text>}
-                    {d.extractedData.notes && <Text style={styles.docExtractedText} numberOfLines={2}>{t('documents.notes')}: &quot;{d.extractedData.notes}&quot;</Text>}
-                  </View>
-                )}
+        {/* Sorting selection bar */}
+        <View style={styles.dmsControlRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="swap-vertical" size={14} color={theme.textSecondary} />
+            <Text style={{ fontSize: 12, color: theme.textSecondary, marginLeft: 4, marginRight: 8 }}>Sort By:</Text>
+            {['newest', 'oldest', 'name', 'size', 'pinned'].map((sort) => (
+              <Pressable
+                key={sort}
+                style={[styles.dmsSortPill, dmsSortBy === sort && styles.dmsSortPillActive]}
+                onPress={() => setDmsSortBy(sort as any)}
+              >
+                <Text style={[styles.dmsSortPillText, dmsSortBy === sort && { color: '#6D5DFC', fontWeight: '800' }]}>
+                  {sort.toUpperCase()}
+                </Text>
               </Pressable>
             ))}
           </View>
+        </View>
+
+        {/* Render Vault List */}
+        {activeList.length === 0 ? (
+          <Text style={styles.emptyText}>No documents match the selected filters.</Text>
+        ) : (
+          <View style={styles.cardList}>
+            {activeList.map((item, index) => {
+              const itemId = item._id || item.id;
+              const isPinned = pinnedList.includes(itemId);
+              const isTrash = trashList.includes(itemId);
+              const isSelected = selectedDmsItems.includes(itemId);
+
+              // Exhibit number generation (e.g. EXHIBIT A-1, B-2)
+              const exhibitPrefix = isEvTab ? `EXHIBIT ${item.type === 'Images' ? 'B' : 'A'}-${index + 1}` : `DOC-${index + 1}`;
+
+              // Determine icon
+              const filename = (item.name || '').toLowerCase();
+              let iconName = 'document-outline';
+              let iconColor = '#3B82F6';
+              if (filename.endsWith('.pdf')) {
+                iconName = 'document-text';
+                iconColor = '#EF4444';
+              } else if (filename.endsWith('.docx') || filename.endsWith('.doc')) {
+                iconName = 'document-text';
+                iconColor = '#2563EB';
+              } else if (['jpg', 'jpeg', 'png', 'webp'].some(ext => filename.endsWith(ext))) {
+                iconName = 'image';
+                iconColor = '#10B981';
+              } else if (filename.endsWith('.zip')) {
+                iconName = 'archive';
+                iconColor = '#F59E0B';
+              }
+
+              return (
+                <View
+                  key={itemId}
+                  style={[
+                    styles.itemCard,
+                    isPinned && { borderColor: '#E9D5FF', borderWidth: 1.5, backgroundColor: 'rgba(233, 213, 255, 0.05)' },
+                    isSelected && { backgroundColor: 'rgba(109, 93, 252, 0.05)', borderColor: '#6D5DFC', borderWidth: 1.5 }
+                  ]}
+                >
+                  {/* Card Header row with checkboxes and badges */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Pressable
+                        style={[styles.dmsCheckbox, isSelected && styles.dmsCheckboxChecked]}
+                        onPress={() => {
+                          setSelectedDmsItems(prev =>
+                            prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+                          );
+                        }}
+                      >
+                        {isSelected && <Ionicons name="checkmark" size={10} color="#FFFFFF" />}
+                      </Pressable>
+                      <Text style={[styles.exhibitBadgeText, { color: theme.textSecondary }]}>{exhibitPrefix}</Text>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      {isPinned && (
+                        <View style={[styles.tagBadge, { backgroundColor: '#F3E8FF' }]}>
+                          <Text style={{ fontSize: 9, color: '#7E22CE', fontWeight: '800' }}>📌 PINNED</Text>
+                        </View>
+                      )}
+
+                      {isEvTab && (
+                        <View style={[
+                          styles.statusBadge,
+                          item.status === 'Verified' ? styles.badgeSuccess : (item.status === 'Rejected' ? styles.badgeDanger : styles.badgeWarning)
+                        ]}>
+                          <Text style={{ fontSize: 9, fontWeight: '800', color: getStatusColor(item.status) }}>
+                            {item.status || 'Pending'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Document Title block */}
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <Ionicons name={iconName as any} size={22} color={iconColor} style={{ marginRight: 8, marginTop: 2 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.itemCardTitle, { fontSize: 14, fontWeight: '800', color: theme.textPrimary }]}>{item.name}</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
+                        {item.type || 'Document'} • {item.fileSize || '1.2 MB'} • Version {item.version || 2}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* AI & OCR indexing badges */}
+                  <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <View style={[styles.tagBadge, { backgroundColor: '#E0F2FE' }]}>
+                      <Text style={{ fontSize: 9, color: '#0369A1', fontWeight: '700' }}>OCR Completed</Text>
+                    </View>
+                    <View style={[styles.tagBadge, { backgroundColor: '#DCFCE7' }]}>
+                      <Text style={{ fontSize: 9, color: '#15803D', fontWeight: '700' }}>AI Indexed</Text>
+                    </View>
+                    {(item.tags || []).map((t: string) => (
+                      <View key={t} style={styles.tagBadge}>
+                        <Text style={{ fontSize: 9, color: theme.textSecondary }}>#{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Private Observations / Notes box */}
+                  {(item.notes || item.extractedData?.notes) && (
+                    <View style={[styles.docExtractedBox, { backgroundColor: theme.surfaceVariant, marginBottom: 12 }]}>
+                      <Text style={{ fontSize: 8, fontWeight: '800', color: theme.textSecondary, textTransform: 'uppercase' }}>Lawyer Notes</Text>
+                      <Text style={{ fontSize: 11, color: theme.textPrimary, marginTop: 2 }} numberOfLines={2}>
+                        &quot;{item.notes || item.extractedData?.notes}&quot;
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Upload logs */}
+                  <Text style={{ fontSize: 10, color: theme.textMuted, marginBottom: 12 }}>
+                    Uploaded By: {item.uploadedBy || 'Aditi Lakhera'} • {new Date(item.uploadDate || item.uploadedDate).toLocaleDateString()}
+                  </Text>
+
+                  {/* Bottom Action buttons */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 }}>
+                    <Pressable
+                      style={styles.dmsActionBtn}
+                      onPress={() => setPreviewItem(item)}
+                    >
+                      <Ionicons name="eye-outline" size={14} color="#6D5DFC" />
+                      <Text style={styles.dmsActionBtnText}>View</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.dmsActionBtn}
+                      onPress={() => {
+                        setRenamingItem(item);
+                        setRenamingName(item.name);
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={14} color="#6D5DFC" />
+                      <Text style={styles.dmsActionBtnText}>Rename</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.dmsActionBtn}
+                      onPress={() => {
+                        setEditingNotesItem(item);
+                        setEditingNotesText(item.notes || item.extractedData?.notes || '');
+                      }}
+                    >
+                      <Ionicons name="book-outline" size={14} color="#6D5DFC" />
+                      <Text style={styles.dmsActionBtnText}>Notes</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.dmsActionBtn}
+                      onPress={() => togglePinItem(itemId)}
+                    >
+                      <Ionicons name={isPinned ? 'pin' : 'pin-outline'} size={14} color={isPinned ? '#A855F7' : '#6D5DFC'} />
+                      <Text style={styles.dmsActionBtnText}>{isPinned ? 'Unpin' : 'Pin'}</Text>
+                    </Pressable>
+
+                    {isEvTab && (
+                      <Pressable
+                        style={styles.dmsActionBtn}
+                        onPress={() => {
+                          const statuses: ('Verified' | 'Pending' | 'Rejected')[] = ['Verified', 'Pending', 'Rejected'];
+                          const currentIdx = statuses.indexOf(item.status || 'Pending');
+                          const nextStatus = statuses[(currentIdx + 1) % statuses.length];
+                          handleVerifyEvidence(item, nextStatus);
+                        }}
+                      >
+                        <Ionicons name="shield-outline" size={14} color="#10B981" />
+                        <Text style={styles.dmsActionBtnText}>Verify</Text>
+                      </Pressable>
+                    )}
+
+                    {isTrash ? (
+                      <Pressable
+                        style={styles.dmsActionBtn}
+                        onPress={() => handleRestoreItem(item)}
+                      >
+                        <Ionicons name="refresh-outline" size={14} color="#10B981" />
+                        <Text style={styles.dmsActionBtnText}>Restore</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        style={styles.dmsActionBtn}
+                        onPress={() => setDeletingItem(item)}
+                      >
+                        <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                        <Text style={[styles.dmsActionBtnText, { color: '#EF4444' }]}>Delete</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
         )}
+
+        {/* Floating Bulk Action Toolbar if items selected */}
+        {selectedDmsItems.length > 0 && (
+          <View style={[styles.bulkToolbar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: theme.textPrimary }}>
+              {selectedDmsItems.length} selected
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                style={[styles.bulkBtn, { backgroundColor: '#EF4444' }]}
+                onPress={() => {
+                  setTrashList(prev => [...prev, ...selectedDmsItems]);
+                  showToast('info', 'Bulk Trash', 'Selected files moved to trash.');
+                  setSelectedDmsItems([]);
+                }}
+              >
+                <Ionicons name="trash" size={14} color="#FFFFFF" />
+                <Text style={styles.bulkBtnText}>Trash</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.bulkBtn, { backgroundColor: '#10B981' }]}
+                onPress={() => {
+                  showToast('success', 'Bulk Download', 'Starting bulk downloads to device...');
+                  setSelectedDmsItems([]);
+                }}
+              >
+                <Ionicons name="download" size={14} color="#FFFFFF" />
+                <Text style={styles.bulkBtnText}>Download</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.bulkBtn, { backgroundColor: '#3B82F6' }]}
+                onPress={() => {
+                  showToast('success', 'Bulk Share', 'Constructing secure links...');
+                  setSelectedDmsItems([]);
+                }}
+              >
+                <Ionicons name="share-social" size={14} color="#FFFFFF" />
+                <Text style={styles.bulkBtnText}>Share</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* ================= Rename Dialog Modal ================= */}
+        <Modal visible={renamingItem !== null} transparent animationType="fade">
+          <View style={styles.feedbackOverlay}>
+            <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+              <Text style={[styles.feedbackTitle, { fontSize: 18, color: theme.textPrimary, fontWeight: '800' }]}>Rename Document</Text>
+              <TextInput
+                style={[styles.dmsModalInput, { borderColor: theme.border, color: theme.textPrimary }]}
+                value={renamingName}
+                onChangeText={setRenamingName}
+                autoFocus
+              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                <Pressable
+                  style={[styles.cancelBtn, { flex: 1 }]}
+                  onPress={() => setRenamingItem(null)}
+                >
+                  <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.feedbackButton, { flex: 1, backgroundColor: '#6D5DFC' }]}
+                  onPress={handleRenameSubmit}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Rename</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ================= Notes Dialog Modal ================= */}
+        <Modal visible={editingNotesItem !== null} transparent animationType="fade">
+          <View style={styles.feedbackOverlay}>
+            <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+              <Text style={[styles.feedbackTitle, { fontSize: 18, color: theme.textPrimary, fontWeight: '800' }]}>Private Observations</Text>
+              <TextInput
+                style={[styles.dmsModalInput, { borderColor: theme.border, color: theme.textPrimary, height: 80, textAlignVertical: 'top' }]}
+                value={editingNotesText}
+                onChangeText={setEditingNotesText}
+                multiline
+                placeholder="Enter lawyer internal notes regarding this file..."
+                placeholderTextColor="#94A3B8"
+              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                <Pressable
+                  style={[styles.cancelBtn, { flex: 1 }]}
+                  onPress={() => setEditingNotesItem(null)}
+                >
+                  <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.feedbackButton, { flex: 1, backgroundColor: '#6D5DFC' }]}
+                  onPress={handleSaveNotes}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Save</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ================= Delete Confirmation Modal ================= */}
+        <Modal visible={deletingItem !== null} transparent animationType="fade">
+          <View style={styles.feedbackOverlay}>
+            <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+              <Ionicons name="alert-circle" size={44} color="#EF4444" style={{ marginBottom: 12 }} />
+              <Text style={[styles.feedbackTitle, { fontSize: 16, color: theme.textPrimary, fontWeight: '800', textAlign: 'center' }]}>
+                Delete this document?
+              </Text>
+              <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 6, textAlign: 'center', paddingHorizontal: 12 }}>
+                This file will be soft-deleted and moved into your Trash vault. Admins can restore it at any time.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, alignSelf: 'stretch' }}>
+                <Pressable
+                  style={[styles.cancelBtn, { flex: 1 }]}
+                  onPress={() => setDeletingItem(null)}
+                >
+                  <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.feedbackButton, { flex: 1, backgroundColor: '#EF4444' }]}
+                  onPress={handleConfirmDelete}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ================= Interactive Preview Viewer Modal ================= */}
+        <Modal visible={previewItem !== null} transparent={false} animationType="slide">
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#111827' }}>
+            <View style={{ height: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#374151' }}>
+              <Pressable onPress={() => setPreviewItem(null)}>
+                <Ionicons name="close" size={24} color="#FFFFFF" />
+              </Pressable>
+              <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800', maxWidth: '60%' }} numberOfLines={1}>
+                {previewItem?.name}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <Ionicons name="search" size={20} color="#FFFFFF" />
+                <Ionicons name="bookmark-outline" size={20} color="#FFFFFF" />
+              </View>
+            </View>
+
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+              <Ionicons name="document-text" size={100} color="#6D5DFC" style={{ marginBottom: 20 }} />
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
+                Interactive Document Preview
+              </Text>
+              <Text style={{ color: '#9CA3AF', fontSize: 12, textAlign: 'center', marginTop: 8 }}>
+                AI Indexed and structured view of document contents. Under mock preview, you can highlight or rotate.
+              </Text>
+
+              {/* Action tools for preview zoom and rotate */}
+              <View style={{ flexDirection: 'row', gap: 16, marginTop: 24, backgroundColor: '#1F2937', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 30 }}>
+                <Pressable onPress={() => showToast('info', 'Zoom', 'Zoomed In to 125%')}>
+                  <Ionicons name="add-circle-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+                <Pressable onPress={() => showToast('info', 'Zoom', 'Zoomed Out to 100%')}>
+                  <Ionicons name="remove-circle-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+                <Pressable onPress={() => showToast('info', 'Rotate', 'Document rotated 90 degrees')}>
+                  <Ionicons name="refresh-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+                <Pressable onPress={() => showToast('info', 'Highlight', 'Text highlights enabled')}>
+                  <Ionicons name="brush-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        </Modal>
       </View>
     );
   };
@@ -7587,7 +8206,7 @@ Through Counsel
       showToast('error', 'Validation Error', 'Evidence file name is required.');
       return;
     }
-    
+
     const sizeStr = logEvidenceForm.fileSize.toUpperCase();
     let sizeMb = 0;
     if (sizeStr.includes('GB')) {
@@ -7658,7 +8277,7 @@ Through Counsel
     let filteredList = list;
     if (evidenceSearchQuery.trim()) {
       const query = evidenceSearchQuery.toLowerCase();
-      filteredList = filteredList.filter(e => 
+      filteredList = filteredList.filter(e =>
         (e.name || '').toLowerCase().includes(query) ||
         (e.exhibitNumber || '').toLowerCase().includes(query) ||
         (e.type || '').toLowerCase().includes(query) ||
@@ -7801,19 +8420,19 @@ Through Counsel
               const isActive = evidenceFilter === pill;
               const localizedPill = pill === 'All' ? t('common.all') || t('evidence.all') || 'All'
                 : pill === 'Documents' ? t('evidence.documents')
-                : pill === 'Images' ? t('evidence.images')
-                : pill === 'Videos' ? t('evidence.videos')
-                : pill === 'Audio' ? t('evidence.audio')
-                : pill === 'Digital' ? t('evidence.digital')
-                : pill === 'Physical' ? t('evidence.physical')
-                : pill === 'Verified' ? t('evidence.verified')
-                : pill === 'Pending' ? t('evidence.pendingShort') || t('evidence.pending')
-                : pill === 'Witness' ? t('parties.witnesses')
-                : pill === 'Contracts' ? t('workspace.contractsStatus') || 'Contracts'
-                : pill === 'Receipts' ? t('evidence.receipts') || 'Receipts'
-                : pill === 'Messages' ? t('evidence.messages') || 'Messages'
-                : pill === 'Emails' ? t('evidence.emails') || 'Emails'
-                : pill;
+                  : pill === 'Images' ? t('evidence.images')
+                    : pill === 'Videos' ? t('evidence.videos')
+                      : pill === 'Audio' ? t('evidence.audio')
+                        : pill === 'Digital' ? t('evidence.digital')
+                          : pill === 'Physical' ? t('evidence.physical')
+                            : pill === 'Verified' ? t('evidence.verified')
+                              : pill === 'Pending' ? t('evidence.pendingShort') || t('evidence.pending')
+                                : pill === 'Witness' ? t('parties.witnesses')
+                                  : pill === 'Contracts' ? t('workspace.contractsStatus') || 'Contracts'
+                                    : pill === 'Receipts' ? t('evidence.receipts') || 'Receipts'
+                                      : pill === 'Messages' ? t('evidence.messages') || 'Messages'
+                                        : pill === 'Emails' ? t('evidence.emails') || 'Emails'
+                                          : pill;
               return (
                 <Pressable
                   key={idx}
@@ -7835,7 +8454,7 @@ Through Counsel
             <Ionicons name="shield-outline" size={48} color="#9CA3AF" />
             <Text style={styles.emptyEvidenceTitle}>{t('evidence.noEvidenceFound')}</Text>
             <Text style={styles.emptyEvidenceSubtitle}>
-              {list.length === 0 
+              {list.length === 0
                 ? t('evidence.emptySubtitleShort')
                 : t('evidence.noEvidenceMatchShort')}
             </Text>
@@ -7845,7 +8464,7 @@ Through Counsel
             {filteredList.map((ev) => {
               const statusColor = getStatusColor(ev.status || 'Pending');
               const statusBg = statusColor + '10';
-              
+
               return (
                 <View key={ev.id || ev._id} style={styles.evidenceCard}>
                   {/* Card Main Block */}
@@ -7865,7 +8484,7 @@ Through Counsel
                       </View>
                       <Text style={styles.evidenceName} numberOfLines={1}>{ev.name}</Text>
                       <Text style={styles.evidenceDesc} numberOfLines={2}>{ev.description}</Text>
-                      
+
                       <View style={styles.tagsRow}>
                         {(ev.tags || []).map((tag, tIdx) => (
                           <View key={tIdx} style={styles.tagPill}>
@@ -7943,7 +8562,7 @@ Through Counsel
   // Research precedents
   const renderResearchTab = () => {
     const list = workspace?.savedPrecedents || [];
-    
+
     const client = workspace?.clientName || 'Plaintiff';
     const opponent = workspace?.opponentName || workspace?.accused || 'Defendant';
 
@@ -8182,7 +8801,7 @@ Through Counsel
           <Text style={styles.premiumSearchSubtitle}>
             Automatic context-aware legal research synced with active case documents.
           </Text>
-          
+
           <View style={styles.searchBarRow}>
             <TextInput
               style={styles.premiumSearchInput}
@@ -8192,13 +8811,13 @@ Through Counsel
               onChangeText={setResearchSearchQuery}
               onSubmitEditing={() => processConversationalSearch(researchSearchQuery)}
             />
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.premiumSearchBtn}
               onPress={() => processConversationalSearch(researchSearchQuery)}
             >
               <Text style={styles.premiumSearchBtnText}>Search</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.premiumAnalyzeBtn}
               onPress={() => runResearchAnalysis(false)}
               disabled={isRegeneratingResearch}
@@ -8222,7 +8841,7 @@ Through Counsel
                 style={styles.sugChip}
                 onPress={() => processConversationalSearch(sug)}
               >
-                <Text style={styles.sugChipText}>"{sug}"</Text>
+                <Text style={styles.sugChipText}>{`"${sug}"`}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -8409,7 +9028,7 @@ Through Counsel
                           </View>
                           <Ionicons name={isJudExpanded ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
                         </TouchableOpacity>
-                        
+
                         {isJudExpanded && (
                           <View style={styles.judgmentItemExpandedContent}>
                             <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Bench: </Text>{j.bench || 'Division Bench'}</Text>
@@ -8417,7 +9036,7 @@ Through Counsel
                             <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Summary: </Text>{j.summary}</Text>
                             <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Ratio: </Text>{j.ratio}</Text>
                             <Text style={styles.judgmentDetailText}><Text style={{ fontWeight: 'bold' }}>Why it applies: </Text>{j.why}</Text>
-                            
+
                             <View style={styles.judgmentButtonsRow}>
                               <TouchableOpacity style={styles.judActionBtn} onPress={() => showToast('info', 'View Judgment', `Opening full judgment for ${j.name}...`)}>
                                 <Text style={styles.judActionBtnText}>View Full Judgment</Text>
@@ -8551,7 +9170,7 @@ Through Counsel
               {expandedResearchSection === 'saved' && (
                 <View style={styles.accordionContent}>
                   {list.length === 0 ? (
-                    <Text style={styles.emptyTextSaved}>No citations registered to this brief roster. Click "Save Citation" above.</Text>
+                    <Text style={styles.emptyTextSaved}>No citations registered to this brief roster. Click {"\"Save Citation\""} above.</Text>
                   ) : (
                     list.map((prec, i) => (
                       <View key={i} style={styles.savedPrecedentItemCard}>
@@ -8624,7 +9243,7 @@ Through Counsel
     ];
 
     const list = workspace?.drafts || [];
-    
+
     const filteredList = list.filter(d => {
       // Search filter
       if (draftSearchQuery.trim()) {
@@ -8698,7 +9317,7 @@ Through Counsel
           <Text style={styles.premiumSearchSubtitle}>
             Create a new manual legal draft folder to compile pleadings, contracts, or notices.
           </Text>
-          
+
           <Text style={styles.inputLabel}>Draft Folder Name</Text>
           <TextInput
             style={styles.premiumSearchInput}
@@ -8710,7 +9329,7 @@ Through Counsel
 
           <View style={styles.dropdownContainer}>
             <Text style={styles.inputLabel}>Draft Template Type</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.dropdownTrigger}
               onPress={() => setIsDraftTypePickerOpen(!isDraftTypePickerOpen)}
             >
@@ -8737,7 +9356,7 @@ Through Counsel
             )}
           </View>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.formSubmitBtn, { marginTop: 12 }]}
             onPress={handleCreateDraftFolder}
           >
@@ -8809,17 +9428,17 @@ Through Counsel
             sortedList.map((draft) => {
               const isRenaming = renameTargetDraftId === draft.id;
               const updatedDateStr = new Date(draft.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-              
+
               return (
                 <View key={draft.id} style={styles.itemCard}>
                   <View style={styles.itemCardHeader}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                      <Ionicons 
-                        name={draft.createdBy === 'AI' ? 'sparkles-outline' : 'folder-outline'} 
-                        size={20} 
-                        color={draft.createdBy === 'AI' ? '#EC4899' : '#6D5DFC'} 
+                      <Ionicons
+                        name={draft.createdBy === 'AI' ? 'sparkles-outline' : 'folder-outline'}
+                        size={20}
+                        color={draft.createdBy === 'AI' ? '#EC4899' : '#6D5DFC'}
                       />
-                      
+
                       {isRenaming ? (
                         <View style={styles.renameRow}>
                           <TextInput
@@ -8830,7 +9449,7 @@ Through Counsel
                             placeholder="Enter name"
                             placeholderTextColor="#9CA3AF"
                           />
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={styles.renameActionBtn}
                             onPress={() => {
                               handleRenameDraft(draft.id, renameValue);
@@ -8839,7 +9458,7 @@ Through Counsel
                           >
                             <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                           </TouchableOpacity>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={[styles.renameActionBtn, { backgroundColor: '#EF4444' }]}
                             onPress={() => setRenameTargetDraftId('')}
                           >
@@ -8858,10 +9477,10 @@ Through Counsel
                       <View style={styles.versionBadge}>
                         <Text style={styles.versionBadgeText}>v{draft.versions?.length || 1}</Text>
                       </View>
-                      <View style={[styles.statusBadge, 
-                        draft.status === 'Completed' ? styles.badgeSuccess : 
-                        draft.status === 'Reviewed' ? styles.badgeInfo : 
-                        draft.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+                      <View style={[styles.statusBadge,
+                      draft.status === 'Completed' ? styles.badgeSuccess :
+                        draft.status === 'Reviewed' ? styles.badgeInfo :
+                          draft.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
                       ]}>
                         <Text style={styles.statusBadgeText}>{draft.status}</Text>
                       </View>
@@ -8875,11 +9494,11 @@ Through Counsel
 
                   <View style={{ borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 8, marginTop: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Updated: {updatedDateStr} by {draft.createdBy}</Text>
-                    
+
                     {/* Actions Row */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
                       {/* 👁 Preview/View Draft */}
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => {
                           setPreviewDraft(draft);
                           setIsPreviewOpen(true);
@@ -8888,9 +9507,9 @@ Through Counsel
                       >
                         <Ionicons name="eye-outline" size={18} color="#6D5DFC" />
                       </TouchableOpacity>
-                      
+
                       {/* ✏️ Edit Draft */}
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => handleOpenDraftEditor(draft)}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
@@ -8898,7 +9517,7 @@ Through Counsel
                       </TouchableOpacity>
 
                       {/* 🗑 Delete Draft */}
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => handleDeleteDraft(draft.id)}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
@@ -8906,7 +9525,7 @@ Through Counsel
                       </TouchableOpacity>
 
                       {/* ⋮ More */}
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => {
                           setActiveDraftForMoreMenu(draft);
                           setIsCardMoreMenuOpen(true);
@@ -8944,7 +9563,7 @@ Through Counsel
     effectiveDate: '15 Jun 2024',
     renewalDate: '12 May 2027',
     governingLaw: 'Indian Contract Act, 1872 & Delhi Rent Control Act',
-    
+
     keyInfo: {
       parties: 'Rajesh Sharma (Lessor) vs Amit Verma (Lessee)',
       addresses: 'Lessor: 12 Barakhamba Rd, Connaught Place, New Delhi. Lessee: Pocket E, Sector 15, Rohini, New Delhi.',
@@ -9129,7 +9748,7 @@ Through Counsel
     try {
       const clientName = workspace?.clientName || 'Client';
       const opponentName = workspace?.opponentName || workspace?.accused || 'Opponent';
-      
+
       const result = await DraftService.executeTool({
         toolName: 'legal_contract_analyzer',
         message: `Analyze the contract agreement for case: "${workspace?.name || ''}". Client: "${clientName}". Opponent: "${opponentName}". Identify risk level, vulnerability terms, termination period, and payment penalties.`,
@@ -9153,7 +9772,7 @@ Through Counsel
             potentialRisks: result.reply.substring(0, 300) + '...'
           }
         });
-        
+
         const current = (workspace as any).contracts || [];
         handleUpdateField({
           contracts: [...current, {
@@ -9171,7 +9790,7 @@ Through Counsel
       setIsAnalyzingContract(false);
       console.error('[CONTRACT ANALYZER ERROR]', err);
       setUploadedContract(mockContractDetails);
-      
+
       const current = (workspace as any).contracts || [];
       handleUpdateField({
         contracts: [...current, {
@@ -9188,7 +9807,7 @@ Through Counsel
     if (!workspace) return;
     const existingTimeline = workspace.facts || [];
     const hasContractEvents = existingTimeline.some(e => (e.event || '').includes('Contract Execution'));
-    
+
     let updatedTimeline = existingTimeline;
     if (!hasContractEvents) {
       updatedTimeline = [
@@ -9303,7 +9922,7 @@ Through Counsel
       relatedHearings: argData.relatedHearings ? argData.relatedHearings.split(',').map((s: string) => s.trim()).filter(Boolean) : a.relatedHearings,
       refutation: type === 'respondent' ? argData.refutation : a.refutation
     } : a);
-    
+
     if (type === 'petitioner') {
       setPetitionerArguments(updateFn);
     } else {
@@ -9383,28 +10002,28 @@ Through Counsel
     // Search and filter logic
     const filteredClauses = uploadedContract
       ? (uploadedContract.clauses as any[]).filter(c => {
-          const matchQuery = 
-            c.number.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
-            c.title.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
-            c.original.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
-            c.summary.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
-            c.law.toLowerCase().includes(contractSearchQuery.toLowerCase());
-          
-          if (contractFilter === 'All Clauses') return matchQuery;
-          if (contractFilter === 'High Risk') return matchQuery && c.risk === 'High';
-          if (contractFilter === 'Medium Risk') return matchQuery && c.risk === 'Medium';
-          if (contractFilter === 'Low Risk') return matchQuery && c.risk === 'Low';
-          if (contractFilter === 'Financial') return matchQuery && c.category === 'Financial';
-          if (contractFilter === 'Termination') return matchQuery && c.category === 'Termination';
-          if (contractFilter === 'Payment') return matchQuery && c.category === 'Payment';
-          if (contractFilter === 'Confidentiality') return matchQuery && c.category === 'Confidentiality';
-          if (contractFilter === 'Dispute Resolution') return matchQuery && c.category === 'Dispute Resolution';
-          if (contractFilter === 'Arbitration') return matchQuery && c.category === 'Arbitration';
-          if (contractFilter === 'Renewal') return matchQuery && c.category === 'Renewal';
-          if (contractFilter === 'Liability') return matchQuery && c.category === 'Liability';
-          if (contractFilter === 'Compliance') return matchQuery && c.category === 'Compliance';
-          return matchQuery;
-        })
+        const matchQuery =
+          c.number.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+          c.title.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+          c.original.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+          c.summary.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
+          c.law.toLowerCase().includes(contractSearchQuery.toLowerCase());
+
+        if (contractFilter === 'All Clauses') return matchQuery;
+        if (contractFilter === 'High Risk') return matchQuery && c.risk === 'High';
+        if (contractFilter === 'Medium Risk') return matchQuery && c.risk === 'Medium';
+        if (contractFilter === 'Low Risk') return matchQuery && c.risk === 'Low';
+        if (contractFilter === 'Financial') return matchQuery && c.category === 'Financial';
+        if (contractFilter === 'Termination') return matchQuery && c.category === 'Termination';
+        if (contractFilter === 'Payment') return matchQuery && c.category === 'Payment';
+        if (contractFilter === 'Confidentiality') return matchQuery && c.category === 'Confidentiality';
+        if (contractFilter === 'Dispute Resolution') return matchQuery && c.category === 'Dispute Resolution';
+        if (contractFilter === 'Arbitration') return matchQuery && c.category === 'Arbitration';
+        if (contractFilter === 'Renewal') return matchQuery && c.category === 'Renewal';
+        if (contractFilter === 'Liability') return matchQuery && c.category === 'Liability';
+        if (contractFilter === 'Compliance') return matchQuery && c.category === 'Compliance';
+        return matchQuery;
+      })
       : [];
 
     return (
@@ -9458,7 +10077,7 @@ Through Counsel
             </View>
             <Text style={styles.contractLoaderTitle}>AI Contract Analyzer</Text>
             <Text style={styles.contractLoaderSubtitle}>Digitizing document layers & computing risk variables...</Text>
-            
+
             <View style={styles.loaderStepsContainer}>
               {contractAnalysisSteps.map((step, idx) => {
                 const isCompleted = activeContractAnalysisStep > idx;
@@ -9658,8 +10277,8 @@ Through Counsel
                   contentContainerStyle={styles.pillsContainer}
                 >
                   {[
-                    'All Clauses', 'High Risk', 'Medium Risk', 'Low Risk', 
-                    'Financial', 'Termination', 'Payment', 'Confidentiality', 
+                    'All Clauses', 'High Risk', 'Medium Risk', 'Low Risk',
+                    'Financial', 'Termination', 'Payment', 'Confidentiality',
                     'Dispute Resolution', 'Arbitration', 'Renewal', 'Liability', 'Compliance'
                   ].map((pill, idx) => {
                     const isActive = contractFilter === pill;
@@ -9690,7 +10309,7 @@ Through Counsel
                       const isHigh = clause.risk === 'High';
                       const isMed = clause.risk === 'Medium';
                       const riskColor = isHigh ? '#EF4444' : isMed ? '#F59E0B' : '#10B981';
-                      
+
                       return (
                         <View key={idx} style={styles.evidenceCard}>
                           <Pressable style={styles.evidenceCardMain} onPress={() => toggleClauseExpanded(idx)}>
@@ -9706,10 +10325,10 @@ Through Counsel
                                 {clause.original}
                               </Text>
                             </View>
-                            <Ionicons 
-                              name={isExpanded ? "chevron-up" : "chevron-down"} 
-                              size={16} 
-                              color="#9CA3AF" 
+                            <Ionicons
+                              name={isExpanded ? "chevron-up" : "chevron-down"}
+                              size={16}
+                              color="#9CA3AF"
                               style={{ marginLeft: 8, marginTop: 4 }}
                             />
                           </Pressable>
@@ -9720,7 +10339,7 @@ Through Counsel
                                 <Text style={styles.evidenceInputLabel}>AI Clause Summary</Text>
                                 <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 2 }}>{clause.summary}</Text>
                               </View>
-                              
+
                               <View>
                                 <Text style={styles.evidenceInputLabel}>AI Explanation & Vulnerabilities</Text>
                                 <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 2 }}>{clause.explanation}</Text>
@@ -9736,7 +10355,7 @@ Through Counsel
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                                 <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '600' }}>{clause.law}</Text>
                                 <View style={{ flexDirection: 'row', gap: 12, marginLeft: 'auto' }}>
-                                  <TouchableOpacity 
+                                  <TouchableOpacity
                                     onPress={() => {
                                       Clipboard.setString(clause.original);
                                       showToast('success', 'Copied', 'Original clause copied.');
@@ -9744,7 +10363,7 @@ Through Counsel
                                   >
                                     <Text style={{ fontSize: 11, color: '#6D5DFC', fontWeight: '700' }}>Copy</Text>
                                   </TouchableOpacity>
-                                  <TouchableOpacity 
+                                  <TouchableOpacity
                                     onPress={() => {
                                       showToast('success', 'Bookmarked', `${clause.number} saved in contract bookmarks.`);
                                     }}
@@ -9769,7 +10388,7 @@ Through Counsel
                 {/* Categorized Risks list */}
                 <View style={styles.metadataCard}>
                   <Text style={styles.sectionTitle}>AI Risk Analysis</Text>
-                  
+
                   {/* High Risk Group */}
                   <View style={{ marginBottom: 12 }}>
                     <Text style={[styles.findingsSubLabel, { color: '#EF4444' }]}>🚨 High Risk Terms</Text>
@@ -9781,7 +10400,7 @@ Through Counsel
                             <Ionicons name={expandedRisks['high_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#C53030" />
                           </View>
                           <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
-                          
+
                           {!!expandedRisks['high_' + i] && (
                             <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#FFE3E3', paddingTop: 8, gap: 6 }}>
                               <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
@@ -9805,7 +10424,7 @@ Through Counsel
                             <Ionicons name={expandedRisks['med_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#B45309" />
                           </View>
                           <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
-                          
+
                           {!!expandedRisks['med_' + i] && (
                             <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#FEF3C7', paddingTop: 8, gap: 6 }}>
                               <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
@@ -9829,7 +10448,7 @@ Through Counsel
                             <Ionicons name={expandedRisks['low_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#065F46" />
                           </View>
                           <Text style={{ fontSize: 12, color: '#4B5563', marginTop: 4 }}>Why: {risk.reason}</Text>
-                          
+
                           {!!expandedRisks['low_' + i] && (
                             <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#D1FAE5', paddingTop: 8, gap: 6 }}>
                               <Text style={{ fontSize: 11, color: '#4B5563' }}><Text style={{ fontWeight: '700' }}>Legal Consequences: </Text>{risk.consequences}</Text>
@@ -9847,15 +10466,15 @@ Through Counsel
                 <View style={styles.metadataCard}>
                   <Text style={styles.sectionTitle}>Missing Clauses Detected</Text>
                   <Text style={styles.linkagesSubtitle}>AI audited contract clauses that are missing from this draft.</Text>
-                  
+
                   {uploadedContract.missingClauses.map((clause: any, i: number) => (
                     <View key={i} style={[styles.evidenceCard, { marginTop: 8, borderColor: '#ECECEC' }]}>
                       <Pressable style={{ padding: 12 }} onPress={() => toggleMissingExpanded('missing_' + i)}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons 
-                            name="warning" 
-                            size={16} 
-                            color={clause.risk === 'High' ? '#EF4444' : '#F59E0B'} 
+                          <Ionicons
+                            name="warning"
+                            size={16}
+                            color={clause.risk === 'High' ? '#EF4444' : '#F59E0B'}
                           />
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontSize: 13, fontWeight: '700', color: '#1F2937' }}>{clause.title}</Text>
@@ -9865,7 +10484,7 @@ Through Counsel
                           </View>
                           <Ionicons name={expandedMissing['missing_' + i] ? "chevron-up" : "chevron-down"} size={14} color="#9CA3AF" />
                         </View>
-                        
+
                         {!!expandedMissing['missing_' + i] && (
                           <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 8 }}>
                             <Text style={{ fontSize: 11, color: '#4B5563', lineHeight: 15 }}>
@@ -9894,7 +10513,7 @@ Through Counsel
                       </Text>
                     </View>
                   </View>
-                  
+
                   <Text style={styles.findingsSubLabel}>Potential Risks Identified</Text>
                   <Text style={styles.findingsValue}>{uploadedContract.recommendations.potentialRisks}</Text>
 
@@ -9914,7 +10533,7 @@ Through Counsel
                 {/* Detailed Negotiation & Alternatives Suggestions Card */}
                 <View style={styles.metadataCard}>
                   <Text style={styles.sectionTitle}>Negotiation & Alternative Suggestion Lists</Text>
-                  
+
                   <Text style={styles.findingsSubLabel}>Negotiation Playbook Tips</Text>
                   {uploadedContract.suggestions.negotiation.map((t: string, i: number) => (
                     <View key={i} style={styles.bulletItem}>
@@ -9951,9 +10570,9 @@ Through Counsel
                 <View style={styles.metadataCard}>
                   <Text style={styles.sectionTitle}>Export Workspace Reports</Text>
                   <Text style={styles.linkagesSubtitle}>Generate and save detailed contract audit profiles locally.</Text>
-                  
+
                   <View style={{ gap: 8 }}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.formCancelBtn}
                       onPress={() => {
                         showToast('success', 'Export PDF', 'Commercial Lease Risk Report compiled to PDF.');
@@ -9961,8 +10580,8 @@ Through Counsel
                     >
                       <Text style={styles.formCancelBtnText}>Export PDF Analysis Report</Text>
                     </TouchableOpacity>
-                    
-                    <TouchableOpacity 
+
+                    <TouchableOpacity
                       style={styles.formCancelBtn}
                       onPress={() => {
                         showToast('success', 'Export DOCX', 'Suggested Clause Rewrites compiled to DOCX.');
@@ -9971,7 +10590,7 @@ Through Counsel
                       <Text style={styles.formCancelBtnText}>Export DOCX Clauses Audit</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.formCancelBtn}
                       onPress={() => {
                         showToast('success', 'Risk Report', 'Executive Summary Risk profile exported successfully.');
@@ -10078,7 +10697,7 @@ Through Counsel
 
     const filterArgumentsList = (list: any[]) => {
       return list.filter(arg => {
-        const matchesSearch = 
+        const matchesSearch =
           arg.title.toLowerCase().includes(argumentsSearchQuery.toLowerCase()) ||
           arg.description.toLowerCase().includes(argumentsSearchQuery.toLowerCase()) ||
           (arg.category && arg.category.toLowerCase().includes(argumentsSearchQuery.toLowerCase())) ||
@@ -10090,7 +10709,7 @@ Through Counsel
         if (argumentsFilter === 'High Priority') return arg.priority === 'High' || arg.priority === 'Critical';
         if (argumentsFilter === 'Medium') return arg.priority === 'Medium';
         if (argumentsFilter === 'Low') return arg.priority === 'Low';
-        
+
         const categoryLower = (arg.category || '').toLowerCase();
         const filterLower = argumentsFilter.toLowerCase();
         return categoryLower.includes(filterLower);
@@ -10116,8 +10735,8 @@ Through Counsel
     const prepScore = totalBinderTasks > 0 ? Math.round((completedBinderTasks / totalBinderTasks) * 100) : 0;
 
     const filterOptions = [
-      'All', 'High Priority', 'Medium', 'Low', 
-      'Contract', 'Property', 'Evidence', 'Procedure', 
+      'All', 'High Priority', 'Medium', 'Low',
+      'Contract', 'Property', 'Evidence', 'Procedure',
       'Jurisdiction', 'Civil', 'Criminal', 'Constitutional'
     ];
 
@@ -10295,7 +10914,7 @@ Through Counsel
               {/* Objections Probability */}
               <View style={[styles.itemCard, { flex: 1, padding: 12 }]}>
                 <Text style={{ fontWeight: '800', fontSize: 12, color: '#1F2937', marginBottom: 8 }}>Objection Probabilities</Text>
-                
+
                 {[
                   { name: 'Admissibility', pct: 85, color: '#EF4444' },
                   { name: 'Jurisdiction', pct: 35, color: '#F59E0B' },
@@ -10323,7 +10942,7 @@ Through Counsel
               {/* Evidence Mapping */}
               <View style={[styles.itemCard, { flex: 1, padding: 12 }]}>
                 <Text style={{ fontWeight: '800', fontSize: 12, color: '#1F2937', marginBottom: 8 }}>Evidence Mapping</Text>
-                
+
                 {[
                   { name: 'Execution Proof', state: 'Linked', verified: true },
                   { name: 'Bank Statement', state: 'Linked', verified: true },
@@ -10397,34 +11016,34 @@ Through Counsel
             {/* Empty State */}
             {((argumentsActiveSubTab === 'petitioner' && sortedPetitioner.length === 0) ||
               (argumentsActiveSubTab === 'respondent' && sortedRespondent.length === 0)) && (
-              <View style={[styles.centerContainer, { backgroundColor: '#F9FAFB', borderStyle: 'dashed', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingVertical: 32, marginTop: 12 }]}>
-                <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
-                <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', paddingHorizontal: 16 }}>
-                  No litigation arguments have been prepared yet.
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                  <TouchableOpacity
-                    style={{ backgroundColor: '#6D5DFC', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
-                    onPress={handleAutoAnalyzeArguments}
-                  >
-                    <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>Generate Arguments</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{ backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D1D5DB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
-                    onPress={() => openAddArgModal(argumentsActiveSubTab)}
-                  >
-                    <Text style={{ color: '#374151', fontSize: 10, fontWeight: '700' }}>Add Manual</Text>
-                  </TouchableOpacity>
+                <View style={[styles.centerContainer, { backgroundColor: '#F9FAFB', borderStyle: 'dashed', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingVertical: 32, marginTop: 12 }]}>
+                  <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
+                  <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', paddingHorizontal: 16 }}>
+                    No litigation arguments have been prepared yet.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#6D5DFC', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                      onPress={handleAutoAnalyzeArguments}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>Generate Arguments</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D1D5DB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                      onPress={() => openAddArgModal(argumentsActiveSubTab)}
+                    >
+                      <Text style={{ color: '#374151', fontSize: 10, fontWeight: '700' }}>Add Manual</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            )}
+              )}
 
             {/* Roster list */}
             <View style={styles.cardList}>
               {(argumentsActiveSubTab === 'petitioner' ? sortedPetitioner : sortedRespondent).map((arg) => {
                 const isExpanded = !!expandedArguments[arg.id];
                 const isPinned = !!pinnedArguments[arg.id];
-                
+
                 const getPriorityStyle = (p: string) => {
                   switch (p) {
                     case 'Critical': return { bg: '#FEE2E2', txt: '#991B1B' };
@@ -10592,7 +11211,7 @@ Through Counsel
                   </View>
                   <Text style={{ fontSize: 14, fontWeight: '800', color: '#DB2777' }}>{pred.probability}% Prob</Text>
                 </View>
-                
+
                 <View style={{ height: 6, backgroundColor: '#E5E7EB', borderRadius: 3, marginVertical: 8, overflow: 'hidden' }}>
                   <View style={{ height: '100%', width: `${pred.probability}%`, backgroundColor: '#DB2777' }} />
                 </View>
@@ -10678,7 +11297,7 @@ Through Counsel
                 </View>
                 <Text style={{ fontSize: 24, fontWeight: '900', color: '#10B981' }}>{prepScore}%</Text>
               </View>
-              
+
               <View style={{ height: 6, backgroundColor: '#E5E7EB', borderRadius: 3, marginTop: 8, overflow: 'hidden' }}>
                 <View style={{ height: '100%', width: `${prepScore}%`, backgroundColor: '#10B981' }} />
               </View>
@@ -10687,7 +11306,7 @@ Through Counsel
             {/* Checklist items */}
             <View style={styles.itemCard}>
               <Text style={{ fontWeight: '800', fontSize: 13, color: '#1F2937', marginBottom: 8 }}>Courtroom Preparation Checklist</Text>
-              
+
               {prepBinderTasks.map((t) => (
                 <Pressable
                   key={t.id}
@@ -10713,7 +11332,7 @@ Through Counsel
             <View style={styles.itemCard}>
               <Text style={styles.accordionTitle}>Oral Presentation Binder</Text>
               <View style={styles.dividerLine} />
-              
+
               <Text style={styles.inputLabel}>Opening Statement Pitch</Text>
               <Text style={[styles.lawDesc, { backgroundColor: '#F9FAFB', padding: 10, borderRadius: 8, fontStyle: 'italic', fontSize: 11, color: '#4B5563' }]}>
                 {strategyData.prepBinder.openingStatement}
@@ -10721,7 +11340,7 @@ Through Counsel
 
               <Text style={[styles.inputLabel, { marginTop: 10 }]}>Cross-Examination Outline</Text>
               {strategyData.prepBinder.crossExamination.map((q, i) => (
-                <Text key={i} style={{ fontSize: 11, color: '#4B5563', marginTop: 3 }}>{i+1}. {q}</Text>
+                <Text key={i} style={{ fontSize: 11, color: '#4B5563', marginTop: 3 }}>{i + 1}. {q}</Text>
               ))}
 
               <Text style={[styles.inputLabel, { marginTop: 10 }]}>Judge Queries Predicted</Text>
@@ -10745,7 +11364,7 @@ Through Counsel
     const pendingTasks = activeTasks.filter(t => t.status === 'Pending').length;
     const inProgressTasks = activeTasks.filter(t => t.status === 'In Progress').length;
     const completedTasks = activeTasks.filter(t => t.status === 'Completed').length;
-    
+
     const todayStr = new Date().toISOString().split('T')[0];
     const overdueTasks = activeTasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr).length;
     const aiSuggestedCount = aiSuggestedTasks.length;
@@ -10761,7 +11380,7 @@ Through Counsel
         const matchesHearing = (t.relatedHearing || '').toLowerCase().includes(query);
         const matchesEvidence = (t.relatedEvidence || '').toLowerCase().includes(query);
         const matchesDoc = (t.relatedDocument || '').toLowerCase().includes(query);
-        
+
         if (!matchesTitle && !matchesDesc && !matchesDeadline && !matchesHearing && !matchesEvidence && !matchesDoc) {
           return false;
         }
@@ -10810,8 +11429,8 @@ Through Counsel
     const completedGroup = filteredTasks.filter(t => t.status === 'Completed');
 
     const taskFilters = [
-      'All', 'Pending', 'In Progress', 'Completed', 'Overdue', 
-      'High Priority', 'Medium', 'Low', 'AI Suggested', 'Manual', 
+      'All', 'Pending', 'In Progress', 'Completed', 'Overdue',
+      'High Priority', 'Medium', 'Low', 'AI Suggested', 'Manual',
       'Hearing Related', 'Document Related', 'Evidence Related'
     ];
 
@@ -10844,7 +11463,7 @@ Through Counsel
     const renderTaskCard = (t: any) => {
       const isExpanded = !!expandedTasks[t._id!];
       const badge = getPriorityStyle(t.priority);
-      
+
       const checklist = t.checklist || [];
       const totalSub = checklist.length;
       const checkedSub = checklist.filter((c: any) => c.checked).length;
@@ -10854,25 +11473,25 @@ Through Counsel
         <View key={t._id} style={[styles.taskCard, isExpanded && styles.taskCardExpanded]}>
           {/* Card Summary Header */}
           <View style={styles.taskCardHeader}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => handleToggleTaskStatus(t._id!, t.status)}
               style={styles.checkboxContainer}
             >
-              <Ionicons 
-                name={t.status === 'Completed' ? 'checkbox' : 'square-outline'} 
-                size={22} 
-                color={t.status === 'Completed' ? '#10B981' : '#9CA3AF'} 
+              <Ionicons
+                name={t.status === 'Completed' ? 'checkbox' : 'square-outline'}
+                size={22}
+                color={t.status === 'Completed' ? '#10B981' : '#9CA3AF'}
               />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               onPress={() => toggleExpandTask(t._id!)}
               style={{ flex: 1, marginHorizontal: 8 }}
             >
               <Text style={[styles.taskCardTitle, t.status === 'Completed' && styles.taskItemTitleCompleted]}>
                 {t.title}
               </Text>
-              
+
               <View style={styles.badgeContainer}>
                 <View style={[styles.priorityBadge, { backgroundColor: badge.bg }]}>
                   <Text style={[styles.priorityBadgeText, { color: badge.txt }]}>{badge.label}</Text>
@@ -10924,10 +11543,10 @@ Through Counsel
                       onPress={() => handleToggleSubtask(t._id!, index)}
                       style={styles.checklistRow}
                     >
-                      <Ionicons 
-                        name={c.checked ? 'checkbox' : 'square-outline'} 
-                        size={16} 
-                        color={c.checked ? '#10B981' : '#6B7280'} 
+                      <Ionicons
+                        name={c.checked ? 'checkbox' : 'square-outline'}
+                        size={16}
+                        color={c.checked ? '#10B981' : '#6B7280'}
                       />
                       <Text style={[styles.checklistItemText, c.checked && styles.checklistItemTextCompleted]}>
                         {c.title}
@@ -10943,7 +11562,7 @@ Through Counsel
                   <Text style={styles.sectionSubTitle}>Linked Resources</Text>
                   <View style={styles.pillsRow}>
                     {t.relatedHearing ? (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => setActiveWorkspaceTab('hearings')}
                         style={[styles.linkPill, { backgroundColor: '#EEECFF' }]}
                       >
@@ -10952,7 +11571,7 @@ Through Counsel
                       </TouchableOpacity>
                     ) : null}
                     {t.relatedEvidence ? (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => setActiveWorkspaceTab('evidence')}
                         style={[styles.linkPill, { backgroundColor: '#ECFDF5' }]}
                       >
@@ -10961,7 +11580,7 @@ Through Counsel
                       </TouchableOpacity>
                     ) : null}
                     {t.relatedDocument ? (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => setActiveWorkspaceTab('documents')}
                         style={[styles.linkPill, { backgroundColor: '#F0FDF4' }]}
                       >
@@ -10970,7 +11589,7 @@ Through Counsel
                       </TouchableOpacity>
                     ) : null}
                     {t.relatedTimelineEvent ? (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => setActiveWorkspaceTab('timeline')}
                         style={[styles.linkPill, { backgroundColor: '#FFFBEB' }]}
                       >
@@ -10986,35 +11605,35 @@ Through Counsel
               <View style={styles.metaDetailsGrid}>
                 {t.assignTo ? (
                   <Text style={styles.metaText}>
-                    👤 <Text style={{fontWeight: '700'}}>Assignee:</Text> {t.assignTo}
+                    👤 <Text style={{ fontWeight: '700' }}>Assignee:</Text> {t.assignTo}
                   </Text>
                 ) : null}
                 {t.reminder && t.reminder !== 'None' ? (
                   <Text style={styles.metaText}>
-                    🔔 <Text style={{fontWeight: '700'}}>Reminder:</Text> {t.reminder}
+                    🔔 <Text style={{ fontWeight: '700' }}>Reminder:</Text> {t.reminder}
                   </Text>
                 ) : null}
               </View>
 
               {/* Action Buttons */}
               <View style={styles.cardActionsRow}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => handleDuplicateTask(t)}
                   style={styles.actionIconButton}
                 >
                   <Ionicons name="copy-outline" size={16} color="#4B5563" />
                   <Text style={styles.actionIconText}>Copy</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   onPress={() => handleOpenEditTaskModal(t)}
                   style={styles.actionIconButton}
                 >
                   <Ionicons name="create-outline" size={16} color="#4B5563" />
                   <Text style={styles.actionIconText}>Edit</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   onPress={() => handleDeleteTask(t._id!)}
                   style={[styles.actionIconButton, { borderRightWidth: 0 }]}
                 >
@@ -11095,7 +11714,7 @@ Through Counsel
 
         {/* Daily Brief Panel */}
         <View style={styles.aiBriefCard}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setAiTaskBriefOpen(!aiTaskBriefOpen)}
             style={styles.aiBriefHeader}
           >
@@ -11127,7 +11746,7 @@ Through Counsel
 
         {/* Weekly Planner Accordion */}
         <View style={styles.aiBriefCard}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setWeeklyPlannerOpen(!weeklyPlannerOpen)}
             style={styles.aiBriefHeader}
           >
@@ -11157,7 +11776,7 @@ Through Counsel
 
         {/* Quick Action Button Panel */}
         <View style={styles.quickActionRow}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.quickActionButton, { backgroundColor: '#6D5DFC' }]}
             onPress={() => {
               setTaskFormType('add');
@@ -11185,7 +11804,7 @@ Through Counsel
             <Text style={styles.quickActionButtonText}>Add Task</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.quickActionButton, { backgroundColor: '#8B5CF6' }]}
             onPress={handleAiGenerateTasks}
             disabled={isGeneratingAiTasks}
@@ -11200,7 +11819,7 @@ Through Counsel
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.quickActionButton, { backgroundColor: '#1E293B' }]}
             onPress={() => setIsVoiceTasksModalOpen(true)}
           >
@@ -11284,13 +11903,13 @@ Through Counsel
                     </Text>
                   </View>
                 </View>
-                
+
                 <Text style={styles.aiSuggestedCardReason}>
-                  💡 <Text style={{fontWeight: '700'}}>AI Reasoning:</Text> {sTask.reason}
+                  💡 <Text style={{ fontWeight: '700' }}>AI Reasoning:</Text> {sTask.reason}
                 </Text>
-                
+
                 <Text style={styles.aiSuggestedCardDue}>
-                  ⏳ <Text style={{fontWeight: '700'}}>Timeline Metric:</Text> {sTask.deadline}
+                  ⏳ <Text style={{ fontWeight: '700' }}>Timeline Metric:</Text> {sTask.deadline}
                 </Text>
 
                 <View style={styles.aiSuggestedCardActions}>
@@ -11331,7 +11950,7 @@ Through Counsel
                   <Ionicons name="close" size={24} color="#1F2937" />
                 </TouchableOpacity>
               </View>
-              
+
               <ScrollView style={styles.modalFormScroll}>
                 <Text style={styles.formLabel}>Task Title *</Text>
                 <TextInput
@@ -11356,14 +11975,14 @@ Through Counsel
                   <Text style={styles.formLabel}>Priority</Text>
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {['Critical', 'High', 'Medium', 'Low'].map(p => (
-                      <TouchableOpacity 
-                        key={p} 
+                      <TouchableOpacity
+                        key={p}
                         onPress={() => setTaskForm(prev => ({ ...prev, priority: p }))}
-                        style={{ 
-                          flex: 1, 
-                          padding: 8, 
-                          borderRadius: 6, 
-                          borderWidth: 1, 
+                        style={{
+                          flex: 1,
+                          padding: 8,
+                          borderRadius: 6,
+                          borderWidth: 1,
                           borderColor: taskForm.priority === p ? '#6D5DFC' : '#D1D5DB',
                           backgroundColor: taskForm.priority === p ? '#EEECFF' : '#FFFFFF',
                           alignItems: 'center'
@@ -11379,14 +11998,14 @@ Through Counsel
                   <Text style={styles.formLabel}>Status</Text>
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {['Pending', 'In Progress', 'Completed'].map(s => (
-                      <TouchableOpacity 
-                        key={s} 
+                      <TouchableOpacity
+                        key={s}
                         onPress={() => setTaskForm(prev => ({ ...prev, status: s }))}
-                        style={{ 
-                          flex: 1, 
-                          padding: 8, 
-                          borderRadius: 6, 
-                          borderWidth: 1, 
+                        style={{
+                          flex: 1,
+                          padding: 8,
+                          borderRadius: 6,
+                          borderWidth: 1,
                           borderColor: taskForm.status === s ? '#6D5DFC' : '#D1D5DB',
                           backgroundColor: taskForm.status === s ? '#EEECFF' : '#FFFFFF',
                           alignItems: 'center'
@@ -11415,14 +12034,14 @@ Through Counsel
                   <Text style={styles.formLabel}>Reminder</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                     {['None', '1 Hour Before', '1 Day Before', '2 Days Before'].map(r => (
-                      <TouchableOpacity 
-                        key={r} 
+                      <TouchableOpacity
+                        key={r}
                         onPress={() => setTaskForm(prev => ({ ...prev, reminder: r }))}
-                        style={{ 
-                          paddingHorizontal: 12, 
-                          paddingVertical: 8, 
-                          borderRadius: 6, 
-                          borderWidth: 1, 
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 6,
+                          borderWidth: 1,
                           borderColor: taskForm.reminder === r ? '#6D5DFC' : '#D1D5DB',
                           backgroundColor: taskForm.reminder === r ? '#EEECFF' : '#FFFFFF',
                           alignItems: 'center'
@@ -11491,7 +12110,7 @@ Through Counsel
                   value={taskForm.relatedHearing}
                   onChangeText={(text) => setTaskForm(prev => ({ ...prev, relatedHearing: text }))}
                 />
-                
+
                 <Text style={styles.formLabel}>Link to Evidence Exhibit</Text>
                 <TextInput
                   style={styles.formInput}
@@ -11548,7 +12167,7 @@ Through Counsel
                     style={styles.voicePresetBtn}
                   >
                     <Text style={styles.voicePresetBtnText}>
-                      💬 "Draft and file the written statement reply before Friday"
+                      {'💬 "Draft and file the written statement reply before Friday"'}
                     </Text>
                   </TouchableOpacity>
 
@@ -11557,7 +12176,7 @@ Through Counsel
                     style={styles.voicePresetBtn}
                   >
                     <Text style={styles.voicePresetBtnText}>
-                      💬 "Prepare the Section 65B Certificate for next hearing"
+                      {'💬 "Prepare the Section 65B Certificate for next hearing"'}
                     </Text>
                   </TouchableOpacity>
 
@@ -11566,7 +12185,7 @@ Through Counsel
                     style={styles.voicePresetBtn}
                   >
                     <Text style={styles.voicePresetBtnText}>
-                      💬 "Upload the speed post postal receipt today"
+                      {'💬 "Upload the speed post postal receipt today"'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -11596,7 +12215,7 @@ Through Counsel
                   disabled={isProcessingVoice}
                 >
                   <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                  <Text style={styles.modalBtnText}>Parse & Auto-Create</Text>
+                    <Text style={styles.modalBtnText}>Parse & Auto-Create</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setIsVoiceTasksModalOpen(false)}
@@ -11617,15 +12236,12 @@ Through Counsel
     if (!workspace) return null;
     // Filter and Sort Notes
     const filteredNotes = (workspace.notes || []).filter((note: any) => {
-      const matchesSearch = 
+      const matchesSearch =
         note.title.toLowerCase().includes(notesSearchQuery.toLowerCase()) ||
         note.content.toLowerCase().includes(notesSearchQuery.toLowerCase()) ||
-        (note.tags || []).some((t: string) => t.toLowerCase().includes(notesSearchQuery.toLowerCase()));
-      
-      if (notesFilter === 'All') return matchesSearch && !note.archived;
-      if (notesFilter === 'Favorites') return matchesSearch && !!note.favorite && !note.archived;
-      if (notesFilter === 'Archived') return matchesSearch && !!note.archived;
-      return matchesSearch && note.category === notesFilter && !note.archived;
+        (note.tags || []).some((t: string) => t.toLowerCase().includes(notesSearchQuery.toLowerCase())) ||
+        (note.category || '').toLowerCase().includes(notesSearchQuery.toLowerCase());
+      return matchesSearch && !note.archived;
     });
 
     const pinnedNotes = filteredNotes.filter((n: any) => !!n.pinned);
@@ -11648,126 +12264,90 @@ Through Counsel
           </View>
         </View>
 
-        {/* Notes Dashboard Overview metrics */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noteDashboardContainer}>
-          <View style={styles.noteMetricCard}>
-            <Text style={styles.noteMetricValue}>{(workspace.notes || []).length}</Text>
-            <Text style={styles.noteMetricLabel}>Total Notes</Text>
-          </View>
-          <View style={styles.noteMetricCard}>
-            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Strategy').length}</Text>
-            <Text style={styles.noteMetricLabel}>Strategy</Text>
-          </View>
-          <View style={styles.noteMetricCard}>
-            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Client Meeting').length}</Text>
-            <Text style={styles.noteMetricLabel}>Meetings</Text>
-          </View>
-          <View style={styles.noteMetricCard}>
-            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.category === 'Hearing').length}</Text>
-            <Text style={styles.noteMetricLabel}>Hearings</Text>
-          </View>
-          <View style={styles.noteMetricCard}>
-            <Text style={styles.noteMetricValue}>{(workspace.notes || []).filter(n => n.favorite).length}</Text>
-            <Text style={styles.noteMetricLabel}>Starred</Text>
-          </View>
-        </ScrollView>
+        {/* Top actions row */}
+        <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginVertical: 12 }}>
+          <TouchableOpacity 
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              backgroundColor: '#6D5DFC',
+              paddingVertical: 10,
+              borderRadius: 10,
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: 6,
+              height: 42
+            }}
+            onPress={handleOpenAddNoteModal}
+          >
+            <Ionicons name="add" size={18} color="#FFFFFF" />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#FFFFFF' }}>New Note</Text>
+          </TouchableOpacity>
 
-        {/* Quick Actions buttons */}
-        <View style={styles.noteQuickActionsBar}>
-          <TouchableOpacity style={styles.noteQuickActionBtn} onPress={handleOpenAddNoteModal}>
-            <Ionicons name="add-circle" size={18} color="#FFFFFF" />
-            <Text style={styles.noteQuickActionText}>Add Note</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.noteQuickActionBtn, { backgroundColor: '#10B981' }]} onPress={() => setIsVoiceNoteModalOpen(true)}>
-            <Ionicons name="mic" size={18} color="#FFFFFF" />
-            <Text style={styles.noteQuickActionText}>Voice Note</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.noteQuickActionBtn, { backgroundColor: '#8B5CF6' }]} onPress={() => setAiInsightsOpen(!aiInsightsOpen)}>
-            <Ionicons name="analytics" size={18} color="#FFFFFF" />
-            <Text style={styles.noteQuickActionText}>AI Insights</Text>
+          <TouchableOpacity 
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              backgroundColor: '#FFFFFF',
+              borderColor: '#6D5DFC',
+              borderWidth: 1.5,
+              paddingVertical: 10,
+              borderRadius: 10,
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: 6,
+              height: 42
+            }}
+            onPress={() => setIsVoiceNoteModalOpen(true)}
+          >
+            <Ionicons name="mic" size={18} color="#6D5DFC" />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#6D5DFC' }}>Voice Note</Text>
           </TouchableOpacity>
         </View>
 
-        {/* AI Second Brain Insights Panel */}
-        {aiInsightsOpen && (
-          <View style={styles.noteAiInsightsPanel}>
-            <Text style={styles.noteAiInsightsTitle}>🧠 Co-Counsel Second Brain Insights</Text>
-            <Text style={styles.noteAiInsightsSubtitle}>Key Mentions & Recurring Patterns:</Text>
-            
-            <View style={styles.noteAiInsightsSection}>
-              <Text style={styles.noteAiInsightsHeading}>👤 People Mentioned:</Text>
-              <View style={styles.noteAiInsightsRow}>
-                <Text style={styles.noteEntityChip}>Client (Plaintiff)</Text>
-                <Text style={styles.noteEntityChip}>Justice Rao</Text>
-                <Text style={styles.noteEntityChip}>Opponent Lawyer</Text>
-              </View>
-            </View>
-            
-            <View style={styles.noteAiInsightsSection}>
-              <Text style={styles.noteAiInsightsHeading}>📜 Governing Laws & Evidence:</Text>
-              <View style={styles.noteAiInsightsRow}>
-                <Text style={styles.noteEntityChip}>Limitation Act Section 3</Text>
-                <Text style={styles.noteEntityChip}>CPC Section 20</Text>
-                <Text style={styles.noteEntityChip}>Original Sale Deed</Text>
-              </View>
-            </View>
-            
-            <View style={styles.noteAiInsightsSection}>
-              <Text style={styles.noteAiInsightsHeading}>⚠️ Pending Strategy Risks:</Text>
-              <Text style={styles.noteAiInsightsText}>• Ensure Section 65B Electronic Evidence Certificate is signed before interim stay hearing.</Text>
-              <Text style={styles.noteAiInsightsText}>• Obtain certified postal service logs from client speed post dispatch.</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Search bar */}
-        <View style={styles.noteSearchBarRow}>
-          <Ionicons name="search" size={18} color="#9CA3AF" style={styles.noteSearchIcon} />
+        {/* Search Notes input */}
+        <View style={[styles.noteSearchBarRow, { marginHorizontal: 16, marginBottom: 12 }]}>
+          <Ionicons name="search" size={16} color="#9CA3AF" style={{ marginRight: 8 }} />
           <TextInput
-            style={styles.noteSearchInput}
-            placeholder="Search notes by title, entities, acts, dates..."
-            placeholderTextColor="#9CA3AF"
+            placeholder="Search notes, tags, acts, dates..."
             value={notesSearchQuery}
             onChangeText={setNotesSearchQuery}
+            placeholderTextColor="#9CA3AF"
+            style={[styles.noteSearchInput, { flex: 1, fontSize: 13 }]}
           />
-        </View>
-
-        {/* Horizontal filters chip scroll bar */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noteFiltersRow}>
-          {['All', 'Strategy', 'Client Meeting', 'Hearing', 'Personal', 'Favorites', 'Archived'].map((item) => (
-            <TouchableOpacity
-              key={item}
-              style={[styles.noteFilterChip, notesFilter === item && styles.noteFilterChipActive]}
-              onPress={() => setNotesFilter(item)}
-            >
-              <Text style={[styles.noteFilterChipText, notesFilter === item && styles.noteFilterChipTextActive]}>
-                {item}
-              </Text>
+          {notesSearchQuery !== '' && (
+            <TouchableOpacity onPress={() => setNotesSearchQuery('')}>
+              <Ionicons name="close-circle" size={16} color="#9CA3AF" />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          )}
+        </View>
 
         {/* Pinned section list banner */}
         {pinnedNotes.length > 0 && (
-          <View>
-            <Text style={styles.noteListHeading}>📌 Pinned Notes</Text>
+          <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+            <Text style={[styles.noteListHeading, { fontSize: 13, color: theme.textSecondary }]}>📌 Pinned Notes</Text>
             {pinnedNotes.map((note) => renderNoteCardItem(note))}
           </View>
         )}
 
         {/* Case Notes roster list */}
-        <Text style={styles.noteListHeading}>📝 Case Notes</Text>
-        {otherNotes.length === 0 && pinnedNotes.length === 0 ? (
-          <View style={styles.noteEmptyState}>
-            <Ionicons name="document-text-outline" size={48} color="#9CA3AF" />
-            <Text style={styles.noteEmptyText}>No case notes found matching search filters.</Text>
-            <TouchableOpacity style={styles.noteEmptyBtn} onPress={handleOpenAddNoteModal}>
-              <Text style={styles.noteEmptyBtnText}>Write First Note</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          otherNotes.map((note) => renderNoteCardItem(note))
-        )}
+        <View style={{ marginHorizontal: 16 }}>
+          <Text style={[styles.noteListHeading, { fontSize: 13, color: theme.textSecondary }]}>📝 Case Notes</Text>
+          {otherNotes.length === 0 && pinnedNotes.length === 0 ? (
+            <View style={styles.noteEmptyState}>
+              <Ionicons name="document-text-outline" size={40} color="#9CA3AF" />
+              <Text style={styles.noteEmptyText}>No case notes found matching search filters.</Text>
+              <TouchableOpacity 
+                style={[styles.noteEmptyBtn, { backgroundColor: '#6D5DFC' }]} 
+                onPress={handleOpenAddNoteModal}
+              >
+                <Text style={styles.noteEmptyBtnText}>Write First Note</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            otherNotes.map((note) => renderNoteCardItem(note))
+          )}
+        </View>
 
         {/* Note Editor and Template Creation Modal */}
         {renderNoteFormModal()}
@@ -11783,278 +12363,139 @@ Through Counsel
 
   // Render Note Card Item Layout
   const renderNoteCardItem = (note: any) => {
-    const isExpanded = !!expandedNotes[note._id || note.id];
-    
+    // Format date nicely
+    const formattedDate = () => {
+      const d = new Date(note.createdAt);
+      const today = new Date();
+      if (d.toDateString() === today.toDateString()) {
+        return `Today • ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+      return `${d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })} • ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    };
+
+    const handleLongPress = () => {
+      Alert.alert(
+        'Delete Note',
+        `Are you sure you want to delete "${note.title}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              if (!workspace) return;
+              const updatedNotes = (workspace.notes || []).filter((n: any) => (n._id || n.id) !== (note._id || note.id));
+              await handleUpdateField({ notes: updatedNotes });
+              showToast('success', 'Note Deleted', 'Case note removed successfully.');
+            }
+          }
+        ]
+      );
+    };
+
+    const handleGenerateAiSummary = () => {
+      Alert.alert(
+        '✨ AI Co-Counsel Summary',
+        `Title: ${note.title}\n\nSummary:\n- AI summary generated on demand for this case brief.\n\nAction Items:\n- Validate timeline details.\n- Extract cited statutes.\n\nLegal Risks:\n- Double-check limitation deadlines.`,
+        [{ text: 'Close', style: 'cancel' }]
+      );
+    };
+
     return (
-      <View key={note._id || note.id} style={[styles.noteCard, isExpanded && styles.noteCardExpanded]}>
-        {/* Card Header information */}
-        <View style={styles.noteCardHeader}>
-          <TouchableOpacity 
-            style={styles.noteFavoriteTouch}
-            onPress={() => handleToggleFavoriteNote(note._id || note.id)}
-          >
-            <Ionicons 
-              name={note.favorite ? "star" : "star-outline"} 
-              size={18} 
-              color={note.favorite ? "#F59E0B" : "#9CA3AF"} 
-            />
-          </TouchableOpacity>
-          
-          <View style={styles.noteHeaderMetaRow}>
-            <Text style={styles.noteCategoryTag}>{note.category}</Text>
-            <Text style={[
-              styles.notePriorityBadge, 
-              note.priority === 'Critical' ? styles.notePriorityCritical : 
-              note.priority === 'High' ? styles.notePriorityHigh : 
-              note.priority === 'Low' ? styles.notePriorityLow : styles.notePriorityMedium
-            ]}>
-              {note.priority}
-            </Text>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.notePinTouch} 
-            onPress={() => handleTogglePinNote(note._id || note.id)}
-          >
-            <Ionicons 
-              name={note.pinned ? "pin" : "pin-outline"} 
-              size={16} 
-              color={note.pinned ? "#6D5DFC" : "#9CA3AF"} 
-            />
-          </TouchableOpacity>
+      <TouchableOpacity
+        key={note._id || note.id}
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          padding: 12,
+          borderWidth: 1,
+          borderColor: '#E2E8F0',
+          marginBottom: 10,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+        onPress={() => {
+          setNoteFormType('edit');
+          setNoteFormTargetId(note._id || note.id);
+          setNoteForm({
+            title: note.title,
+            category: note.category || 'General',
+            content: note.content,
+            tags: note.tags || [],
+            priority: note.priority || 'Medium',
+            favorite: !!note.favorite,
+            pinned: !!note.pinned,
+            relatedHearing: note.relatedHearing || '',
+            relatedTimelineEvent: note.relatedTimelineEvent || '',
+            relatedEvidence: note.relatedEvidence || '',
+            relatedArgument: note.relatedArgument || '',
+            relatedResearch: note.relatedResearch || '',
+            meetingWith: note.meetingWith || '',
+            meetingLocation: note.meetingLocation || '',
+            meetingDate: note.meetingDate || '',
+            discussion: note.discussion || '',
+            decisions: note.decisions || '',
+            followUp: note.followUp || '',
+            judge: note.judge || '',
+            court: note.court || '',
+            hearingDate: note.hearingDate || '',
+            proceedings: note.proceedings || '',
+            orders: note.orders || '',
+            judgeRemarks: note.judgeRemarks || '',
+            opponentArguments: note.opponentArguments || '',
+            opponentStrategy: note.opponentStrategy || '',
+            counterStrategy: note.counterStrategy || '',
+            importantAuthorities: note.importantAuthorities || '',
+            weaknesses: note.weaknesses || '',
+            risks: note.risks || '',
+            observations: note.observations || '',
+            winningArguments: note.winningArguments || '',
+            researchRequired: note.researchRequired || '',
+          });
+          setIsNoteFormModalOpen(true);
+        }}
+        onLongPress={handleLongPress}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <Text style={{ fontSize: 14, fontWeight: '800', color: theme.textPrimary }}>
+            📝 {note.title}
+          </Text>
+          {note.pinned && (
+            <Ionicons name="pin" size={14} color="#6D5DFC" />
+          )}
         </View>
 
-        {/* Note content title and description */}
-        <TouchableOpacity 
-          style={styles.noteClickArea}
-          onPress={() => {
-            setExpandedNotes({
-              ...expandedNotes,
-              [note._id || note.id]: !isExpanded
-            });
-          }}
+        <Text 
+          style={{ fontSize: 12, color: '#4B5563', lineHeight: 16, marginBottom: 8 }} 
+          numberOfLines={2}
         >
-          <Text style={styles.noteCardTitle}>{note.title}</Text>
-          <Text 
-            style={styles.noteCardDescription}
-            numberOfLines={isExpanded ? undefined : 3}
-          >
-            {note.content}
+          {note.content || 'No description preview.'}
+        </Text>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+          {(note.tags || []).map((tag: string, index: number) => (
+            <Text key={index} style={{ fontSize: 10, fontWeight: '600', color: '#6D5DFC', backgroundColor: 'rgba(109, 93, 252, 0.08)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+              #{tag}
+            </Text>
+          ))}
+        </View>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 8 }}>
+          <Text style={{ fontSize: 10, color: '#94A3B8' }}>
+            {formattedDate()}
           </Text>
-          
-          {/* Starred linkages count */}
-          {!isExpanded && (
-            <View style={styles.noteFooterSummaryRow}>
-              <Text style={styles.noteFooterSummaryText}>
-                🗓️ {new Date(note.createdAt).toLocaleDateString()}
-              </Text>
-              <Text style={styles.noteFooterSummaryText}>
-                🏷️ {(note.tags || []).length} Tags
-              </Text>
-              <Text style={styles.noteFooterSummaryText}>
-                🧠 AI Summarized
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
 
-        {/* Drawer Collapsible Expanded Block */}
-        {isExpanded && (
-          <View style={styles.noteDrawerContent}>
-            {/* Rich formatting toolbar simulation */}
-            <View style={styles.noteToolbarRow}>
-              <TouchableOpacity 
-                style={[styles.noteToolbarBtn, noteIsBold && styles.noteToolbarBtnActive]}
-                onPress={() => setNoteIsBold(!noteIsBold)}
-              >
-                <Ionicons name="bold" size={14} color={noteIsBold ? "#6D5DFC" : "#4B5563"} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.noteToolbarBtn, noteIsItalic && styles.noteToolbarBtnActive]}
-                onPress={() => setNoteIsItalic(!noteIsItalic)}
-              >
-                <Ionicons name="italic" size={14} color={noteIsItalic ? "#6D5DFC" : "#4B5563"} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.noteToolbarBtn, noteIsUnderline && styles.noteToolbarBtnActive]}
-                onPress={() => setNoteIsUnderline(!noteIsUnderline)}
-              >
-                <Ionicons name="underline" size={14} color={noteIsUnderline ? "#6D5DFC" : "#4B5563"} />
-              </TouchableOpacity>
-              <View style={styles.noteToolbarDivider} />
-              <TouchableOpacity style={styles.noteToolbarBtn}>
-                <Ionicons name="list" size={14} color="#4B5563" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.noteToolbarBtn}>
-                <Ionicons name="link" size={14} color="#4B5563" />
-              </TouchableOpacity>
-              <View style={styles.noteToolbarDivider} />
-              <TouchableOpacity style={styles.noteToolbarBtn} onPress={() => showToast('info', 'Autosave Status', 'Document changes are automatically saved.')}>
-                <Ionicons name="save-outline" size={14} color="#4B5563" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Note text editor area */}
-            <TextInput
-              style={[
-                styles.noteTextEditorArea, 
-                noteIsBold && { fontWeight: '700' },
-                noteIsItalic && { fontStyle: 'italic' },
-                noteIsUnderline && { textDecorationLine: 'underline' }
-              ]}
-              multiline
-              placeholder="Case memo observative notes text..."
-              value={note.content}
-              onChangeText={(text) => {
-                // Autosave inline simulation update
-                const updatedNotes = (workspace?.notes || []).map((n: any) => 
-                  (n._id === note._id || n.id === note.id) ? { ...n, content: text, updatedAt: new Date().toISOString() } : n
-                );
-                handleUpdateField({ notes: updatedNotes });
-              }}
-            />
-
-            {/* AI Summary Findings Accordion block */}
-            <View style={styles.noteAiFindingsBox}>
-              <Text style={styles.noteAiFindingsTitle}>🧠 AI Co-Counsel Analysis</Text>
-              
-              <Text style={styles.noteAiFindingsHeading}>Summary Paragraph:</Text>
-              <Text style={styles.noteAiFindingsText}>
-                {note.aiSummary?.shortSummary || "AI summary compilation loading details..."}
-              </Text>
-              
-              {note.aiSummary?.keyPoints && note.aiSummary.keyPoints.length > 0 && (
-                <View>
-                  <Text style={styles.noteAiFindingsHeading}>Key Observations:</Text>
-                  {note.aiSummary.keyPoints.map((kp: string, idx: number) => (
-                    <Text key={idx} style={styles.noteAiFindingsBullet}>• {kp}</Text>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            {/* Click-to-copy Entity Chips */}
-            {note.aiEntities && note.aiEntities.length > 0 && (
-              <View style={styles.noteEntitiesContainer}>
-                <Text style={styles.noteEntitiesTitle}>🏷️ Extracted Legal Entities (Click to copy):</Text>
-                <View style={styles.noteEntitiesFlex}>
-                  {note.aiEntities.map((ent: any, idx: number) => (
-                    <TouchableOpacity 
-                      key={idx} 
-                      style={styles.noteEntityTouchChip}
-                      onPress={() => {
-                        Clipboard.setString(ent.text);
-                        showToast('success', 'Copied to Clipboard', `"${ent.text}" successfully copied.`);
-                      }}
-                    >
-                      <Text style={styles.noteEntityTouchChipText}>
-                        {ent.text} <Text style={styles.noteEntityTouchChipType}>({ent.type})</Text>
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Suggested Linkages Checkbox rows */}
-            {note.aiSuggestedLinks && note.aiSuggestedLinks.length > 0 && (
-              <View style={styles.noteEntitiesContainer}>
-                <Text style={styles.noteEntitiesTitle}>🔗 AI Smart Link suggestions:</Text>
-                {note.aiSuggestedLinks.map((link: any, idx: number) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={styles.noteLinkageCheckboxRow}
-                    onPress={() => handleConfirmSuggestedLink(note._id || note.id, idx)}
-                  >
-                    <Ionicons 
-                      name={link.confirmed ? "checkbox" : "square-outline"} 
-                      size={18} 
-                      color={link.confirmed ? "#6D5DFC" : "#4B5563"} 
-                    />
-                    <Text style={[styles.noteLinkageCheckboxText, link.confirmed && styles.noteLinkageCheckboxTextConfirmed]}>
-                      Link to {link.type}: "{link.targetName}" {link.confirmed ? '(Linked)' : '(Confirm Link)'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Suggested action triggers */}
-            {note.aiSuggestedActions && note.aiSuggestedActions.length > 0 && (
-              <View style={styles.noteEntitiesContainer}>
-                <Text style={styles.noteEntitiesTitle}>⚡ AI Recommended strategic actions:</Text>
-                <View style={styles.noteActionsFlex}>
-                  {note.aiSuggestedActions.map((act: any, idx: number) => (
-                    <TouchableOpacity 
-                      key={idx}
-                      disabled={!!act.accepted}
-                      style={[styles.noteActionRowTouch, act.accepted && styles.noteActionRowTouchDisabled]}
-                      onPress={() => handleAcceptSuggestedAction(note._id || note.id, idx)}
-                    >
-                      <Ionicons 
-                        name={act.accepted ? "checkmark-circle" : "arrow-forward-circle"} 
-                        size={16} 
-                        color={act.accepted ? "#10B981" : "#FFFFFF"} 
-                      />
-                      <Text style={styles.noteActionRowTouchText}>
-                        {act.accepted ? `Initiated: ${act.description}` : `Execute: ${act.description}`}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Versions History button list */}
-            <View style={styles.noteHistoryRow}>
-              <Text style={styles.noteHistoryLabel}>
-                🗓️ Revised: {new Date(note.updatedAt || note.createdAt).toLocaleString()}
-              </Text>
-              <TouchableOpacity 
-                style={styles.noteHistoryBtn}
-                onPress={() => handleOpenVersionHistory(note)}
-              >
-                <Ionicons name="time" size={14} color="#6D5DFC" />
-                <Text style={styles.noteHistoryBtnText}>
-                  Versions ({(note.versions || []).length})
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Note cards secondary footer action icons */}
-            <View style={styles.noteCardActionsRow}>
-              <TouchableOpacity 
-                style={styles.noteCardIconBtn} 
-                onPress={() => handleOpenEditNoteModal(note)}
-              >
-                <Ionicons name="create" size={18} color="#6D5DFC" />
-                <Text style={styles.noteCardIconText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.noteCardIconBtn} 
-                onPress={() => handleDuplicateNote(note)}
-              >
-                <Ionicons name="copy" size={18} color="#4B5563" />
-                <Text style={styles.noteCardIconText}>Clone</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.noteCardIconBtn} 
-                onPress={() => handleToggleArchiveNote(note._id || note.id)}
-              >
-                <Ionicons name="archive" size={18} color="#4B5563" />
-                <Text style={styles.noteCardIconText}>Archive</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.noteCardIconBtn, styles.noteCardIconBtnDanger]}
-                onPress={() => handleDeleteNote(note._id || note.id)}
-              >
-                <Ionicons name="trash" size={18} color="#EF4444" />
-                <Text style={[styles.noteCardIconText, { color: '#EF4444' }]}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </View>
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(109, 93, 252, 0.08)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}
+            onPress={handleGenerateAiSummary}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#6D5DFC' }}>✨ AI Summary</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -12067,8 +12508,8 @@ Through Counsel
         transparent={true}
         onRequestClose={() => setIsNoteFormModalOpen(false)}
       >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.noteModalOverlay}
         >
           <View style={styles.noteModalContent}>
@@ -12155,7 +12596,7 @@ Through Counsel
               {noteForm.category === 'Client Meeting' && (
                 <View style={styles.noteTemplateSection}>
                   <Text style={styles.noteTemplateTitle}>👥 Client Meeting Template Fields</Text>
-                  
+
                   <Text style={styles.noteFormLabel}>Attendees (Meeting With)</Text>
                   <TextInput
                     style={styles.noteFormInput}
@@ -12209,7 +12650,7 @@ Through Counsel
               {noteForm.category === 'Hearing' && (
                 <View style={styles.noteTemplateSection}>
                   <Text style={styles.noteTemplateTitle}>🏛️ Court Hearing Template Fields</Text>
-                  
+
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.noteFormLabel}>Judge</Text>
@@ -12268,7 +12709,7 @@ Through Counsel
               {noteForm.category === 'Strategy' && (
                 <View style={styles.noteTemplateSection}>
                   <Text style={styles.noteTemplateTitle}>💡 Strategy & Argument Plan Fields</Text>
-                  
+
                   <Text style={styles.noteFormLabel}>Winning Legal Arguments</Text>
                   <TextInput
                     style={[styles.noteFormInput, { height: 60 }]}
@@ -12312,7 +12753,7 @@ Through Counsel
 
               {/* Rich editor memo textarea */}
               <Text style={styles.noteFormLabel}>Detailed Memo Content</Text>
-              
+
               {/* editor toolbar */}
               <View style={styles.noteFormToolbarRow}>
                 <TouchableOpacity style={styles.noteFormToolbarIcon}><Ionicons name="bold" size={14} color="#4B5563" /></TouchableOpacity>
@@ -12365,13 +12806,13 @@ Through Counsel
 
             {/* Actions footer */}
             <View style={styles.noteModalActionsRow}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.noteFormCancelBtn}
                 onPress={() => setIsNoteFormModalOpen(false)}
               >
                 <Text style={styles.noteFormCancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.noteFormSaveBtn}
                 onPress={handleSaveNote}
               >
@@ -12414,7 +12855,7 @@ Through Counsel
                   <Text style={styles.voiceNoteRecordHeading}>
                     {isRecordingVoice ? "🎤 Recording Advocate Observations..." : "Ready to Record"}
                   </Text>
-                  
+
                   {/* Simulated wave forms graphic */}
                   <View style={styles.voiceNoteWaveformRow}>
                     <View style={[styles.voiceNoteWaveformBar, isRecordingVoice && { height: 40, backgroundColor: '#6D5DFC' }]} />
@@ -12429,7 +12870,7 @@ Through Counsel
                     {isRecordingVoice ? "00:08 Sec" : "00:00 Sec"}
                   </Text>
 
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.voiceNoteRecordBtn, isRecordingVoice && styles.voiceNoteRecordBtnActive]}
                     onPress={handleRecordVoiceNote}
                   >
@@ -12481,7 +12922,7 @@ Through Counsel
                     <Text style={styles.noteVersionItemCardContent} numberOfLines={3}>
                       {ver.content}
                     </Text>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.noteVersionItemRestoreBtn}
                       onPress={() => handleRestoreNoteVersion(ver.content)}
                     >
@@ -12547,7 +12988,7 @@ Through Counsel
           <View style={styles.itemCard}>
             <Text style={styles.inputLabel}>Critical Weaknesses</Text>
             <Text style={styles.lawDesc}>{critVulnerabilities}</Text>
-            
+
             <Text style={[styles.inputLabel, { marginTop: 10 }]}>Predicted Opponent Strategy</Text>
             <Text style={styles.lawDesc}>{opponentStr}</Text>
 
@@ -12587,8 +13028,8 @@ Through Counsel
               <Text style={[styles.winProbValue, { fontSize: isSufficient ? 20 : 14, color: isSufficient ? '#10B981' : '#EF4444' }]}>{winProbStr}</Text>
             </View>
             <Text style={[styles.lawDesc, { marginTop: 6 }]}>
-              {!isSufficient 
-                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.' 
+              {!isSufficient
+                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.'
                 : 'Based on verified evidence completeness, legal enforceability, and document quality.'}
             </Text>
           </View>
@@ -12599,8 +13040,8 @@ Through Counsel
               <Text style={[styles.winProbValue, { fontSize: isSufficient ? 20 : 14, color: isSufficient ? '#6D5DFC' : '#F59E0B' }]}>{strengthStr}</Text>
             </View>
             <Text style={[styles.lawDesc, { marginTop: 6 }]}>
-              {!isSufficient 
-                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.' 
+              {!isSufficient
+                ? 'Complete case facts and upload supporting evidence to generate reliable AI predictions.'
                 : 'Overall case document index and research coverage completeness.'}
             </Text>
           </View>
@@ -12639,7 +13080,7 @@ Through Counsel
 
         <View style={styles.itemCard}>
           <Text style={styles.accordionTitle}>Log Communication Audit</Text>
-          
+
           <Text style={[styles.inputLabel, { marginTop: 6 }]}>Log Type</Text>
           <View style={styles.templateSelection}>
             {['Call', 'Email', 'Meeting', 'Court'].map((t) => (
@@ -12731,13 +13172,13 @@ Through Counsel
       const hasHearings = workspace?.hearings && workspace.hearings.length > 0;
       const hasCourtOrders = workspace?.courtOrders && workspace.courtOrders.length > 0;
       const hasDocuments = workspace?.documents && workspace.documents.length > 0;
-      const hasContracts = (workspace?.drafts && workspace.drafts.length > 0) || 
-                           (workspace?.documents || []).some((d: any) => 
-                               (d.name || '').toLowerCase().includes('contract') || 
-                               (d.name || '').toLowerCase().includes('agreement') ||
-                               (d.type || '').toLowerCase().includes('agreement') ||
-                               (d.type || '').toLowerCase().includes('contract')
-                           );
+      const hasContracts = (workspace?.drafts && workspace.drafts.length > 0) ||
+        (workspace?.documents || []).some((d: any) =>
+          (d.name || '').toLowerCase().includes('contract') ||
+          (d.name || '').toLowerCase().includes('agreement') ||
+          (d.type || '').toLowerCase().includes('agreement') ||
+          (d.type || '').toLowerCase().includes('contract')
+        );
       const hasResearch = workspace?.research && workspace.research.length > 0;
       const hasNotes = workspace?.notes && workspace.notes.length > 0;
 
@@ -12768,7 +13209,7 @@ Through Counsel
           <View style={{ alignItems: 'center', marginVertical: 20 }}>
             <Text style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 }}>Case Readiness Score</Text>
             <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 16 }}>Meet minimum workspace requirements for zero-hallucination analysis</Text>
-            
+
             {/* Circular Gauge Score */}
             <View style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 8, borderColor: readinessScore >= 70 ? theme.success : readinessScore >= 40 ? theme.warning : theme.danger, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}>
               <Text style={{ fontSize: 36, fontWeight: '900', color: theme.textPrimary }}>{readinessScore}%</Text>
@@ -12782,10 +13223,10 @@ Through Counsel
             {checklistItems.map((item) => (
               <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                  <Ionicons 
-                    name={item.checked ? "checkbox" : "square-outline"} 
-                    size={20} 
-                    color={item.checked ? theme.success : theme.textMuted} 
+                  <Ionicons
+                    name={item.checked ? "checkbox" : "square-outline"}
+                    size={20}
+                    color={item.checked ? theme.success : theme.textMuted}
                     style={{ marginRight: 10 }}
                   />
                   <Text style={{ fontSize: 13, color: item.checked ? theme.textPrimary : theme.textSecondary, textDecorationLine: item.checked ? 'line-through' : 'none' }}>
@@ -12888,7 +13329,7 @@ Through Counsel
         </View>
 
         {/* Expandable Accordions */}
-        
+
         {/* Accordion 1: Executive Case Summary */}
         <View style={styles.analysisAccordionCard}>
           <TouchableOpacity style={styles.analysisAccordionHeader} onPress={() => toggleSection('summary')}>
@@ -13311,7 +13752,7 @@ Through Counsel
 
     return (
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-        
+
         {/* Header Card with Edit Button */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary }}>Case Information</Text>
@@ -13326,7 +13767,7 @@ Through Counsel
 
         {/* SECTION 1: CASE INFORMATION */}
         <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1.5, borderColor: theme.border, padding: 16, marginBottom: 20 }}>
-          
+
           {/* Identity Sub-section */}
           <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary, letterSpacing: 0.5, marginBottom: 12 }}>IDENTITY</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
@@ -13474,7 +13915,7 @@ Through Counsel
                 <Ionicons name="sync" size={13} color={theme.primary} style={{ marginRight: 4 }} />
                 <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.primary }}>Regenerate</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={{ backgroundColor: `${theme.primary}12`, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
                 onPress={() => {
@@ -13516,6 +13957,15 @@ Through Counsel
     );
   };
 
+  const renderClientConnectTab = () => {
+    if (!workspace) return null;
+    return (
+      <View style={{ flex: 1, padding: 16 }}>
+        <ClientConnectModule caseData={workspace} onUpdate={() => id && fetchWorkspaceDetails(id)} />
+      </View>
+    );
+  };
+
   // Render sub-section layouts
   const renderActiveSection = () => {
     switch (activeWorkspaceTab) {
@@ -13530,9 +13980,8 @@ Through Counsel
       case 'parties':
         return renderPartiesTab();
       case 'documents':
-        return renderDocumentsTab();
       case 'evidence':
-        return renderEvidenceTab();
+        return renderDocumentsTab();
       case 'research':
         return renderResearchTab();
       case 'drafts':
@@ -13541,6 +13990,8 @@ Through Counsel
         return renderContractsTab();
       case 'arguments':
         return renderArgumentsTab();
+      case 'client-connect':
+        return renderClientConnectTab();
       case 'tasks':
         return renderTasksTab();
       case 'notes':
@@ -13563,22 +14014,22 @@ Through Counsel
   const renderValidationErrorModal = () => {
     if (!validationError) return null;
     const isGarbage = validationError.type === 'garbage_summary';
-    
+
     return (
       <Modal visible={showValidationErrorModal} transparent={true} animationType="fade">
         <View style={styles.analysisErrorOverlay}>
           <View style={[styles.analysisErrorModalContent, { width: '90%', padding: 24, borderRadius: 16 }]}>
-            <Ionicons 
-              name={isGarbage ? "alert-circle" : "shield-alert"} 
-              size={48} 
-              color={theme.danger} 
-              style={{ marginBottom: 12 }} 
+            <Ionicons
+              name={isGarbage ? "alert-circle" : "shield-alert"}
+              size={48}
+              color={theme.danger}
+              style={{ marginBottom: 12 }}
             />
             <Text style={[styles.analysisErrorModalTitle, { fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 8 }]}>
               {isGarbage ? 'Invalid Case Summary' : 'Insufficient Case Details'}
             </Text>
             <Text style={[styles.analysisErrorModalDesc, { fontSize: 13, color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
-              {isGarbage 
+              {isGarbage
                 ? 'Your case summary appears incomplete, repetitive, or contains keyboard spam. Please write a meaningful summary of at least 100 characters before running AI analysis.'
                 : 'The AI Zero Hallucination Engine requires more information to proceed. It is programmatically blocked from analyzing when case fields are empty to prevent hallucinating facts.'}
             </Text>
@@ -13949,7 +14400,7 @@ Through Counsel
             <TouchableWithoutFeedback>
               <View style={styles.modalContent}>
                 <Text style={styles.formTitle}>Case Workspace Actions</Text>
-                
+
                 <Pressable
                   style={styles.settingsCell}
                   onPress={() => {
@@ -13992,525 +14443,525 @@ Through Counsel
             <TouchableWithoutFeedback>
               <View style={[styles.modalContent, { maxHeight: '90%' }]}>
                 <ScrollView showsVerticalScrollIndicator={false}>
-                {/* EDIT SUMMARY FORM */}
-                {modalType === 'edit_summary' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Edit Case Summary</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.inputLabel}>Case Summary Brief</Text>
-                    <TextInput
-                      style={[styles.formInput, { height: 180, textAlignVertical: 'top' }]}
-                      placeholder="Write a clear, detailed summary of the case (at least 100 characters to build case readiness)..."
-                      placeholderTextColor="#9CA3AF"
-                      multiline={true}
-                      value={summaryInputText}
-                      onChangeText={setSummaryInputText}
-                    />
-                    <Pressable
-                      style={styles.formSubmitBtn}
-                      onPress={async () => {
-                        handleUpdateField({ summary: summaryInputText });
-                        setIsModalOpen(false);
-                      }}
-                    >
-                      <Text style={styles.formSubmitBtnText}>Save Case Summary</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* TIMELINE FORM */}
-                {modalType === 'timeline' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Fact to Timeline</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Date (e.g. 15 Jan 2025)"
-                      placeholderTextColor="#9CA3AF"
-                      value={timelineForm.date}
-                      onChangeText={(t) => setTimelineForm({ ...timelineForm, date: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Milestone Event Title"
-                      placeholderTextColor="#9CA3AF"
-                      value={timelineForm.title}
-                      onChangeText={(t) => setTimelineForm({ ...timelineForm, title: t })}
-                    />
-                    <TextInput
-                      style={[styles.formInput, { height: 80 }]}
-                      placeholder="Brief details or descriptions"
-                      placeholderTextColor="#9CA3AF"
-                      multiline={true}
-                      value={timelineForm.description}
-                      onChangeText={(t) => setTimelineForm({ ...timelineForm, description: t })}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddTimelineEvent}>
-                      <Text style={styles.formSubmitBtnText}>Add Event</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* REDESIGNED HEARING FORM */}
-                {modalType === 'hearing' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Schedule Court Hearing</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    
-                    <Text style={styles.inputLabel}>Hearing Title / Type</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="e.g. Admission summons review"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.notes}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, notes: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Date (e.g. 22 May 2026)</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Date (e.g. 22 May 2026)"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.date}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, date: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Time (e.g. 10:30 AM)</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Time (e.g. 10:30 AM)"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.time}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, time: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Court / Forum Name</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="e.g. Delhi High Court"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.courtName}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, courtName: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Courtroom Location</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="e.g. Courtroom No. 4"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.courtroom}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, courtroom: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Presiding Judge Name</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="e.g. Hon'ble Justice Amit Verma"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.judge}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, judge: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Hearing Purpose</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="e.g. Witness examination / Admission"
-                      placeholderTextColor="#9CA3AF"
-                      value={hearingForm.purpose}
-                      onChangeText={(t) => setHearingForm({ ...hearingForm, purpose: t })}
-                    />
-
-                    <Text style={styles.inputLabel}>Hearing Status</Text>
-                    <View style={styles.statusChipsContainer}>
-                      {['Scheduled', 'Completed', 'Adjourned', 'Orders Reserved', 'Cancelled', 'Ongoing'].map((st) => (
-                        <TouchableOpacity
-                          key={st}
-                          style={[styles.formStatusChip, hearingForm.status === st && styles.formStatusChipActive]}
-                          onPress={() => setHearingForm({ ...hearingForm, status: st })}
-                        >
-                          <Text style={[styles.formStatusChipText, hearingForm.status === st && styles.formStatusChipTextActive]}>
-                            {st}
-                          </Text>
+                  {/* EDIT SUMMARY FORM */}
+                  {modalType === 'edit_summary' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Edit Case Summary</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
                         </TouchableOpacity>
-                      ))}
-                    </View>
-
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddHearing}>
-                      <Text style={styles.formSubmitBtnText}>Save Schedule</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* ADD ADVOCATE NOTES FORM */}
-                {modalType === 'add_hearing_notes' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Advocate Notes</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.inputLabel}>Notes from Hearing Session</Text>
-                    <TextInput
-                      style={[styles.formInput, { height: 100, textAlignVertical: 'top' }]}
-                      placeholder="Write notes about the stay application arguments, judge reactions, verbal orders, next steps, witness statements, etc..."
-                      placeholderTextColor="#9CA3AF"
-                      multiline
-                      numberOfLines={4}
-                      value={hearingNotesInput}
-                      onChangeText={setHearingNotesInput}
-                    />
-
-                    <Pressable
-                      style={styles.formSubmitBtn}
-                      onPress={() => {
-                        if (!selectedHearingForNotes) return;
-                        const hearingId = selectedHearingForNotes.id || selectedHearingForNotes._id || '';
-                        
-                        // Optimistically save notes locally
-                        const updatedHearings = (workspace?.hearings || []).map(h => {
-                          if (h.id === hearingId || h._id === hearingId) {
-                            return { ...h, notes: hearingNotesInput };
-                          }
-                          return h;
-                        });
-                        handleUpdateField({ hearings: updatedHearings });
-
-                        setIsModalOpen(false);
-                        // Trigger AI enrichment using CaseService.enrichHearing
-                        handleEnrichHearing(hearingId, { notes: hearingNotesInput });
-                      }}
-                    >
-                      <Text style={styles.formSubmitBtnText}>Save & Enrich with AI</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* UPLOAD COURT ORDER SIMULATION FORM */}
-                {modalType === 'upload_order_simulation' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Simulate Uploading Court Order</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    
-                    {simulatedUploadProgress === 0 ? (
-                      <>
-                        <Text style={styles.inputLabel}>Select a Court Order Directive to simulate:</Text>
-                        <View style={styles.pickerContainer}>
-                          {MOCK_COURT_ORDERS.map((order, idx) => (
-                            <TouchableOpacity
-                              key={idx}
-                              style={styles.pickerItem}
-                              onPress={async () => {
-                                // Run simulated upload progress
-                                setSimulatedUploadProgress(1);
-                                setSimulatedUploadStep('Uploading document file...');
-                                
-                                const steps = [
-                                  { progress: 25, label: 'Reading order metadata...' },
-                                  { progress: 50, label: 'Running AI OCR sentence scans...' },
-                                  { progress: 75, label: 'Parsing judicial directives...' },
-                                  { progress: 100, label: 'AI document upload complete.' }
-                                ];
-
-                                for (let s of steps) {
-                                  await new Promise(r => setTimeout(r, 400));
-                                  setSimulatedUploadProgress(s.progress);
-                                  setSimulatedUploadStep(s.label);
-                                }
-
-                                await new Promise(r => setTimeout(r, 300));
-                                if (!selectedHearingForOrder) return;
-                                const hearingId = selectedHearingForOrder.id || selectedHearingForOrder._id || '';
-                                
-                                // Update case documents list with new upload
-                                const newDoc: CaseDocument = {
-                                  _id: `doc_${Date.now()}`,
-                                  name: order.name,
-                                  type: 'Filing',
-                                  url: 'https://ailegal.com/files/court_order.pdf',
-                                  tags: ['Court Order', 'Enriched'],
-                                  uploadDate: new Date().toLocaleDateString(),
-                                };
-                                const updatedDocs = [newDoc, ...(workspace?.documents || [])];
-                                
-                                // Update linkedDocuments of the hearing
-                                const updatedHearings = (workspace?.hearings || []).map(h => {
-                                  if (h.id === hearingId || h._id === hearingId) {
-                                    return {
-                                      ...h,
-                                      status: 'Completed' as const,
-                                      linkedDocuments: [...(h.linkedDocuments || []), newDoc.name]
-                                    };
-                                  }
-                                  return h;
-                                });
-
-                                handleUpdateField({
-                                  documents: updatedDocs,
-                                  hearings: updatedHearings
-                                });
-
-                                setIsModalOpen(false);
-                                // Trigger AI enrichment
-                                handleEnrichHearing(hearingId, {
-                                  documentText: order.text,
-                                  documentName: order.name
-                                });
-                              }}
-                            >
-                              <Text style={styles.pickerItemName}>{order.name}</Text>
-                              <Text style={styles.pickerItemDesc} numberOfLines={2}>
-                                {order.text.split('\n').slice(5, 9).join(' ')}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </>
-                    ) : (
-                      <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-                        <ActivityIndicator size="large" color="#6D5DFC" />
-                        <View style={[styles.hearingProgressBarBg, { width: '100%' }]}>
-                          <View style={[styles.hearingProgressBarFill, { width: `${simulatedUploadProgress}%` }]} />
-                        </View>
-                        <Text style={styles.progressText}>{simulatedUploadStep} ({simulatedUploadProgress}%)</Text>
                       </View>
-                    )}
-                  </View>
-                )}
-
-                {/* PARTY FORM */}
-                {modalType === 'party' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Litigant / Party</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Name"
-                      placeholderTextColor="#9CA3AF"
-                      value={partyForm.name}
-                      onChangeText={(t) => setPartyForm({ ...partyForm, name: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Role (e.g. Witness, Counsel, Co-lessee)"
-                      placeholderTextColor="#9CA3AF"
-                      value={partyForm.role}
-                      onChangeText={(t) => setPartyForm({ ...partyForm, role: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Contact details"
-                      placeholderTextColor="#9CA3AF"
-                      value={partyForm.contact}
-                      onChangeText={(t) => setPartyForm({ ...partyForm, contact: t })}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddParty}>
-                      <Text style={styles.formSubmitBtnText}>Save Litigant</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* EVIDENCE FORM */}
-                {modalType === 'evidence' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Log Evidence</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Evidence Title / File"
-                      placeholderTextColor="#9CA3AF"
-                      value={evidenceForm.name}
-                      onChangeText={(t) => setEvidenceForm({ ...evidenceForm, name: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Type (e.g. Receipt, Statement)"
-                      placeholderTextColor="#9CA3AF"
-                      value={evidenceForm.type}
-                      onChangeText={(t) => setEvidenceForm({ ...evidenceForm, type: t })}
-                    />
-                    <TextInput
-                      style={[styles.formInput, { height: 60 }]}
-                      placeholder="Description"
-                      placeholderTextColor="#9CA3AF"
-                      value={evidenceForm.description}
-                      onChangeText={(t) => setEvidenceForm({ ...evidenceForm, description: t })}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddEvidence}>
-                      <Text style={styles.formSubmitBtnText}>Log Proof</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* COURT ORDER FORM */}
-                {modalType === 'court_order' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Log Official Court Order</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Order Title (e.g. Summons_Order_1)"
-                      placeholderTextColor="#9CA3AF"
-                      value={courtOrderForm.title}
-                      onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, title: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Date Issued (e.g. 10 May 2025)"
-                      placeholderTextColor="#9CA3AF"
-                      value={courtOrderForm.date}
-                      onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, date: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Issuer (e.g. Senior District Judge)"
-                      placeholderTextColor="#9CA3AF"
-                      value={courtOrderForm.issuer}
-                      onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, issuer: t })}
-                    />
-                    <TextInput
-                      style={[styles.formInput, { height: 80 }]}
-                      placeholder="Directives or notes"
-                      placeholderTextColor="#9CA3AF"
-                      multiline={true}
-                      value={courtOrderForm.notes}
-                      onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, notes: t })}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddCourtOrder}>
-                      <Text style={styles.formSubmitBtnText}>Log Court Order</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* TASK FORM */}
-                {modalType === 'task' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Task Checklist Item</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Task Title"
-                      placeholderTextColor="#9CA3AF"
-                      value={taskForm.title}
-                      onChangeText={(t) => setTaskForm({ ...taskForm, title: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Description"
-                      placeholderTextColor="#9CA3AF"
-                      value={taskForm.description}
-                      onChangeText={(t) => setTaskForm({ ...taskForm, description: t })}
-                    />
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Deadline (e.g. 15 Apr 2025)"
-                      placeholderTextColor="#9CA3AF"
-                      value={taskForm.deadline}
-                      onChangeText={(t) => setTaskForm({ ...taskForm, deadline: t })}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleAddTask}>
-                      <Text style={styles.formSubmitBtnText}>Create Task</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* RESEARCH SEARCH FORM */}
-                {modalType === 'research' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>AI Precedent Search</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.searchRow}>
+                      <Text style={styles.inputLabel}>Case Summary Brief</Text>
                       <TextInput
-                        style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
-                        placeholder="Search codes (e.g. NI Act Sec 138)"
+                        style={[styles.formInput, { height: 180, textAlignVertical: 'top' }]}
+                        placeholder="Write a clear, detailed summary of the case (at least 100 characters to build case readiness)..."
                         placeholderTextColor="#9CA3AF"
-                        value={precedentQuery}
-                        onChangeText={setPrecedentQuery}
+                        multiline={true}
+                        value={summaryInputText}
+                        onChangeText={setSummaryInputText}
                       />
-                      <Pressable style={styles.searchBtn} onPress={handleSearchPrecedents}>
-                        <Ionicons name="search" size={18} color="#FFFFFF" />
+                      <Pressable
+                        style={styles.formSubmitBtn}
+                        onPress={async () => {
+                          handleUpdateField({ summary: summaryInputText });
+                          setIsModalOpen(false);
+                        }}
+                      >
+                        <Text style={styles.formSubmitBtnText}>Save Case Summary</Text>
                       </Pressable>
                     </View>
+                  )}
 
-                    {precedentSearchResults.length > 0 && (
-                      <ScrollView style={styles.searchResultsScroll}>
-                        {precedentSearchResults.map((prec, i) => (
-                          <View key={i} style={styles.searchResultItem}>
-                            <Text style={styles.resultItemTitle}>{prec.title}</Text>
-                            <Text style={styles.resultItemCitation}>{prec.citation}</Text>
-                            <Text style={styles.resultItemSummary}>{prec.summary}</Text>
-                            <Pressable
-                              style={styles.resultSaveBtn}
-                              onPress={() => handleSavePrecedent(prec)}
-                            >
-                              <Text style={styles.resultSaveBtnText}>Save Precedent</Text>
-                            </Pressable>
-                          </View>
-                        ))}
-                      </ScrollView>
-                    )}
-                  </View>
-                )}
-
-
-
-                {/* RENAME CASE FORM */}
-                {modalType === 'rename' && (
-                  <View style={styles.formContainer}>
-                    <View style={styles.formHeaderRow}>
-                      <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Rename Workspace Title</Text>
-                      <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                        <Ionicons name="close" size={24} color="#4B5563" />
-                      </TouchableOpacity>
+                  {/* TIMELINE FORM */}
+                  {modalType === 'timeline' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Fact to Timeline</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Date (e.g. 15 Jan 2025)"
+                        placeholderTextColor="#9CA3AF"
+                        value={timelineForm.date}
+                        onChangeText={(t) => setTimelineForm({ ...timelineForm, date: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Milestone Event Title"
+                        placeholderTextColor="#9CA3AF"
+                        value={timelineForm.title}
+                        onChangeText={(t) => setTimelineForm({ ...timelineForm, title: t })}
+                      />
+                      <TextInput
+                        style={[styles.formInput, { height: 80 }]}
+                        placeholder="Brief details or descriptions"
+                        placeholderTextColor="#9CA3AF"
+                        multiline={true}
+                        value={timelineForm.description}
+                        onChangeText={(t) => setTimelineForm({ ...timelineForm, description: t })}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddTimelineEvent}>
+                        <Text style={styles.formSubmitBtnText}>Add Event</Text>
+                      </Pressable>
                     </View>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="New Workspace Title"
-                      placeholderTextColor="#9CA3AF"
-                      value={renameValue}
-                      onChangeText={setRenameValue}
-                    />
-                    <Pressable style={styles.formSubmitBtn} onPress={handleRenameCase}>
-                      <Text style={styles.formSubmitBtnText}>Save New Title</Text>
-                    </Pressable>
-                  </View>
-                )}
+                  )}
+
+                  {/* REDESIGNED HEARING FORM */}
+                  {modalType === 'hearing' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Schedule Court Hearing</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={styles.inputLabel}>Hearing Title / Type</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Admission summons review"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.notes}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, notes: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Date (e.g. 22 May 2026)</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Date (e.g. 22 May 2026)"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.date}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, date: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Time (e.g. 10:30 AM)</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Time (e.g. 10:30 AM)"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.time}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, time: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Court / Forum Name</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Delhi High Court"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.courtName}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, courtName: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Courtroom Location</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Courtroom No. 4"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.courtroom}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, courtroom: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Presiding Judge Name</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Hon'ble Justice Amit Verma"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.judge}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, judge: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Hearing Purpose</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="e.g. Witness examination / Admission"
+                        placeholderTextColor="#9CA3AF"
+                        value={hearingForm.purpose}
+                        onChangeText={(t) => setHearingForm({ ...hearingForm, purpose: t })}
+                      />
+
+                      <Text style={styles.inputLabel}>Hearing Status</Text>
+                      <View style={styles.statusChipsContainer}>
+                        {['Scheduled', 'Completed', 'Adjourned', 'Orders Reserved', 'Cancelled', 'Ongoing'].map((st) => (
+                          <TouchableOpacity
+                            key={st}
+                            style={[styles.formStatusChip, hearingForm.status === st && styles.formStatusChipActive]}
+                            onPress={() => setHearingForm({ ...hearingForm, status: st })}
+                          >
+                            <Text style={[styles.formStatusChipText, hearingForm.status === st && styles.formStatusChipTextActive]}>
+                              {st}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddHearing}>
+                        <Text style={styles.formSubmitBtnText}>Save Schedule</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* ADD ADVOCATE NOTES FORM */}
+                  {modalType === 'add_hearing_notes' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Advocate Notes</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.inputLabel}>Notes from Hearing Session</Text>
+                      <TextInput
+                        style={[styles.formInput, { height: 100, textAlignVertical: 'top' }]}
+                        placeholder="Write notes about the stay application arguments, judge reactions, verbal orders, next steps, witness statements, etc..."
+                        placeholderTextColor="#9CA3AF"
+                        multiline
+                        numberOfLines={4}
+                        value={hearingNotesInput}
+                        onChangeText={setHearingNotesInput}
+                      />
+
+                      <Pressable
+                        style={styles.formSubmitBtn}
+                        onPress={() => {
+                          if (!selectedHearingForNotes) return;
+                          const hearingId = selectedHearingForNotes.id || selectedHearingForNotes._id || '';
+
+                          // Optimistically save notes locally
+                          const updatedHearings = (workspace?.hearings || []).map(h => {
+                            if (h.id === hearingId || h._id === hearingId) {
+                              return { ...h, notes: hearingNotesInput };
+                            }
+                            return h;
+                          });
+                          handleUpdateField({ hearings: updatedHearings });
+
+                          setIsModalOpen(false);
+                          // Trigger AI enrichment using CaseService.enrichHearing
+                          handleEnrichHearing(hearingId, { notes: hearingNotesInput });
+                        }}
+                      >
+                        <Text style={styles.formSubmitBtnText}>Save & Enrich with AI</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* UPLOAD COURT ORDER SIMULATION FORM */}
+                  {modalType === 'upload_order_simulation' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Simulate Uploading Court Order</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+
+                      {simulatedUploadProgress === 0 ? (
+                        <>
+                          <Text style={styles.inputLabel}>Select a Court Order Directive to simulate:</Text>
+                          <View style={styles.pickerContainer}>
+                            {MOCK_COURT_ORDERS.map((order, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={styles.pickerItem}
+                                onPress={async () => {
+                                  // Run simulated upload progress
+                                  setSimulatedUploadProgress(1);
+                                  setSimulatedUploadStep('Uploading document file...');
+
+                                  const steps = [
+                                    { progress: 25, label: 'Reading order metadata...' },
+                                    { progress: 50, label: 'Running AI OCR sentence scans...' },
+                                    { progress: 75, label: 'Parsing judicial directives...' },
+                                    { progress: 100, label: 'AI document upload complete.' }
+                                  ];
+
+                                  for (let s of steps) {
+                                    await new Promise(r => setTimeout(r, 400));
+                                    setSimulatedUploadProgress(s.progress);
+                                    setSimulatedUploadStep(s.label);
+                                  }
+
+                                  await new Promise(r => setTimeout(r, 300));
+                                  if (!selectedHearingForOrder) return;
+                                  const hearingId = selectedHearingForOrder.id || selectedHearingForOrder._id || '';
+
+                                  // Update case documents list with new upload
+                                  const newDoc: CaseDocument = {
+                                    _id: `doc_${Date.now()}`,
+                                    name: order.name,
+                                    type: 'Filing',
+                                    url: 'https://ailegal.com/files/court_order.pdf',
+                                    tags: ['Court Order', 'Enriched'],
+                                    uploadDate: new Date().toLocaleDateString(),
+                                  };
+                                  const updatedDocs = [newDoc, ...(workspace?.documents || [])];
+
+                                  // Update linkedDocuments of the hearing
+                                  const updatedHearings = (workspace?.hearings || []).map(h => {
+                                    if (h.id === hearingId || h._id === hearingId) {
+                                      return {
+                                        ...h,
+                                        status: 'Completed' as const,
+                                        linkedDocuments: [...(h.linkedDocuments || []), newDoc.name]
+                                      };
+                                    }
+                                    return h;
+                                  });
+
+                                  handleUpdateField({
+                                    documents: updatedDocs,
+                                    hearings: updatedHearings
+                                  });
+
+                                  setIsModalOpen(false);
+                                  // Trigger AI enrichment
+                                  handleEnrichHearing(hearingId, {
+                                    documentText: order.text,
+                                    documentName: order.name
+                                  });
+                                }}
+                              >
+                                <Text style={styles.pickerItemName}>{order.name}</Text>
+                                <Text style={styles.pickerItemDesc} numberOfLines={2}>
+                                  {order.text.split('\n').slice(5, 9).join(' ')}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </>
+                      ) : (
+                        <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                          <ActivityIndicator size="large" color="#6D5DFC" />
+                          <View style={[styles.hearingProgressBarBg, { width: '100%' }]}>
+                            <View style={[styles.hearingProgressBarFill, { width: `${simulatedUploadProgress}%` }]} />
+                          </View>
+                          <Text style={styles.progressText}>{simulatedUploadStep} ({simulatedUploadProgress}%)</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* PARTY FORM */}
+                  {modalType === 'party' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Litigant / Party</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Name"
+                        placeholderTextColor="#9CA3AF"
+                        value={partyForm.name}
+                        onChangeText={(t) => setPartyForm({ ...partyForm, name: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Role (e.g. Witness, Counsel, Co-lessee)"
+                        placeholderTextColor="#9CA3AF"
+                        value={partyForm.role}
+                        onChangeText={(t) => setPartyForm({ ...partyForm, role: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Contact details"
+                        placeholderTextColor="#9CA3AF"
+                        value={partyForm.contact}
+                        onChangeText={(t) => setPartyForm({ ...partyForm, contact: t })}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddParty}>
+                        <Text style={styles.formSubmitBtnText}>Save Litigant</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* EVIDENCE FORM */}
+                  {modalType === 'evidence' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Log Evidence</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Evidence Title / File"
+                        placeholderTextColor="#9CA3AF"
+                        value={evidenceForm.name}
+                        onChangeText={(t) => setEvidenceForm({ ...evidenceForm, name: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Type (e.g. Receipt, Statement)"
+                        placeholderTextColor="#9CA3AF"
+                        value={evidenceForm.type}
+                        onChangeText={(t) => setEvidenceForm({ ...evidenceForm, type: t })}
+                      />
+                      <TextInput
+                        style={[styles.formInput, { height: 60 }]}
+                        placeholder="Description"
+                        placeholderTextColor="#9CA3AF"
+                        value={evidenceForm.description}
+                        onChangeText={(t) => setEvidenceForm({ ...evidenceForm, description: t })}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddEvidence}>
+                        <Text style={styles.formSubmitBtnText}>Log Proof</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* COURT ORDER FORM */}
+                  {modalType === 'court_order' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Log Official Court Order</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Order Title (e.g. Summons_Order_1)"
+                        placeholderTextColor="#9CA3AF"
+                        value={courtOrderForm.title}
+                        onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, title: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Date Issued (e.g. 10 May 2025)"
+                        placeholderTextColor="#9CA3AF"
+                        value={courtOrderForm.date}
+                        onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, date: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Issuer (e.g. Senior District Judge)"
+                        placeholderTextColor="#9CA3AF"
+                        value={courtOrderForm.issuer}
+                        onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, issuer: t })}
+                      />
+                      <TextInput
+                        style={[styles.formInput, { height: 80 }]}
+                        placeholder="Directives or notes"
+                        placeholderTextColor="#9CA3AF"
+                        multiline={true}
+                        value={courtOrderForm.notes}
+                        onChangeText={(t) => setCourtOrderForm({ ...courtOrderForm, notes: t })}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddCourtOrder}>
+                        <Text style={styles.formSubmitBtnText}>Log Court Order</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* TASK FORM */}
+                  {modalType === 'task' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Add Task Checklist Item</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Task Title"
+                        placeholderTextColor="#9CA3AF"
+                        value={taskForm.title}
+                        onChangeText={(t) => setTaskForm({ ...taskForm, title: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Description"
+                        placeholderTextColor="#9CA3AF"
+                        value={taskForm.description}
+                        onChangeText={(t) => setTaskForm({ ...taskForm, description: t })}
+                      />
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Deadline (e.g. 15 Apr 2025)"
+                        placeholderTextColor="#9CA3AF"
+                        value={taskForm.deadline}
+                        onChangeText={(t) => setTaskForm({ ...taskForm, deadline: t })}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleAddTask}>
+                        <Text style={styles.formSubmitBtnText}>Create Task</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* RESEARCH SEARCH FORM */}
+                  {modalType === 'research' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>AI Precedent Search</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.searchRow}>
+                        <TextInput
+                          style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
+                          placeholder="Search codes (e.g. NI Act Sec 138)"
+                          placeholderTextColor="#9CA3AF"
+                          value={precedentQuery}
+                          onChangeText={setPrecedentQuery}
+                        />
+                        <Pressable style={styles.searchBtn} onPress={handleSearchPrecedents}>
+                          <Ionicons name="search" size={18} color="#FFFFFF" />
+                        </Pressable>
+                      </View>
+
+                      {precedentSearchResults.length > 0 && (
+                        <ScrollView style={styles.searchResultsScroll}>
+                          {precedentSearchResults.map((prec, i) => (
+                            <View key={i} style={styles.searchResultItem}>
+                              <Text style={styles.resultItemTitle}>{prec.title}</Text>
+                              <Text style={styles.resultItemCitation}>{prec.citation}</Text>
+                              <Text style={styles.resultItemSummary}>{prec.summary}</Text>
+                              <Pressable
+                                style={styles.resultSaveBtn}
+                                onPress={() => handleSavePrecedent(prec)}
+                              >
+                                <Text style={styles.resultSaveBtnText}>Save Precedent</Text>
+                              </Pressable>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      )}
+                    </View>
+                  )}
+
+
+
+                  {/* RENAME CASE FORM */}
+                  {modalType === 'rename' && (
+                    <View style={styles.formContainer}>
+                      <View style={styles.formHeaderRow}>
+                        <Text style={[styles.formTitle, { marginBottom: 0, flex: 1 }]}>Rename Workspace Title</Text>
+                        <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+                          <Ionicons name="close" size={24} color="#4B5563" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="New Workspace Title"
+                        placeholderTextColor="#9CA3AF"
+                        value={renameValue}
+                        onChangeText={setRenameValue}
+                      />
+                      <Pressable style={styles.formSubmitBtn} onPress={handleRenameCase}>
+                        <Text style={styles.formSubmitBtnText}>Save New Title</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -14532,7 +14983,7 @@ Through Counsel
                     <Ionicons name="close" size={24} color="#4B5563" />
                   </TouchableOpacity>
                 </View>
-                
+
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
                   <Text style={styles.inputLabel}>Argument Title</Text>
                   <TextInput
@@ -14697,16 +15148,16 @@ Through Counsel
                         activeOcrStep > idx
                           ? 'checkmark-circle'
                           : activeOcrStep === idx
-                          ? 'sync'
-                          : 'ellipse-outline'
+                            ? 'sync'
+                            : 'ellipse-outline'
                       }
                       size={16}
                       color={
                         activeOcrStep > idx
                           ? '#10B981'
                           : activeOcrStep === idx
-                          ? '#6D5DFC'
-                          : '#9CA3AF'
+                            ? '#6D5DFC'
+                            : '#9CA3AF'
                       }
                     />
                     <Text
@@ -14727,21 +15178,21 @@ Through Counsel
       {/* --- DRAFT EDITOR MODAL --- */}
       <Modal visible={isEditorOpen} animationType="slide" presentationStyle="fullScreen">
         <SafeAreaView style={styles.editorModalContainer}>
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={{ flex: 1 }}
           >
             {/* STICKY HEADER */}
             <View style={styles.editorModalHeader}>
-              <TouchableOpacity 
-                style={styles.editorCloseBtn} 
+              <TouchableOpacity
+                style={styles.editorCloseBtn}
                 onPress={() => {
                   setIsEditorOpen(false);
                 }}
               >
                 <Ionicons name="arrow-back" size={24} color="#1F2937" />
               </TouchableOpacity>
-              
+
               <View style={{ flex: 1, marginHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <TextInput
                   style={[styles.editorHeaderTitleInput, { flex: 1, paddingVertical: 4 }]}
@@ -14757,9 +15208,9 @@ Through Counsel
                   placeholder="Draft Document Title"
                   placeholderTextColor="#9CA3AF"
                 />
-                
+
                 {/* Draft Status Badge */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     const statuses: ('Draft' | 'In Progress' | 'Completed' | 'Reviewed')[] = ['Draft', 'In Progress', 'Completed', 'Reviewed'];
                     const nextIndex = (statuses.indexOf(editorStatus) + 1) % statuses.length;
@@ -14772,10 +15223,10 @@ Through Counsel
                     }
                     showToast('success', 'Status Updated', `Draft status changed to ${nextStatus}.`);
                   }}
-                  style={[styles.statusBadge, 
-                    editorStatus === 'Completed' ? styles.badgeSuccess : 
-                    editorStatus === 'Reviewed' ? styles.badgeInfo : 
-                    editorStatus === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+                  style={[styles.statusBadge,
+                  editorStatus === 'Completed' ? styles.badgeSuccess :
+                    editorStatus === 'Reviewed' ? styles.badgeInfo :
+                      editorStatus === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
                   ]}
                 >
                   <Text style={[styles.statusBadgeText, { fontSize: 9 }]}>{editorStatus}</Text>
@@ -14791,7 +15242,7 @@ Through Counsel
               </View>
 
               {/* ⋮ More Overflow Menu */}
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setIsEditorMoreOpen(true)}
                 style={{ padding: 6 }}
               >
@@ -14811,10 +15262,10 @@ Through Counsel
                   style={[styles.editorSubTabButton, expandedEditorTab === tab.id && styles.editorSubTabActive]}
                   onPress={() => setExpandedEditorTab(tab.id as any)}
                 >
-                  <Ionicons 
-                    name={tab.icon as any} 
-                    size={16} 
-                    color={expandedEditorTab === tab.id ? '#6D5DFC' : '#6B7280'} 
+                  <Ionicons
+                    name={tab.icon as any}
+                    size={16}
+                    color={expandedEditorTab === tab.id ? '#6D5DFC' : '#6B7280'}
                   />
                   <Text style={[styles.editorSubTabText, expandedEditorTab === tab.id && styles.editorSubTabTextActive]}>
                     {tab.label}
@@ -14898,10 +15349,10 @@ Through Counsel
                           showToast('success', 'Alignment', `Simulated Alignment: ${nextMode.toUpperCase()}`);
                         }}
                       >
-                        <Ionicons 
-                          name={alignment === 'left' ? 'align-left' : alignment === 'center' ? 'align-center' : 'align-right'} 
-                          size={15} 
-                          color="#4B5563" 
+                        <Ionicons
+                          name={alignment === 'left' ? 'align-left' : alignment === 'center' ? 'align-center' : 'align-right'}
+                          size={15}
+                          color="#4B5563"
                         />
                       </TouchableOpacity>
 
@@ -14962,16 +15413,16 @@ Through Counsel
                                   activeAiDraftStep > idx
                                     ? 'checkmark-circle'
                                     : activeAiDraftStep === idx
-                                    ? 'sync'
-                                    : 'ellipse-outline'
+                                      ? 'sync'
+                                      : 'ellipse-outline'
                                 }
                                 size={16}
                                 color={
                                   activeAiDraftStep > idx
                                     ? '#10B981'
                                     : activeAiDraftStep === idx
-                                    ? '#6D5DFC'
-                                    : '#9CA3AF'
+                                      ? '#6D5DFC'
+                                      : '#9CA3AF'
                                 }
                               />
                               <Text
@@ -15000,14 +15451,14 @@ Through Counsel
                           <Text style={styles.diffContentText}>{aiSuggestedDraftText}</Text>
                         </ScrollView>
                         <View style={styles.diffActionsRow}>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={styles.diffAcceptBtn}
                             onPress={handleApplyAiSuggestion}
                           >
                             <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
                             <Text style={styles.diffAcceptText}>Apply & Merge Changes</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={styles.diffRejectBtn}
                             onPress={() => {
                               setAiSuggestedDraftText(null);
@@ -15063,7 +15514,7 @@ Through Counsel
                 <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16 }}>
                   <ScrollView style={{ flex: 1 }}>
                     <Text style={[styles.suggestionsTitle, { marginVertical: 0, marginBottom: 8 }]}>Revision Control History</Text>
-                    
+
                     {/* CUSTOM VERSION COMMIT CARD */}
                     <View style={[styles.premiumSearchCard, { marginBottom: 16 }]}>
                       <Text style={[styles.premiumSearchTitle, { fontSize: 13 }]}>Commit Custom Save Point</Text>
@@ -15075,7 +15526,7 @@ Through Counsel
                         value={versionComment}
                         onChangeText={setVersionComment}
                       />
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={[styles.premiumAnalyzeBtn, { height: 32 }]}
                         onPress={() => {
                           handleSaveDraftContent(false, versionComment);
@@ -15092,7 +15543,7 @@ Through Counsel
                       {((workspace?.drafts?.find(d => d.id === activeDraftId)?.versions) || []).map((ver) => {
                         const isCurrent = selectedVersion === ver.version;
                         const dateStr = new Date(ver.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                        
+
                         return (
                           <View key={ver.version} style={[styles.itemCard, isCurrent && { borderColor: '#6D5DFC', backgroundColor: '#EEECFF' }]}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -15102,7 +15553,7 @@ Through Counsel
                               <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{dateStr}</Text>
                             </View>
                             <Text style={{ fontSize: 11, color: '#4B5563', marginTop: 4, fontStyle: 'italic' }}>
-                              "{ver.changes}"
+                              {`"${ver.changes}"`}
                             </Text>
                             <TouchableOpacity
                               style={[styles.restoreBtnLink, { marginTop: 8 }]}
@@ -15128,7 +15579,7 @@ Through Counsel
         <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
           {/* Header */}
           <View style={[styles.appBar, { borderBottomWidth: 1, borderBottomColor: '#ECECEC' }]}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.backBtn}
               onPress={() => {
                 setIsPreviewOpen(false);
@@ -15137,7 +15588,7 @@ Through Counsel
             >
               <Ionicons name="close" size={24} color="#1F2937" />
             </TouchableOpacity>
-            
+
             <View style={{ flex: 1, marginHorizontal: 12 }}>
               <Text style={{ fontSize: 16, fontWeight: '800', color: '#1F2937' }} numberOfLines={1}>
                 {previewDraft?.name || 'Document Preview'}
@@ -15174,10 +15625,10 @@ Through Counsel
               <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
                 Created: {previewDraft?.createdAt ? new Date(previewDraft.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
               </Text>
-              <View style={[styles.statusBadge, 
-                previewDraft?.status === 'Completed' ? styles.badgeSuccess : 
-                previewDraft?.status === 'Reviewed' ? styles.badgeInfo : 
-                previewDraft?.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
+              <View style={[styles.statusBadge,
+              previewDraft?.status === 'Completed' ? styles.badgeSuccess :
+                previewDraft?.status === 'Reviewed' ? styles.badgeInfo :
+                  previewDraft?.status === 'In Progress' ? styles.badgeWarning : styles.badgeInfo
               ]}>
                 <Text style={styles.statusBadgeText}>{previewDraft?.status || 'Draft'}</Text>
               </View>
@@ -15185,14 +15636,14 @@ Through Counsel
           </View>
 
           {/* Scrollable formatted content */}
-          <ScrollView 
+          <ScrollView
             style={{ flex: 1, padding: 16 }}
             contentContainerStyle={{ paddingBottom: 100 }}
           >
-            <Text style={{ 
-              fontSize: 13, 
-              color: '#1F2937', 
-              lineHeight: 20, 
+            <Text style={{
+              fontSize: 13,
+              color: '#1F2937',
+              lineHeight: 20,
               fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
               backgroundColor: '#FFFFFF',
             }}>
@@ -15201,7 +15652,7 @@ Through Counsel
           </ScrollView>
 
           {/* Floating Edit button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={{
               position: 'absolute',
               bottom: 24,
@@ -15260,7 +15711,7 @@ Through Counsel
                 {/* Options List */}
                 <ScrollView style={{ maxHeight: 350 }}>
                   {/* Download as PDF */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsCardMoreMenuOpen(false);
@@ -15276,7 +15727,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Download as DOCX */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsCardMoreMenuOpen(false);
@@ -15292,7 +15743,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Share Draft */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={async () => {
                       if (!activeDraftForMoreMenu) return;
@@ -15313,7 +15764,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Rename Draft */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       if (!activeDraftForMoreMenu) return;
@@ -15328,7 +15779,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Duplicate Draft */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       if (!activeDraftForMoreMenu) return;
@@ -15342,7 +15793,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Export */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsCardMoreMenuOpen(false);
@@ -15355,7 +15806,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Print */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 }}
                     onPress={() => {
                       setIsCardMoreMenuOpen(false);
@@ -15390,7 +15841,7 @@ Through Counsel
                 {/* Options List */}
                 <ScrollView style={{ maxHeight: 380 }}>
                   {/* Save */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15402,7 +15853,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Save As */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15415,7 +15866,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Export PDF */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15427,7 +15878,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Export DOCX */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15439,7 +15890,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Share */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={async () => {
                       setIsEditorMoreOpen(false);
@@ -15458,7 +15909,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Print */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15470,7 +15921,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Rename Draft */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15483,7 +15934,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Version History */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15495,7 +15946,7 @@ Through Counsel
                   </TouchableOpacity>
 
                   {/* Delete Draft */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 }}
                     onPress={() => {
                       setIsEditorMoreOpen(false);
@@ -15522,7 +15973,7 @@ Through Counsel
             <Text style={{ fontSize: 15, fontWeight: '800', color: '#1F2937' }}>
               {saveAsName.includes('Copy') ? 'Save Document As' : 'Rename Draft'}
             </Text>
-            
+
             <TextInput
               style={styles.premiumSearchInput}
               value={saveAsName}
@@ -15532,7 +15983,7 @@ Through Counsel
             />
 
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={{ paddingHorizontal: 12, paddingVertical: 8 }}
                 onPress={() => {
                   setIsSaveAsOpen(false);
@@ -15542,7 +15993,7 @@ Through Counsel
                 <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={{ backgroundColor: '#6D5DFC', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
                 onPress={() => {
                   setIsSaveAsOpen(false);
@@ -15825,7 +16276,7 @@ Through Counsel
             <View style={styles.linkagesCard}>
               <Text style={styles.sectionTitle}>Workspace Linkages</Text>
               <Text style={styles.linkagesSubtitle}>Deep linkages matching active segments of this case.</Text>
-              
+
               <View style={styles.linksGrid}>
                 <TouchableOpacity
                   style={styles.linkCell}
@@ -15988,7 +16439,7 @@ Through Counsel
                 </View>
                 <Text style={styles.loaderModalTitle}>AI OCR Text Extractor</Text>
                 <Text style={styles.loaderModalSubtitle}>Digitizing and verifying exhibit document raw layers...</Text>
-                
+
                 <View style={styles.loaderStepsContainer}>
                   {ocrStepTitles.map((step, idx) => {
                     const isCompleted = ocrProgressStep > idx;
@@ -16027,7 +16478,7 @@ Through Counsel
                 </View>
                 <Text style={styles.loaderModalTitle}>Gemini Legal Co-Counsel</Text>
                 <Text style={styles.loaderModalSubtitle}>Analyzing legal weight & extracting timeline entities...</Text>
-                
+
                 <View style={styles.loaderStepsContainer}>
                   {aiStepTitles.map((step, idx) => {
                     const isCompleted = aiAnalysisProgressStep > idx;
@@ -16080,6968 +16531,7131 @@ Through Counsel
 
 function getStyles(theme: any, isDark: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: theme.background,
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: theme.textSecondary,
-  },
-  errorText: {
-    fontSize: 14,
-    color: theme.danger,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  retryBtn: {
-    backgroundColor: theme.primary,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  retryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  appBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    backgroundColor: theme.surface,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-  },
-  pressed: {
-    backgroundColor: theme.pressed,
-  },
-  appBarTitleContainer: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  appBarTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  appBarSubtitle: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    marginTop: 2,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  appBarCopilotBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.surfaceVariant,
-  },
-  scrollContainer: {
-    flexGrow: 1,
-  },
-  tabContent: {
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 100 : 80,
-  },
-  kpiRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 16,
-  },
-  kpiCard: {
-    backgroundColor: theme.card,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardWidth60: {
-    flex: 1.5,
-  },
-  cardWidth40: {
-    flex: 1,
-  },
-  kpiLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  winProbContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-  },
-  winProbValue: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#10B981',
-  },
-  winProbCaption: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  taskProgressValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  taskProgressCaption: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  progressBarBg: {
-    height: 6,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 3,
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#6D5DFC',
-  },
-  hearingAlert: {
-    flexDirection: 'row',
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 20,
-  },
-  hearingAlertIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  hearingAlertContent: {
-    flex: 1,
-  },
-  hearingAlertTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#5B4EDB',
-    textTransform: 'uppercase',
-  },
-  hearingAlertDate: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginTop: 4,
-  },
-  hearingAlertNotes: {
-    fontSize: 12,
-    color: '#4B5563',
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  gridSectionTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  gridCell: {
-    width: (width - 52) / 3,
-    aspectRatio: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 8,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  gridCellPressed: {
-    backgroundColor: '#F9FAFB',
-    transform: [{ scale: 0.98 }],
-  },
-  gridIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  gridLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-    textAlign: 'center',
-  },
+    container: {
+      flex: 1,
+      backgroundColor: theme.background,
+    },
+    centerContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+      backgroundColor: theme.background,
+      gap: 12,
+    },
+    loadingText: {
+      fontSize: 14,
+      color: theme.textSecondary,
+    },
+    errorText: {
+      fontSize: 14,
+      color: theme.danger,
+      textAlign: 'center',
+      lineHeight: 20,
+      marginBottom: 16,
+    },
+    retryBtn: {
+      backgroundColor: theme.primary,
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    retryBtnText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    appBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+      backgroundColor: theme.surface,
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 20,
+    },
+    pressed: {
+      backgroundColor: theme.pressed,
+    },
+    appBarTitleContainer: {
+      flex: 1,
+      marginHorizontal: 12,
+    },
+    appBarTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    appBarSubtitle: {
+      fontSize: 10,
+      color: theme.textSecondary,
+      marginTop: 2,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+    },
+    appBarCopilotBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surfaceVariant,
+    },
+    scrollContainer: {
+      flexGrow: 1,
+    },
+    tabContent: {
+      padding: 20,
+      paddingBottom: Platform.OS === 'ios' ? 100 : 80,
+    },
+    kpiRow: {
+      flexDirection: 'row',
+      gap: 16,
+      marginBottom: 16,
+    },
+    kpiCard: {
+      backgroundColor: theme.card,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.02,
+      shadowRadius: 6,
+      elevation: 2,
+    },
+    cardWidth60: {
+      flex: 1.5,
+    },
+    cardWidth40: {
+      flex: 1,
+    },
+    kpiLabel: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      marginBottom: 8,
+    },
+    winProbContainer: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+    },
+    winProbValue: {
+      fontSize: 32,
+      fontWeight: '800',
+      color: '#10B981',
+    },
+    winProbCaption: {
+      fontSize: 11,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    taskProgressValue: {
+      fontSize: 22,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    taskProgressCaption: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 2,
+      fontWeight: '600',
+    },
+    progressBarBg: {
+      height: 6,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 3,
+      marginTop: 8,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    hearingAlert: {
+      flexDirection: 'row',
+      backgroundColor: '#EEECFF',
+      borderColor: '#E1DDFF',
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 20,
+    },
+    hearingAlertIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+      backgroundColor: '#FFFFFF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    hearingAlertContent: {
+      flex: 1,
+    },
+    hearingAlertTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#5B4EDB',
+      textTransform: 'uppercase',
+    },
+    hearingAlertDate: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginTop: 4,
+    },
+    hearingAlertNotes: {
+      fontSize: 12,
+      color: '#4B5563',
+      marginTop: 2,
+      fontStyle: 'italic',
+    },
+    gridSectionTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 12,
+    },
+    gridContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    gridCell: {
+      width: (width - 52) / 3,
+      aspectRatio: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 8,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.02,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    gridCellPressed: {
+      backgroundColor: '#F9FAFB',
+      transform: [{ scale: 0.98 }],
+    },
+    gridIconWrapper: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    gridLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#4B5563',
+      textAlign: 'center',
+    },
 
-  moduleHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  moduleTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  moduleHeaderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  moduleHeaderBtnText: {
-    color: '#6D5DFC',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 40,
-    marginBottom: 16,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#1F2937',
-  },
-  ocrPromptContainer: {
-    marginBottom: 16,
-  },
-  ocrPromptText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  ocrPromptScroll: {
-    gap: 8,
-  },
-  ocrDocChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#ECECEC',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    marginRight: 6,
-  },
-  ocrDocText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 40,
-    fontWeight: '600',
-  },
-  timelineList: {
-    paddingLeft: 12,
-  },
-  timelineNode: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  timelineMarker: {
-    width: 12,
-    alignItems: 'center',
-  },
-  timelineLine: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 2,
-    backgroundColor: '#F3F4F6',
-  },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#6D5DFC',
-    marginTop: 6,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  timelineCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-  },
-  timelineHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  timelineDate: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9CA3AF',
-  },
-  aiBadge: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  aiBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  timelineTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  timelineDesc: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 18,
-    marginBottom: 6,
-  },
-  timelineCategory: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  cardList: {
-    gap: 12,
-  },
-  itemCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 14,
-    padding: 14,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  itemCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  itemCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    flex: 1,
-    marginRight: 8,
-  },
-  itemCardBody: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 18,
-    marginBottom: 6,
-  },
-  itemCardFooter: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '600',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  badgeSuccess: {
-    backgroundColor: '#E6F4EA',
-  },
-  badgeDanger: {
-    backgroundColor: '#FCE8E6',
-  },
-  badgeWarning: {
-    backgroundColor: '#FEF7E0',
-  },
-  badgeInfo: {
-    backgroundColor: '#EBF5FF',
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  metaCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginBottom: 16,
-    gap: 8,
-  },
-  partyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  partyText: {
-    fontSize: 13,
-    color: '#4B5563',
-  },
-  boldText: {
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  subHeading: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  citationText: {
-    fontSize: 12,
-    color: '#6D5DFC',
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  metaTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  riskLevelText: {
-    fontSize: 13,
-    color: '#4B5563',
-  },
-  taskItemRow: {
-    flexDirection: 'row',
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'flex-start',
-  },
-  taskItemContent: {
-    flex: 1,
-  },
-  taskItemTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  taskItemTitleCompleted: {
-    textDecorationLine: 'line-through',
-    color: '#9CA3AF',
-  },
-  taskItemDesc: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  taskItemDeadline: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    marginTop: 4,
-    fontWeight: '600',
-  },
-  notesTextarea: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 16,
-    height: 300,
-    fontSize: 14,
-    color: '#1F2937',
-    textAlignVertical: 'top',
-  },
-  settingsCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  settingsCellDanger: {
-    borderColor: '#FAD2CF',
-    backgroundColor: '#FCE8E6',
-  },
-  settingsLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: '80%',
-  },
-  formContainer: {
-    gap: 14,
-  },
-  formHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  formInput: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
-    fontSize: 14,
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  formSubmitBtn: {
-    backgroundColor: '#6D5DFC',
-    borderRadius: 10,
-    height: 46,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  formSubmitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  searchRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  searchBtn: {
-    backgroundColor: '#6D5DFC',
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchResultsScroll: {
-    maxHeight: 220,
-    marginTop: 8,
-  },
-  searchResultItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    paddingVertical: 10,
-    gap: 4,
-  },
-  resultItemTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  resultItemCitation: {
-    fontSize: 11,
-    color: '#6D5DFC',
-    fontWeight: '600',
-  },
-  resultItemSummary: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-  },
-  resultSaveBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginTop: 4,
-  },
-  resultSaveBtnText: {
-    color: '#6D5DFC',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  templateSelection: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  templateChip: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  templateChipActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  templateText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  compilingContainer: {
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 20,
-  },
-  compilingText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  draftPreviewScroll: {
-    height: 150,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    padding: 10,
-    marginBottom: 8,
-  },
-  draftPreviewText: {
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 16,
-  },
-  ocrOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  ocrBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 340,
-    alignItems: 'center',
-  },
-  ocrSpinner: {
-    marginBottom: 16,
-  },
-  ocrTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  ocrSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 16,
-  },
-  ocrStepsContainer: {
-    alignSelf: 'stretch',
-    gap: 10,
-  },
-  ocrStepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  ocrStepText: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontWeight: '600',
-  },
-  ocrStepTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  threeDotBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-  },
-  appBarBadgesRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 4,
-  },
-  appBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: '#F3F4F6',
-  },
-  appBadgeStatus: {
-    backgroundColor: '#E6F4EA',
-  },
-  appBadgePriority: {
-    backgroundColor: '#FCE8E6',
-  },
-  appBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#10B981',
-    textTransform: 'uppercase',
-  },
-  commandCenterContainer: {
-    padding: 16,
-    gap: 16,
-    backgroundColor: theme.background,
-    paddingBottom: Platform.OS === 'ios' ? 100 : 80,
-  },
-  caseInfoCard: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  caseInfoLabel: {
-    fontWeight: '700',
-    color: theme.textSecondary,
-  },
-  caseInfoRow: {
-    fontSize: 11,
-    color: theme.textPrimary,
-    lineHeight: 16,
-    fontWeight: '500',
-  },
-  insightsSection: {
-    marginHorizontal: -16,
-  },
-  insightsScroll: {
-    paddingHorizontal: 16,
-    gap: 10,
-  },
-  insightCard: {
-    width: 130,
-    height: 80,
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    padding: 10,
-    justifyContent: 'space-between',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: isDark ? 0.2 : 0.01,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  insightCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  insightCardTitle: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    flex: 1,
-  },
-  insightCardValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  insightCardSub: {
-    fontSize: 8,
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  aiAssistantCard: {
-    backgroundColor: theme.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
-    padding: 16,
-    shadowColor: isDark ? '#000000' : '#6D5DFC',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: isDark ? 0.3 : 0.03,
-    shadowRadius: 10,
-    elevation: 2,
-    gap: 12,
-  },
-  aiAssistantHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  aiAssistantTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: theme.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  aiAssistantRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.divider,
-    paddingBottom: 8,
-    gap: 12,
-  },
-  aiAssistantLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    width: 100,
-  },
-  aiAssistantValue: {
-    fontSize: 12,
-    color: theme.textPrimary,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'right',
-  },
-  aiAssistantButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  aiButton: {
-    flex: 1,
-    height: 36,
-    backgroundColor: theme.primary,
-    borderRadius: 8,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  aiButtonOutline: {
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.primary,
-  },
-  aiButtonText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  navigationSection: {
-    gap: 10,
-  },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  viewAllText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  tilesContainer: {
-    gap: 8,
-  },
-  navTile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.card,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    padding: 10,
-    height: 52,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: isDark ? 0.2 : 0.01,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  navTilePressed: {
-    backgroundColor: theme.pressed,
-  },
-  navTileIconBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  navTileContent: {
-    flex: 1,
-  },
-  navTileLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  navTileDesc: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  previewSection: {
-    backgroundColor: theme.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 16,
-    gap: 12,
-  },
-  previewEmptyText: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    textAlign: 'center',
-    paddingVertical: 12,
-    fontWeight: '600',
-  },
-  previewList: {
-    paddingLeft: 4,
-  },
-  previewItem: {
-    flexDirection: 'row',
-    gap: 12,
-    minHeight: 50,
-  },
-  previewDotContainer: {
-    width: 10,
-    alignItems: 'center',
-  },
-  previewDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.primary,
-    marginTop: 4,
-  },
-  previewVerticalLine: {
-    width: 2,
-    backgroundColor: theme.divider,
-    flex: 1,
-    marginVertical: 4,
-  },
-  previewItemContent: {
-    flex: 1,
-    paddingBottom: 10,
-  },
-  previewItemDate: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: theme.textSecondary,
-  },
-  previewItemTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginTop: 2,
-  },
-  previewItemDesc: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    marginTop: 1,
-  },
-  viewTimelineBtn: {
-    height: 38,
-    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  viewTimelineBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  activityList: {
-    gap: 10,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  activityIconBg: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activityContent: {
-    flex: 1,
-  },
-  activityType: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: theme.textSecondary,
-    textTransform: 'uppercase',
-  },
-  activityTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginTop: 1,
-  },
-  activityTime: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    marginTop: 1,
-  },
-  assistantContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 10,
-    zIndex: 1000,
-    overflow: 'hidden',
-    width: '100%',
-    height: '100%',
-  },
-  assistantHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-  },
-  assistantHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  assistantCloseText: {
-    fontSize: 14,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  assistantHeaderTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    marginHorizontal: 8,
-  },
-  assistantHeaderText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  activeToolIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    gap: 4,
-    marginTop: 2,
-  },
-  activeToolIndicatorText: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  assistantHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  assistantHeaderBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  assistantExpandBtn: {
-    padding: 4,
-  },
-  assistantChatArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  assistantListContent: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  statusChipContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 6,
-    width: '100%',
-  },
-  statusChip: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-  },
-  statusChipText: {
-    color: '#6D5DFC',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  modelMessageItemContainer: {
-    width: '100%',
-    alignItems: 'flex-start',
-    gap: 6,
-  },
-  responseActionsContainer: {
-    width: '100%',
-    marginTop: 2,
-    marginBottom: 6,
-  },
-  responseActionsRow: {
-    paddingHorizontal: 4,
-    gap: 8,
-  },
-  responseActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  responseActionLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  composerWrapper: {
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-  },
-  pillInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 24,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  composerIconButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  composerTextInput: {
-    flex: 1,
-    height: 36,
-    paddingHorizontal: 8,
-    fontSize: 13,
-    color: '#1F2937',
-  },
-  composerSendBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#6D5DFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 4,
-  },
-  composerSendBtnDisabled: {
-    opacity: 0.4,
-    backgroundColor: '#9CA3AF',
-  },
-  toolSelectorMenu: {
-    position: 'absolute',
-    bottom: 56,
-    left: 16,
-    width: 220,
-    maxHeight: 340,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 8,
-    zIndex: 200,
-    overflow: 'hidden',
-  },
-  toolSelectorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 14,
-    paddingRight: 0,
-    height: 44,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    backgroundColor: '#FFFFFF',
-  },
-  toolSelectorTitle: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  toolSelectorCloseBtn: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  toolSelectorScroll: {
-    flexGrow: 0,
-    paddingVertical: 4,
-  },
-  toolMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  toolMenuItemActive: {
-    backgroundColor: '#F9FAFB',
-  },
-  toolMenuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  toolMenuLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  toolMenuLabelActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
+    moduleHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    moduleTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    moduleHeaderBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: '#EEECFF',
+      borderColor: '#E1DDFF',
+      borderWidth: 1,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+    },
+    moduleHeaderBtnText: {
+      color: '#6D5DFC',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      height: 40,
+      marginBottom: 16,
+    },
+    searchInput: {
+      flex: 1,
+      marginLeft: 8,
+      fontSize: 14,
+      color: '#1F2937',
+    },
+    ocrPromptContainer: {
+      marginBottom: 16,
+    },
+    ocrPromptText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#6B7280',
+      marginBottom: 8,
+    },
+    ocrPromptScroll: {
+      gap: 8,
+    },
+    ocrDocChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#FFFFFF',
+      borderColor: '#ECECEC',
+      borderWidth: 1,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 20,
+      marginRight: 6,
+    },
+    ocrDocText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    emptyText: {
+      fontSize: 13,
+      color: '#9CA3AF',
+      textAlign: 'center',
+      marginTop: 40,
+      fontWeight: '600',
+    },
+    timelineList: {
+      paddingLeft: 12,
+    },
+    timelineNode: {
+      flexDirection: 'row',
+      gap: 16,
+    },
+    timelineMarker: {
+      width: 12,
+      alignItems: 'center',
+    },
+    timelineLine: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      width: 2,
+      backgroundColor: '#F3F4F6',
+    },
+    timelineDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: '#6D5DFC',
+      marginTop: 6,
+      borderWidth: 2,
+      borderColor: '#FFFFFF',
+    },
+    timelineCard: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 16,
+    },
+    timelineHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    timelineDate: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#9CA3AF',
+    },
+    aiBadge: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 4,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+    },
+    aiBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    timelineTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 4,
+    },
+    timelineDesc: {
+      fontSize: 13,
+      color: '#4B5563',
+      lineHeight: 18,
+      marginBottom: 6,
+    },
+    timelineCategory: {
+      fontSize: 11,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    cardList: {
+      gap: 12,
+    },
+    itemCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 14,
+      padding: 14,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.02,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    itemCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    itemCardTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#1F2937',
+      flex: 1,
+      marginRight: 8,
+    },
+    itemCardBody: {
+      fontSize: 13,
+      color: '#4B5563',
+      lineHeight: 18,
+      marginBottom: 6,
+    },
+    itemCardFooter: {
+      fontSize: 11,
+      color: '#9CA3AF',
+      fontWeight: '600',
+    },
+    statusBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    badgeSuccess: {
+      backgroundColor: '#E6F4EA',
+    },
+    badgeDanger: {
+      backgroundColor: '#FCE8E6',
+    },
+    badgeWarning: {
+      backgroundColor: '#FEF7E0',
+    },
+    badgeInfo: {
+      backgroundColor: '#EBF5FF',
+    },
+    statusBadgeText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    metaCard: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 12,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginBottom: 16,
+      gap: 8,
+    },
+    partyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    partyText: {
+      fontSize: 13,
+      color: '#4B5563',
+    },
+    boldText: {
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    subHeading: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      marginBottom: 12,
+      marginTop: 8,
+    },
+    citationText: {
+      fontSize: 12,
+      color: '#6D5DFC',
+      fontWeight: '700',
+      marginBottom: 6,
+    },
+    metaTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    riskLevelText: {
+      fontSize: 13,
+      color: '#4B5563',
+    },
+    taskItemRow: {
+      flexDirection: 'row',
+      gap: 12,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 14,
+      padding: 14,
+      alignItems: 'flex-start',
+    },
+    taskItemContent: {
+      flex: 1,
+    },
+    taskItemTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    taskItemTitleCompleted: {
+      textDecorationLine: 'line-through',
+      color: '#9CA3AF',
+    },
+    taskItemDesc: {
+      fontSize: 12,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    taskItemDeadline: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      marginTop: 4,
+      fontWeight: '600',
+    },
+    notesTextarea: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 16,
+      height: 300,
+      fontSize: 14,
+      color: '#1F2937',
+      textAlignVertical: 'top',
+    },
+    settingsCell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+    },
+    settingsCellDanger: {
+      borderColor: '#FAD2CF',
+      backgroundColor: '#FCE8E6',
+    },
+    settingsLabel: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    modalContent: {
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      padding: 24,
+      maxHeight: '80%',
+    },
+    formContainer: {
+      gap: 14,
+    },
+    formHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    formTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 8,
+    },
+    formInput: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      height: 44,
+      fontSize: 14,
+      color: '#1F2937',
+      marginBottom: 4,
+    },
+    formSubmitBtn: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 10,
+      height: 46,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    formSubmitBtnText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    searchRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    searchBtn: {
+      backgroundColor: '#6D5DFC',
+      width: 44,
+      height: 44,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    searchResultsScroll: {
+      maxHeight: 220,
+      marginTop: 8,
+    },
+    searchResultItem: {
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+      paddingVertical: 10,
+      gap: 4,
+    },
+    resultItemTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    resultItemCitation: {
+      fontSize: 11,
+      color: '#6D5DFC',
+      fontWeight: '600',
+    },
+    resultItemSummary: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+    },
+    resultSaveBtn: {
+      alignSelf: 'flex-start',
+      backgroundColor: '#EEECFF',
+      borderColor: '#E1DDFF',
+      borderWidth: 1,
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      marginTop: 4,
+    },
+    resultSaveBtnText: {
+      color: '#6D5DFC',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    label: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    templateSelection: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    templateChip: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    templateChipActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    templateText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    compilingContainer: {
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 20,
+    },
+    compilingText: {
+      fontSize: 12,
+      color: '#6B7280',
+    },
+    draftPreviewScroll: {
+      height: 150,
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      padding: 10,
+      marginBottom: 8,
+    },
+    draftPreviewText: {
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 16,
+    },
+    ocrOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    ocrBox: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 24,
+      width: '100%',
+      maxWidth: 340,
+      alignItems: 'center',
+    },
+    ocrSpinner: {
+      marginBottom: 16,
+    },
+    ocrTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 4,
+    },
+    ocrSubtitle: {
+      fontSize: 12,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginBottom: 20,
+      lineHeight: 16,
+    },
+    ocrStepsContainer: {
+      alignSelf: 'stretch',
+      gap: 10,
+    },
+    ocrStepRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    ocrStepText: {
+      fontSize: 12,
+      color: '#9CA3AF',
+      fontWeight: '600',
+    },
+    ocrStepTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    threeDotBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 20,
+    },
+    appBarBadgesRow: {
+      flexDirection: 'row',
+      gap: 6,
+      marginTop: 4,
+    },
+    appBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: '#F3F4F6',
+    },
+    appBadgeStatus: {
+      backgroundColor: '#E6F4EA',
+    },
+    appBadgePriority: {
+      backgroundColor: '#FCE8E6',
+    },
+    appBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: '#10B981',
+      textTransform: 'uppercase',
+    },
+    commandCenterContainer: {
+      padding: 16,
+      gap: 16,
+      backgroundColor: theme.background,
+      paddingBottom: Platform.OS === 'ios' ? 100 : 80,
+    },
+    caseInfoCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    caseInfoLabel: {
+      fontWeight: '700',
+      color: theme.textSecondary,
+    },
+    caseInfoRow: {
+      fontSize: 11,
+      color: theme.textPrimary,
+      lineHeight: 16,
+      fontWeight: '500',
+    },
+    insightsSection: {
+      marginHorizontal: -16,
+    },
+    insightsScroll: {
+      paddingHorizontal: 16,
+      gap: 10,
+    },
+    insightCard: {
+      width: 130,
+      height: 80,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      padding: 10,
+      justifyContent: 'space-between',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.01,
+      shadowRadius: 3,
+      elevation: 1,
+    },
+    insightCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    insightCardTitle: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      flex: 1,
+    },
+    insightCardValue: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    insightCardSub: {
+      fontSize: 8,
+      color: theme.textSecondary,
+      fontWeight: '600',
+    },
+    aiAssistantCard: {
+      backgroundColor: theme.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
+      padding: 16,
+      shadowColor: isDark ? '#000000' : '#6D5DFC',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.03,
+      shadowRadius: 10,
+      elevation: 2,
+      gap: 12,
+    },
+    aiAssistantHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    aiAssistantTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: theme.primary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    aiAssistantRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      borderBottomWidth: 1,
+      borderBottomColor: theme.divider,
+      paddingBottom: 8,
+      gap: 12,
+    },
+    aiAssistantLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      width: 100,
+    },
+    aiAssistantValue: {
+      fontSize: 12,
+      color: theme.textPrimary,
+      fontWeight: '600',
+      flex: 1,
+      textAlign: 'right',
+    },
+    aiAssistantButtons: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 4,
+    },
+    aiButton: {
+      flex: 1,
+      height: 36,
+      backgroundColor: theme.primary,
+      borderRadius: 8,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 6,
+    },
+    aiButtonOutline: {
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.primary,
+    },
+    aiButtonText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    navigationSection: {
+      gap: 10,
+    },
+    sectionHeader: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    viewAllText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+    tilesContainer: {
+      gap: 8,
+    },
+    navTile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      padding: 10,
+      height: 52,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.01,
+      shadowRadius: 2,
+      elevation: 1,
+    },
+    navTilePressed: {
+      backgroundColor: theme.pressed,
+    },
+    navTileIconBg: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    navTileContent: {
+      flex: 1,
+    },
+    navTileLabel: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    navTileDesc: {
+      fontSize: 10,
+      color: theme.textSecondary,
+      fontWeight: '500',
+      marginTop: 1,
+    },
+    previewSection: {
+      backgroundColor: theme.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 16,
+      gap: 12,
+    },
+    previewEmptyText: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      textAlign: 'center',
+      paddingVertical: 12,
+      fontWeight: '600',
+    },
+    previewList: {
+      paddingLeft: 4,
+    },
+    previewItem: {
+      flexDirection: 'row',
+      gap: 12,
+      minHeight: 50,
+    },
+    previewDotContainer: {
+      width: 10,
+      alignItems: 'center',
+    },
+    previewDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.primary,
+      marginTop: 4,
+    },
+    previewVerticalLine: {
+      width: 2,
+      backgroundColor: theme.divider,
+      flex: 1,
+      marginVertical: 4,
+    },
+    previewItemContent: {
+      flex: 1,
+      paddingBottom: 10,
+    },
+    previewItemDate: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: theme.textSecondary,
+    },
+    previewItemTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      marginTop: 2,
+    },
+    previewItemDesc: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      marginTop: 1,
+    },
+    viewTimelineBtn: {
+      height: 38,
+      backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(123, 97, 255, 0.24)' : '#E1DDFF',
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    viewTimelineBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+    activityList: {
+      gap: 10,
+    },
+    activityItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    activityIconBg: {
+      width: 28,
+      height: 28,
+      borderRadius: 6,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    activityContent: {
+      flex: 1,
+    },
+    activityType: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: theme.textSecondary,
+      textTransform: 'uppercase',
+    },
+    activityTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      marginTop: 1,
+    },
+    activityTime: {
+      fontSize: 10,
+      color: theme.textSecondary,
+      marginTop: 1,
+    },
+    assistantContainer: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: '#FFFFFF',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: -3 },
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      elevation: 10,
+      zIndex: 1000,
+      overflow: 'hidden',
+      width: '100%',
+      height: '100%',
+    },
+    assistantHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+    },
+    assistantHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    assistantCloseText: {
+      fontSize: 14,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    assistantHeaderTitleContainer: {
+      flex: 1,
+      alignItems: 'center',
+      marginHorizontal: 8,
+    },
+    assistantHeaderText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    activeToolIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F3F4F6',
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      gap: 4,
+      marginTop: 2,
+    },
+    activeToolIndicatorText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+    assistantHeaderActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    assistantHeaderBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    assistantExpandBtn: {
+      padding: 4,
+    },
+    assistantChatArea: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+    },
+    assistantListContent: {
+      paddingHorizontal: 16,
+      paddingTop: 24,
+      paddingBottom: 16,
+      gap: 12,
+    },
+    statusChipContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginVertical: 6,
+      width: '100%',
+    },
+    statusChip: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+    },
+    statusChipText: {
+      color: '#6D5DFC',
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    modelMessageItemContainer: {
+      width: '100%',
+      alignItems: 'flex-start',
+      gap: 6,
+    },
+    responseActionsContainer: {
+      width: '100%',
+      marginTop: 2,
+      marginBottom: 6,
+    },
+    responseActionsRow: {
+      paddingHorizontal: 4,
+      gap: 8,
+    },
+    responseActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: '#F3F4F6',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    responseActionLabel: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    composerWrapper: {
+      backgroundColor: '#FFFFFF',
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+    },
+    pillInputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F3F4F6',
+      borderRadius: 24,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    composerIconButton: {
+      width: 32,
+      height: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    composerTextInput: {
+      flex: 1,
+      height: 36,
+      paddingHorizontal: 8,
+      fontSize: 13,
+      color: '#1F2937',
+    },
+    composerSendBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: '#6D5DFC',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 4,
+    },
+    composerSendBtnDisabled: {
+      opacity: 0.4,
+      backgroundColor: '#9CA3AF',
+    },
+    toolSelectorMenu: {
+      position: 'absolute',
+      bottom: 56,
+      left: 16,
+      width: 220,
+      maxHeight: 340,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 8,
+      zIndex: 200,
+      overflow: 'hidden',
+    },
+    toolSelectorHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingLeft: 14,
+      paddingRight: 0,
+      height: 44,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+      backgroundColor: '#FFFFFF',
+    },
+    toolSelectorTitle: {
+      fontSize: 10.5,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    toolSelectorCloseBtn: {
+      width: 44,
+      height: 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    toolSelectorScroll: {
+      flexGrow: 0,
+      paddingVertical: 4,
+    },
+    toolMenuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    toolMenuItemActive: {
+      backgroundColor: '#F9FAFB',
+    },
+    toolMenuItemLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    toolMenuLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    toolMenuLabelActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
 
-  attachmentsWrapper: {
-    backgroundColor: '#F9FAFB',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-  },
-  attachmentsScroll: {
-    gap: 8,
-  },
-  attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#ECECEC',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingLeft: 8,
-    paddingRight: 4,
-    paddingVertical: 4,
-    marginRight: 8,
-  },
-  attachmentLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#4B5563',
-    maxWidth: 100,
-  },
-  messageRow: {
-    flexDirection: 'row',
-    width: '100%',
-  },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
-  messageRowModel: {
-    justifyContent: 'flex-start',
-  },
-  messageBubble: {
-    maxWidth: '82%',
-    borderRadius: 16,
-    padding: 12,
-  },
-  messageBubbleUser: {
-    backgroundColor: '#6D5DFC',
-    borderBottomRightRadius: 4,
-  },
-  messageBubbleModel: {
-    backgroundColor: '#F3F4F6',
-    borderBottomLeftRadius: 4,
-  },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  messageTextUser: {
-    color: '#FFFFFF',
-  },
-  messageTextModel: {
-    color: '#1F2937',
-  },
-  bubbleAttachments: {
-    gap: 4,
-    marginBottom: 8,
-  },
-  bubbleAttachChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    maxWidth: '100%',
-  },
-  bubbleAttachText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  textWhite: {
-    color: '#FFFFFF',
-  },
-  textSecondary: {
-    color: '#4B5563',
-  },
-  bubbleSuggestions: {
-    marginTop: 12,
-    gap: 6,
-  },
-  bubbleSugChip: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#6D5DFC',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start',
-  },
-  bubbleSugText: {
-    color: '#6D5DFC',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  copilotFloatBtnPill: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6D5DFC',
-    borderRadius: 28,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    gap: 8,
-    shadowColor: '#6D5DFC',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-    zIndex: 99,
-  },
-  copilotFloatText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  centerToastContainer: {
-    position: 'absolute',
-    top: '45%',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 9999,
-  },
-  centerToastBox: {
-    backgroundColor: 'rgba(31, 41, 55, 0.9)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  centerToastText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  caseSummaryTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 6,
-  },
-  caseSummaryText: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 18,
-    marginBottom: 10,
-  },
-  dividerLine: {
-    height: 1,
-    backgroundColor: '#ECECEC',
-    marginVertical: 10,
-  },
-  caseDetailMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 6,
-  },
-  metaCol: {
-    flex: 1,
-  },
-  metaColLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-  },
-  metaColValue: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginTop: 2,
-  },
-  narrativeInputCard: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-    marginBottom: 16,
-    gap: 8,
-  },
-  narrativeHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  narrativeTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#5B4EDB',
-    textTransform: 'uppercase',
-  },
-  narrativeTextInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-    padding: 10,
-    fontSize: 12,
-    color: '#1F2937',
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  narrativeActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  narrativeSampleBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  narrativeSampleText: {
-    fontSize: 11,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  narrativeExtractBtn: {
-    backgroundColor: '#6D5DFC',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  narrativeExtractText: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  warningAlertBanner: {
-    flexDirection: 'row',
-    gap: 10,
-    backgroundColor: '#FEF7E0',
-    borderColor: '#FDE68A',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  warningAlertText: {
-    fontSize: 12,
-    color: '#B45309',
-    lineHeight: 16,
-  },
-  warningAlertActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  warningActionLink: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#B45309',
-  },
-  warningDismissLink: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9CA3AF',
-  },
-  timelineExpandedDetails: {
-    marginTop: 8,
-    gap: 6,
-  },
-  timelineDetailRow: {
-    fontSize: 11,
-    color: '#4B5563',
-  },
-  timelineAiExplanationBox: {
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: '#EEECFF',
-    padding: 8,
-    borderRadius: 6,
-    marginTop: 4,
-  },
-  timelineAiExplanationText: {
-    fontSize: 11,
-    color: '#5B4EDB',
-    lineHeight: 15,
-    flex: 1,
-  },
-  timelineExpandText: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    marginTop: 6,
-  },
-  horizontalPillsScroll: {
-    paddingVertical: 4,
-    gap: 8,
-  },
-  filterPill: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginRight: 6,
-  },
-  filterPillActive: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-  },
-  filterPillText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  filterPillTextActive: {
-    color: '#FFFFFF',
-  },
-  hearingOutcomeBox: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    gap: 4,
-  },
-  outcomeDetailText: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  recordOutcomeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    alignSelf: 'flex-start',
-  },
-  recordOutcomeBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  tagBadge: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  tagBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  docExtractedBox: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-    gap: 2,
-  },
-  docExtractedText: {
-    fontSize: 10,
-    color: '#5B4EDB',
-  },
-  evidenceIntegrityBox: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    gap: 2,
-  },
-  evidenceIntegrityText: {
-    fontSize: 11,
-    color: '#4B5563',
-  },
-  searchSubmitBtn: {
-    backgroundColor: '#6D5DFC',
-    borderRadius: 6,
-    width: 36,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchSubmitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  researchSugChip: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#ECECEC',
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 6,
-  },
-  researchSugChipText: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  ocrOverlayStatic: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  accordionContainer: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  accordionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 14,
-    backgroundColor: '#F9FAFB',
-  },
-  accordionTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  accordionContent: {
-    padding: 14,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    gap: 8,
-  },
-  accordionTextBold: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  accordionBullet: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-    paddingLeft: 8,
-  },
-  researchLawItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    paddingBottom: 12,
-    marginBottom: 12,
-    gap: 4,
-  },
-  lawActLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  lawSecLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  lawDesc: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-  },
-  lawExplanationBox: {
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: '#EEECFF',
-    padding: 8,
-    borderRadius: 6,
-    marginTop: 4,
-  },
-  lawExplanationText: {
-    fontSize: 11,
-    color: '#5B4EDB',
-    lineHeight: 15,
-    flex: 1,
-  },
-  judgmentTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  judgmentCitation: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9CA3AF',
-  },
-  saveResearchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  saveResearchBtnText: {
-    color: '#6D5DFC',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  recommendationItem: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
-  },
-  recommendationText: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-    flex: 1,
-  },
-  emptyTextSaved: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    paddingVertical: 12,
-  },
-  savedPrecedentItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    paddingBottom: 10,
-    marginBottom: 10,
-    gap: 4,
-  },
-  savedPrecedentTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  savedPrecedentCitation: {
-    fontSize: 10,
-    color: '#6D5DFC',
-    fontWeight: '600',
-  },
-  savedPrecedentSummary: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  draftPreviewScrollStatic: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 10,
-    marginTop: 6,
-  },
-  aiReplyContainer: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-  },
-  aiReplyTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#6D5DFC',
-    marginBottom: 6,
-  },
-  aiReplyText: {
-    fontSize: 12,
-    color: '#1F2937',
-    lineHeight: 18,
-  },
-  scrollDownBtn: {
-    position: 'absolute',
-    bottom: 20,
-    left: '50%',
-    marginLeft: -21,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 4,
-    zIndex: 999,
-  },
-  drawerOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-  },
-  drawerContainer: {
-    width: width * 0.8,
-    height: '100%',
-    backgroundColor: theme.background,
-    borderRightWidth: 1,
-    borderRightColor: theme.border,
-    paddingHorizontal: 16,
-  },
-  drawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-  },
-  drawerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  drawerNewChatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.primary,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginVertical: 12,
-    gap: 6,
-  },
-  drawerNewChatBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  drawerSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 8,
-    backgroundColor: theme.surfaceVariant,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  drawerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: theme.textPrimary,
-    padding: 0,
-  },
-  drawerList: {
-    flex: 1,
-  },
-  drawerEmptyText: {
-    fontSize: 12.5,
-    color: theme.textMuted,
-    textAlign: 'center',
-    marginTop: 24,
-    fontStyle: 'italic',
-  },
-  drawerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
-  },
-  drawerItemActive: {
-    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
-  },
-  drawerItemTextContainer: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  drawerItemText: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    fontWeight: '500',
-  },
-  drawerItemTextActive: {
-    color: theme.primary,
-    fontWeight: '700',
-  },
-  drawerItemSubtext: {
-    fontSize: 10,
-    color: theme.textMuted,
-    marginTop: 2,
-  },
-  drawerRenameInput: {
-    fontSize: 13,
-    color: theme.textPrimary,
-    fontWeight: '600',
-    flex: 1,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.primary,
-    padding: 0,
-  },
-  drawerActionIcon: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    marginLeft: 4,
-  },
-  // Redesigned Timeline Screen Styles
-  filtersScroll: {
-    marginVertical: 10,
-  },
-  filtersContainer: {
-    paddingHorizontal: 4,
-    gap: 8,
-  },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  filterChipActive: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-  },
-  filterChipText: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '500',
-  },
-  filterChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  sortRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 8,
-    paddingHorizontal: 2,
-  },
-  milestoneCountText: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  sortToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  sortToggleText: {
-    fontSize: 11,
-    color: '#6D5DFC',
-    fontWeight: '600',
-  },
-  suggestionsContainer: {
-    marginVertical: 12,
-    gap: 8,
-  },
-  suggestionsHeader: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1F2937',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  suggestionCard: {
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-  },
-  warningCard: {
-    backgroundColor: '#F5F3FF',
-    borderColor: '#DDD6FE',
-  },
-  deadlineCard: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  missingCard: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-  suggestionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  suggestionTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  warningTagText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  deadlineTagText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#D97706',
-  },
-  missingTagText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#EF4444',
-  },
-  suggestionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  suggestionDesc: {
-    fontSize: 10,
-    color: '#4B5563',
-    marginTop: 2,
-    lineHeight: 14,
-  },
-  timelineHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  badgesGroup: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  categoryBadge: {
-    backgroundColor: '#F3F4F6',
-  },
-  categoryBadgeText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  badgeHigh: {
-    backgroundColor: '#FEE2E2',
-  },
-  badgeMedium: {
-    backgroundColor: '#FEF3C7',
-  },
-  badgeLow: {
-    backgroundColor: '#EEECFF',
-  },
-  badgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  aiGeneratedBadge: {
-    backgroundColor: '#EEECFF',
-    borderWidth: 0.5,
-    borderColor: '#6D5DFC',
-  },
-  aiGeneratedBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  approximateNotice: {
-    fontSize: 8.5,
-    color: '#6B7280',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  dotHigh: {
-    backgroundColor: '#EF4444',
-  },
-  dotMedium: {
-    backgroundColor: '#F59E0B',
-  },
-  dotLow: {
-    backgroundColor: '#6D5DFC',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  loadingTextTimeline: {
-    fontSize: 12,
-    color: '#4B5563',
-    textAlign: 'center',
-    paddingHorizontal: 24,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 64,
-  },
-  emptyHeadline: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  emptySubline: {
-    fontSize: 12.5,
-    color: '#6B7280',
-    marginTop: 4,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  generateTimelineBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6D5DFC',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  generateTimelineBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  // Hearings Module Styles
-  overviewCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  overviewTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  overviewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  overviewLabel: {
-    fontSize: 13,
-    color: '#4B5563',
-  },
-  overviewValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  overviewStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    paddingTop: 12,
-  },
-  overviewStatCol: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  overviewStatNum: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  overviewStatLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  horizontalScrollWidgets: {
-    marginBottom: 16,
-  },
-  widgetCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 12,
-    width: width * 0.7,
-    marginRight: 12,
-    minHeight: 110,
-    justifyContent: 'space-between',
-  },
-  widgetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  widgetHeaderTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#6B7280',
-    textTransform: 'uppercase',
-  },
-  widgetBody: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  widgetTextMain: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  widgetTextSub: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  widgetProgressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-  },
-  widgetProgressBarBg: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F3F4F6',
-    overflow: 'hidden',
-  },
-  widgetProgressBarFill: {
-    height: '100%',
-    backgroundColor: '#10B981',
-    borderRadius: 3,
-  },
-  widgetProgressPerc: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#10B981',
-  },
-  hearingFilterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  hearingFilterPillActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  hearingFilterPillText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  hearingFilterPillTextActive: {
-    color: '#FFFFFF',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    marginBottom: 16,
-  },
-  searchIcon: {
-    marginRight: 6,
-  },
-  searchBarInput: {
-    flex: 1,
-    height: 38,
-    fontSize: 13,
-    color: '#1F2937',
-  },
-  timelineWrapper: {
-    paddingLeft: 8,
-    marginTop: 8,
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    minHeight: 100,
-  },
-  timelineLineContainer: {
-    alignItems: 'center',
-    width: 24,
-  },
-  hearingTimelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#6D5DFC',
-    zIndex: 1,
-    marginTop: 8,
-  },
-  hearingTimelineConnector: {
-    flex: 1,
-    width: 2,
-    backgroundColor: '#ECECEC',
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  hearingTimelineContentCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 14,
-    marginLeft: 8,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  timelineCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  timelineCardDate: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  timelineCardTime: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 1,
-  },
-  timelineCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 6,
-  },
-  timelineMetaGrid: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 10,
-    gap: 4,
-    marginBottom: 10,
-  },
-  timelineMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  timelineMetaText: {
-    fontSize: 12,
-    color: '#4B5563',
-    flex: 1,
-  },
-  aiEnrichedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: '#6D5DFC',
-  },
-  aiEnrichedBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  aiOrderSummaryBox: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 8,
-    padding: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#6D5DFC',
-    marginBottom: 12,
-  },
-  aiOrderSummaryHeader: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  aiOrderSummaryText: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-  },
-  checklistToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    paddingVertical: 8,
-    marginBottom: 10,
-  },
-  checklistToggleText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  checklistContainer: {
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    paddingTop: 10,
-    marginTop: 6,
-  },
-  checklistSectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 10,
-  },
-  checklistCategory: {
-    marginBottom: 12,
-  },
-  checklistCategoryTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#6B7280',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  checklistEmptyText: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontStyle: 'italic',
-    paddingLeft: 6,
-  },
-  checklistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 5,
-    paddingLeft: 4,
-  },
-  checklistRowText: {
-    fontSize: 12,
-    color: '#4B5563',
-    flex: 1,
-  },
-  checklistRowTextChecked: {
-    color: '#9CA3AF',
-    textDecorationLine: 'line-through',
-  },
-  cardActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-    paddingTop: 10,
-    marginTop: 6,
-  },
-  cardActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-  },
-  cardActionBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  cardActionBtnFilled: {
-    backgroundColor: '#6D5DFC',
-  },
-  cardActionBtnTextFilled: {
-    color: '#FFFFFF',
-  },
-  miniStatusBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  miniBadgeDanger: {
-    backgroundColor: '#FCE8E6',
-  },
-  miniBadgeWarning: {
-    backgroundColor: '#FEF7E0',
-  },
-  miniStatusBadgeText: {
-    fontSize: 8.5,
-    fontWeight: '700',
-    color: '#EF4444',
-  },
-  formStatusChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  formStatusChipActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  formStatusChipText: {
-    fontSize: 11,
-    color: '#4B5563',
-  },
-  formStatusChipTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  statusChipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  pickerContainer: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
-  },
-  pickerTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6B7280',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  pickerItem: {
-    padding: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 6,
-  },
-  pickerItemActive: {
-    borderColor: '#6D5DFC',
-    backgroundColor: '#EEECFF',
-  },
-  pickerItemName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  pickerItemDesc: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  hearingProgressBarBg: {
-    height: 10,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  hearingProgressBarFill: {
-    height: '100%',
-    backgroundColor: '#6D5DFC',
-  },
-  progressText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#4B5563',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  // Redesigned Research & Laws Screen Styles
-  premiumHeaderCard: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E1DDFF',
-    marginBottom: 16,
-  },
-  premiumHeaderTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  premiumHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  premiumHeaderBadges: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  premiumStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  premiumPriorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  premiumBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  premiumSearchCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 16,
-    marginBottom: 16,
-  },
-  premiumSearchTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  premiumSearchSubtitle: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 4,
-    marginBottom: 12,
-    lineHeight: 15,
-  },
-  searchBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  premiumSearchInput: {
-    flex: 2,
-    height: 38,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    fontSize: 12,
-    color: '#1F2937',
-    backgroundColor: '#FFFFFF',
-  },
-  premiumSearchBtn: {
-    backgroundColor: '#1F2937',
-    borderRadius: 8,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  premiumSearchBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  premiumAnalyzeBtn: {
-    backgroundColor: '#6D5DFC',
-    borderRadius: 8,
-    height: 38,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  premiumAnalyzeBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  suggestionsTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 6,
-  },
-  suggestionChipsContainer: {
-    paddingBottom: 4,
-  },
-  sugChip: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginRight: 6,
-  },
-  sugChipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  sugChipActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  sugChipTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  emptyStateContainer: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 12,
-  },
-  emptyStateText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyStateBtn: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  emptyStateBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  metricCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 12,
-    alignItems: 'center',
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  metricLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6B7280',
-    textTransform: 'uppercase',
-    marginTop: 4,
-  },
-  researchLawItemCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    borderRadius: 8,
-    marginBottom: 8,
-    overflow: 'hidden',
-  },
-  lawItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#F9FAFB',
-  },
-  lawItemExpandedContent: {
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    gap: 6,
-  },
-  lawTitleLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  judFilterContainer: {
-    paddingBottom: 8,
-    gap: 6,
-  },
-  judFilterBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    marginRight: 4,
-  },
-  judFilterBtnActive: {
-    backgroundColor: '#EEECFF',
-    borderWidth: 0.5,
-    borderColor: '#6D5DFC',
-  },
-  judFilterBtnText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  judFilterBtnTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  judgmentItemCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    borderRadius: 8,
-    marginBottom: 8,
-    overflow: 'hidden',
-  },
-  judgmentItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#F9FAFB',
-  },
-  judgmentItemExpandedContent: {
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    gap: 6,
-  },
-  judgmentDetailText: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  judgmentButtonsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 8,
-  },
-  judActionBtn: {
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  judActionBtnText: {
-    fontSize: 10,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  savedPrecedentItemCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    padding: 12,
-    marginBottom: 8,
-    gap: 4,
-  },
-  savedPrecedentDate: {
-    fontSize: 9,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  accordionTextNormal: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-  },
-  dropdownContainer: {
-    marginVertical: 8,
-  },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    height: 38,
-    paddingHorizontal: 10,
-    marginTop: 4,
-  },
-  dropdownTriggerText: {
-    fontSize: 12,
-    color: '#1F2937',
-  },
-  dropdownListContainer: {
-    maxHeight: 180,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    marginTop: 4,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  dropdownList: {
-    paddingVertical: 4,
-  },
-  dropdownItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  dropdownItemActive: {
-    backgroundColor: '#EEECFF',
-  },
-  dropdownItemText: {
-    fontSize: 12,
-    color: '#4B5563',
-  },
-  dropdownItemTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
+    attachmentsWrapper: {
+      backgroundColor: '#F9FAFB',
+      paddingVertical: 6,
+      paddingHorizontal: 16,
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+    },
+    attachmentsScroll: {
+      gap: 8,
+    },
+    attachmentChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#FFFFFF',
+      borderColor: '#ECECEC',
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingLeft: 8,
+      paddingRight: 4,
+      paddingVertical: 4,
+      marginRight: 8,
+    },
+    attachmentLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#4B5563',
+      maxWidth: 100,
+    },
+    messageRow: {
+      flexDirection: 'row',
+      width: '100%',
+    },
+    messageRowUser: {
+      justifyContent: 'flex-end',
+    },
+    messageRowModel: {
+      justifyContent: 'flex-start',
+    },
+    messageBubble: {
+      maxWidth: '82%',
+      borderRadius: 16,
+      padding: 12,
+    },
+    messageBubbleUser: {
+      backgroundColor: '#6D5DFC',
+      borderBottomRightRadius: 4,
+    },
+    messageBubbleModel: {
+      backgroundColor: '#F3F4F6',
+      borderBottomLeftRadius: 4,
+    },
+    messageText: {
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    messageTextUser: {
+      color: '#FFFFFF',
+    },
+    messageTextModel: {
+      color: '#1F2937',
+    },
+    bubbleAttachments: {
+      gap: 4,
+      marginBottom: 8,
+    },
+    bubbleAttachChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: 'rgba(0,0,0,0.06)',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 8,
+      maxWidth: '100%',
+    },
+    bubbleAttachText: {
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    textWhite: {
+      color: '#FFFFFF',
+    },
+    textSecondary: {
+      color: '#4B5563',
+    },
+    bubbleSuggestions: {
+      marginTop: 12,
+      gap: 6,
+    },
+    bubbleSugChip: {
+      backgroundColor: '#FFFFFF',
+      borderColor: '#6D5DFC',
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      alignSelf: 'flex-start',
+    },
+    bubbleSugText: {
+      color: '#6D5DFC',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    copilotFloatBtnPill: {
+      position: 'absolute',
+      bottom: 24,
+      right: 24,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#6D5DFC',
+      borderRadius: 28,
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      gap: 8,
+      shadowColor: '#6D5DFC',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
+      zIndex: 99,
+    },
+    copilotFloatText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    centerToastContainer: {
+      position: 'absolute',
+      top: '45%',
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999,
+    },
+    centerToastBox: {
+      backgroundColor: 'rgba(31, 41, 55, 0.9)',
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    centerToastText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    caseSummaryTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 6,
+    },
+    caseSummaryText: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 18,
+      marginBottom: 10,
+    },
+    dividerLine: {
+      height: 1,
+      backgroundColor: '#ECECEC',
+      marginVertical: 10,
+    },
+    caseDetailMetaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 12,
+      marginBottom: 6,
+    },
+    metaCol: {
+      flex: 1,
+    },
+    metaColLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+    },
+    metaColValue: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#1F2937',
+      marginTop: 2,
+    },
+    narrativeInputCard: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 12,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+      marginBottom: 16,
+      gap: 8,
+    },
+    narrativeHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    narrativeTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#5B4EDB',
+      textTransform: 'uppercase',
+    },
+    narrativeTextInput: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+      padding: 10,
+      fontSize: 12,
+      color: '#1F2937',
+      height: 80,
+      textAlignVertical: 'top',
+    },
+    narrativeActions: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    narrativeSampleBtn: {
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+    },
+    narrativeSampleText: {
+      fontSize: 11,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    narrativeExtractBtn: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+    },
+    narrativeExtractText: {
+      fontSize: 11,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    warningAlertBanner: {
+      flexDirection: 'row',
+      gap: 10,
+      backgroundColor: '#FEF7E0',
+      borderColor: '#FDE68A',
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 16,
+    },
+    warningAlertText: {
+      fontSize: 12,
+      color: '#B45309',
+      lineHeight: 16,
+    },
+    warningAlertActions: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 8,
+    },
+    warningActionLink: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#B45309',
+    },
+    warningDismissLink: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#9CA3AF',
+    },
+    timelineExpandedDetails: {
+      marginTop: 8,
+      gap: 6,
+    },
+    timelineDetailRow: {
+      fontSize: 11,
+      color: '#4B5563',
+    },
+    timelineAiExplanationBox: {
+      flexDirection: 'row',
+      gap: 6,
+      backgroundColor: '#EEECFF',
+      padding: 8,
+      borderRadius: 6,
+      marginTop: 4,
+    },
+    timelineAiExplanationText: {
+      fontSize: 11,
+      color: '#5B4EDB',
+      lineHeight: 15,
+      flex: 1,
+    },
+    timelineExpandText: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      fontWeight: '600',
+      marginTop: 6,
+    },
+    horizontalPillsScroll: {
+      paddingVertical: 4,
+      gap: 8,
+    },
+    filterPill: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginRight: 6,
+    },
+    filterPillActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    filterPillText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    filterPillTextActive: {
+      color: '#FFFFFF',
+    },
+    hearingOutcomeBox: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 10,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      gap: 4,
+    },
+    outcomeDetailText: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    recordOutcomeBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 10,
+      alignSelf: 'flex-start',
+    },
+    recordOutcomeBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    inputLabel: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    tagBadge: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    tagBadgeText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    docExtractedBox: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 8,
+      padding: 8,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+      gap: 2,
+    },
+    docExtractedText: {
+      fontSize: 10,
+      color: '#5B4EDB',
+    },
+    evidenceIntegrityBox: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 8,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      gap: 2,
+    },
+    evidenceIntegrityText: {
+      fontSize: 11,
+      color: '#4B5563',
+    },
+    searchSubmitBtn: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 6,
+      width: 36,
+      height: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    searchSubmitBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    researchSugChip: {
+      backgroundColor: '#FFFFFF',
+      borderColor: '#ECECEC',
+      borderWidth: 1,
+      borderRadius: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      marginRight: 6,
+    },
+    researchSugChipText: {
+      fontSize: 11,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    ocrOverlayStatic: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    accordionContainer: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      overflow: 'hidden',
+      marginBottom: 10,
+    },
+    accordionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 14,
+      backgroundColor: '#F9FAFB',
+    },
+    accordionTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    accordionContent: {
+      padding: 14,
+      backgroundColor: '#FFFFFF',
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+      gap: 8,
+    },
+    accordionTextBold: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    accordionBullet: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+      paddingLeft: 8,
+    },
+    researchLawItem: {
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+      paddingBottom: 12,
+      marginBottom: 12,
+      gap: 4,
+    },
+    lawActLabel: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    lawSecLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    lawDesc: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+    },
+    lawExplanationBox: {
+      flexDirection: 'row',
+      gap: 6,
+      backgroundColor: '#EEECFF',
+      padding: 8,
+      borderRadius: 6,
+      marginTop: 4,
+    },
+    lawExplanationText: {
+      fontSize: 11,
+      color: '#5B4EDB',
+      lineHeight: 15,
+      flex: 1,
+    },
+    judgmentTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    judgmentCitation: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#9CA3AF',
+    },
+    saveResearchBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    saveResearchBtnText: {
+      color: '#6D5DFC',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    recommendationItem: {
+      flexDirection: 'row',
+      gap: 8,
+      alignItems: 'flex-start',
+    },
+    recommendationText: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+      flex: 1,
+    },
+    emptyTextSaved: {
+      fontSize: 12,
+      color: '#9CA3AF',
+      textAlign: 'center',
+      paddingVertical: 12,
+    },
+    savedPrecedentItem: {
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+      paddingBottom: 10,
+      marginBottom: 10,
+      gap: 4,
+    },
+    savedPrecedentTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    savedPrecedentCitation: {
+      fontSize: 10,
+      color: '#6D5DFC',
+      fontWeight: '600',
+    },
+    savedPrecedentSummary: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    draftPreviewScrollStatic: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 10,
+      marginTop: 6,
+    },
+    aiReplyContainer: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+    },
+    aiReplyTitle: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: '#6D5DFC',
+      marginBottom: 6,
+    },
+    aiReplyText: {
+      fontSize: 12,
+      color: '#1F2937',
+      lineHeight: 18,
+    },
+    scrollDownBtn: {
+      position: 'absolute',
+      bottom: 20,
+      left: '50%',
+      marginLeft: -21,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 5,
+      elevation: 4,
+      zIndex: 999,
+    },
+    drawerOverlay: {
+      flex: 1,
+      flexDirection: 'row',
+      backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    },
+    drawerContainer: {
+      width: width * 0.8,
+      height: '100%',
+      backgroundColor: theme.background,
+      borderRightWidth: 1,
+      borderRightColor: theme.border,
+      paddingHorizontal: 16,
+    },
+    drawerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    drawerTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    drawerNewChatBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.primary,
+      paddingVertical: 10,
+      borderRadius: 8,
+      marginVertical: 12,
+      gap: 6,
+    },
+    drawerNewChatBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    drawerSearchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 8,
+      backgroundColor: theme.surfaceVariant,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginBottom: 12,
+    },
+    drawerSearchInput: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.textPrimary,
+      padding: 0,
+    },
+    drawerList: {
+      flex: 1,
+    },
+    drawerEmptyText: {
+      fontSize: 12.5,
+      color: theme.textMuted,
+      textAlign: 'center',
+      marginTop: 24,
+      fontStyle: 'italic',
+    },
+    drawerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 8,
+      marginBottom: 4,
+      backgroundColor: 'transparent',
+    },
+    drawerItemActive: {
+      backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
+    },
+    drawerItemTextContainer: {
+      flex: 1,
+      flexDirection: 'column',
+      justifyContent: 'center',
+    },
+    drawerItemText: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      fontWeight: '500',
+    },
+    drawerItemTextActive: {
+      color: theme.primary,
+      fontWeight: '700',
+    },
+    drawerItemSubtext: {
+      fontSize: 10,
+      color: theme.textMuted,
+      marginTop: 2,
+    },
+    drawerRenameInput: {
+      fontSize: 13,
+      color: theme.textPrimary,
+      fontWeight: '600',
+      flex: 1,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.primary,
+      padding: 0,
+    },
+    drawerActionIcon: {
+      width: 28,
+      height: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 14,
+      marginLeft: 4,
+    },
+    // Redesigned Timeline Screen Styles
+    filtersScroll: {
+      marginVertical: 10,
+    },
+    filtersContainer: {
+      paddingHorizontal: 4,
+      gap: 8,
+    },
+    filterChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: '#F3F4F6',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    filterChipActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    filterChipText: {
+      fontSize: 12,
+      color: '#4B5563',
+      fontWeight: '500',
+    },
+    filterChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '600',
+    },
+    sortRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginVertical: 8,
+      paddingHorizontal: 2,
+    },
+    milestoneCountText: {
+      fontSize: 12,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    sortToggleBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    sortToggleText: {
+      fontSize: 11,
+      color: '#6D5DFC',
+      fontWeight: '600',
+    },
+    suggestionsContainer: {
+      marginVertical: 12,
+      gap: 8,
+    },
+    suggestionsHeader: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#1F2937',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 4,
+    },
+    suggestionCard: {
+      borderRadius: 8,
+      borderWidth: 1,
+      padding: 12,
+    },
+    warningCard: {
+      backgroundColor: '#F5F3FF',
+      borderColor: '#DDD6FE',
+    },
+    deadlineCard: {
+      backgroundColor: '#FFFBEB',
+      borderColor: '#FDE68A',
+    },
+    missingCard: {
+      backgroundColor: '#FEF2F2',
+      borderColor: '#FECACA',
+    },
+    suggestionHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    suggestionTitleGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    warningTagText: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    deadlineTagText: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#D97706',
+    },
+    missingTagText: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#EF4444',
+    },
+    suggestionTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    suggestionDesc: {
+      fontSize: 10,
+      color: '#4B5563',
+      marginTop: 2,
+      lineHeight: 14,
+    },
+    timelineHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    badgesGroup: {
+      flexDirection: 'row',
+      gap: 4,
+    },
+    badge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    categoryBadge: {
+      backgroundColor: '#F3F4F6',
+    },
+    categoryBadgeText: {
+      fontSize: 9,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    badgeHigh: {
+      backgroundColor: '#FEE2E2',
+    },
+    badgeMedium: {
+      backgroundColor: '#FEF3C7',
+    },
+    badgeLow: {
+      backgroundColor: '#EEECFF',
+    },
+    badgeText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+    aiGeneratedBadge: {
+      backgroundColor: '#EEECFF',
+      borderWidth: 0.5,
+      borderColor: '#6D5DFC',
+    },
+    aiGeneratedBadgeText: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    approximateNotice: {
+      fontSize: 8.5,
+      color: '#6B7280',
+      marginTop: 4,
+      fontStyle: 'italic',
+    },
+    dotHigh: {
+      backgroundColor: '#EF4444',
+    },
+    dotMedium: {
+      backgroundColor: '#F59E0B',
+    },
+    dotLow: {
+      backgroundColor: '#6D5DFC',
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 48,
+    },
+    loadingTextTimeline: {
+      fontSize: 12,
+      color: '#4B5563',
+      textAlign: 'center',
+      paddingHorizontal: 24,
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 64,
+    },
+    emptyHeadline: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    emptySubline: {
+      fontSize: 12.5,
+      color: '#6B7280',
+      marginTop: 4,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    generateTimelineBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#6D5DFC',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    generateTimelineBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    // Hearings Module Styles
+    overviewCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      elevation: 2,
+    },
+    overviewTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 12,
+    },
+    overviewRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
+    overviewLabel: {
+      fontSize: 13,
+      color: '#4B5563',
+    },
+    overviewValue: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#1F2937',
+    },
+    overviewStatsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+      paddingTop: 12,
+    },
+    overviewStatCol: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    overviewStatNum: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    overviewStatLabel: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    horizontalScrollWidgets: {
+      marginBottom: 16,
+    },
+    widgetCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 12,
+      width: width * 0.7,
+      marginRight: 12,
+      minHeight: 110,
+      justifyContent: 'space-between',
+    },
+    widgetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 6,
+    },
+    widgetHeaderTitle: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: '#6B7280',
+      textTransform: 'uppercase',
+    },
+    widgetBody: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    widgetTextMain: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    widgetTextSub: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    widgetProgressContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 6,
+    },
+    widgetProgressBarBg: {
+      flex: 1,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#F3F4F6',
+      overflow: 'hidden',
+    },
+    widgetProgressBarFill: {
+      height: '100%',
+      backgroundColor: '#10B981',
+      borderRadius: 3,
+    },
+    widgetProgressPerc: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#10B981',
+    },
+    hearingFilterPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: '#F3F4F6',
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    hearingFilterPillActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    hearingFilterPillText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    hearingFilterPillTextActive: {
+      color: '#FFFFFF',
+    },
+    searchBarContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      marginBottom: 16,
+    },
+    searchIcon: {
+      marginRight: 6,
+    },
+    searchBarInput: {
+      flex: 1,
+      height: 38,
+      fontSize: 13,
+      color: '#1F2937',
+    },
+    timelineWrapper: {
+      paddingLeft: 8,
+      marginTop: 8,
+    },
+    timelineItem: {
+      flexDirection: 'row',
+      minHeight: 100,
+    },
+    timelineLineContainer: {
+      alignItems: 'center',
+      width: 24,
+    },
+    hearingTimelineDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: '#6D5DFC',
+      zIndex: 1,
+      marginTop: 8,
+    },
+    hearingTimelineConnector: {
+      flex: 1,
+      width: 2,
+      backgroundColor: '#ECECEC',
+      marginTop: 4,
+      marginBottom: 4,
+    },
+    hearingTimelineContentCard: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 14,
+      marginLeft: 8,
+      marginBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.02,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    timelineCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 8,
+    },
+    timelineCardDate: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    timelineCardTime: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 1,
+    },
+    timelineCardTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 6,
+    },
+    timelineMetaGrid: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 10,
+      gap: 4,
+      marginBottom: 10,
+    },
+    timelineMetaItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    timelineMetaText: {
+      fontSize: 12,
+      color: '#4B5563',
+      flex: 1,
+    },
+    aiEnrichedBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      borderWidth: 0.5,
+      borderColor: '#6D5DFC',
+    },
+    aiEnrichedBadgeText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    aiOrderSummaryBox: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 8,
+      padding: 10,
+      borderLeftWidth: 3,
+      borderLeftColor: '#6D5DFC',
+      marginBottom: 12,
+    },
+    aiOrderSummaryHeader: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      marginBottom: 4,
+      textTransform: 'uppercase',
+    },
+    aiOrderSummaryText: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+    },
+    checklistToggleBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      paddingVertical: 8,
+      marginBottom: 10,
+    },
+    checklistToggleText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+      color: '#4B5563',
+    },
+    checklistContainer: {
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+      paddingTop: 10,
+      marginTop: 6,
+    },
+    checklistSectionTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 10,
+    },
+    checklistCategory: {
+      marginBottom: 12,
+    },
+    checklistCategoryTitle: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: '#6B7280',
+      marginBottom: 6,
+      textTransform: 'uppercase',
+    },
+    checklistEmptyText: {
+      fontSize: 11,
+      color: '#9CA3AF',
+      fontStyle: 'italic',
+      paddingLeft: 6,
+    },
+    checklistRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 5,
+      paddingLeft: 4,
+    },
+    checklistRowText: {
+      fontSize: 12,
+      color: '#4B5563',
+      flex: 1,
+    },
+    checklistRowTextChecked: {
+      color: '#9CA3AF',
+      textDecorationLine: 'line-through',
+    },
+    cardActionRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 8,
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+      paddingTop: 10,
+      marginTop: 6,
+    },
+    cardActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+    },
+    cardActionBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    cardActionBtnFilled: {
+      backgroundColor: '#6D5DFC',
+    },
+    cardActionBtnTextFilled: {
+      color: '#FFFFFF',
+    },
+    miniStatusBadge: {
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+    },
+    miniBadgeDanger: {
+      backgroundColor: '#FCE8E6',
+    },
+    miniBadgeWarning: {
+      backgroundColor: '#FEF7E0',
+    },
+    miniStatusBadgeText: {
+      fontSize: 8.5,
+      fontWeight: '700',
+      color: '#EF4444',
+    },
+    formStatusChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginRight: 6,
+      marginBottom: 6,
+    },
+    formStatusChipActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    formStatusChipText: {
+      fontSize: 11,
+      color: '#4B5563',
+    },
+    formStatusChipTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    statusChipsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: 12,
+    },
+    pickerContainer: {
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      padding: 10,
+      marginBottom: 12,
+    },
+    pickerTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#6B7280',
+      marginBottom: 6,
+      textTransform: 'uppercase',
+    },
+    pickerItem: {
+      padding: 8,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+      marginBottom: 6,
+    },
+    pickerItemActive: {
+      borderColor: '#6D5DFC',
+      backgroundColor: '#EEECFF',
+    },
+    pickerItemName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    pickerItemDesc: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    hearingProgressBarBg: {
+      height: 10,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 5,
+      overflow: 'hidden',
+      marginTop: 10,
+      marginBottom: 6,
+    },
+    hearingProgressBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    progressText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#4B5563',
+      textAlign: 'center',
+      marginBottom: 12,
+    },
+    // Redesigned Research & Laws Screen Styles
+    premiumHeaderCard: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#E1DDFF',
+      marginBottom: 16,
+    },
+    premiumHeaderTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+    },
+    premiumHeaderTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    premiumHeaderBadges: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    premiumStatusBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    premiumPriorityBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    premiumBadgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+    },
+    premiumSearchCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 16,
+      marginBottom: 16,
+    },
+    premiumSearchTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    premiumSearchSubtitle: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 4,
+      marginBottom: 12,
+      lineHeight: 15,
+    },
+    searchBarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    premiumSearchInput: {
+      flex: 2,
+      height: 38,
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      fontSize: 12,
+      color: '#1F2937',
+      backgroundColor: '#FFFFFF',
+    },
+    premiumSearchBtn: {
+      backgroundColor: '#1F2937',
+      borderRadius: 8,
+      height: 38,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+    },
+    premiumSearchBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    premiumAnalyzeBtn: {
+      backgroundColor: '#6D5DFC',
+      borderRadius: 8,
+      height: 38,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+    },
+    premiumAnalyzeBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    suggestionsTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginBottom: 6,
+    },
+    suggestionChipsContainer: {
+      paddingBottom: 4,
+    },
+    sugChip: {
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderRadius: 16,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      marginRight: 6,
+    },
+    sugChipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    sugChipActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    sugChipTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    emptyStateContainer: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginVertical: 12,
+    },
+    emptyStateText: {
+      fontSize: 13,
+      color: '#6B7280',
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    emptyStateBtn: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+    },
+    emptyStateBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    metricsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 16,
+    },
+    metricCard: {
+      flex: 1,
+      minWidth: '45%',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 12,
+      alignItems: 'center',
+    },
+    metricValue: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    metricLabel: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6B7280',
+      textTransform: 'uppercase',
+      marginTop: 4,
+    },
+    researchLawItemCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      borderRadius: 8,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    lawItemHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 10,
+      backgroundColor: '#F9FAFB',
+    },
+    lawItemExpandedContent: {
+      padding: 10,
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      gap: 6,
+    },
+    lawTitleLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    judFilterContainer: {
+      paddingBottom: 8,
+      gap: 6,
+    },
+    judFilterBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 12,
+      backgroundColor: '#F3F4F6',
+      marginRight: 4,
+    },
+    judFilterBtnActive: {
+      backgroundColor: '#EEECFF',
+      borderWidth: 0.5,
+      borderColor: '#6D5DFC',
+    },
+    judFilterBtnText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    judFilterBtnTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    judgmentItemCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      borderRadius: 8,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    judgmentItemHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 10,
+      backgroundColor: '#F9FAFB',
+    },
+    judgmentItemExpandedContent: {
+      padding: 10,
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      gap: 6,
+    },
+    judgmentDetailText: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    judgmentButtonsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginTop: 8,
+    },
+    judActionBtn: {
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    judActionBtnText: {
+      fontSize: 10,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    savedPrecedentItemCard: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      padding: 12,
+      marginBottom: 8,
+      gap: 4,
+    },
+    savedPrecedentDate: {
+      fontSize: 9,
+      color: '#9CA3AF',
+      marginTop: 2,
+    },
+    accordionTextNormal: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+    },
+    dropdownContainer: {
+      marginVertical: 8,
+    },
+    dropdownTrigger: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      borderRadius: 8,
+      height: 38,
+      paddingHorizontal: 10,
+      marginTop: 4,
+    },
+    dropdownTriggerText: {
+      fontSize: 12,
+      color: '#1F2937',
+    },
+    dropdownListContainer: {
+      maxHeight: 180,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderRadius: 8,
+      marginTop: 4,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    dropdownList: {
+      paddingVertical: 4,
+    },
+    dropdownItem: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+    },
+    dropdownItemActive: {
+      backgroundColor: '#EEECFF',
+    },
+    dropdownItemText: {
+      fontSize: 12,
+      color: '#4B5563',
+    },
+    dropdownItemTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
 
-  sortLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6B7280',
-  },
-  sortOptionsContainer: {
-    gap: 6,
-  },
-  sortOptionChip: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  sortOptionChipActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  sortOptionText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  sortOptionTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  versionBadge: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  versionBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#4B5563',
-  },
-  renameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-  },
-  renameInput: {
-    flex: 1,
-    height: 32,
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    fontSize: 11,
-    color: '#1F2937',
-    backgroundColor: '#FFFFFF',
-  },
-  renameActionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#10B981',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  editorModalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  editorModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-  },
-  editorCloseBtn: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 18,
-  },
-  editorHeaderTitleInput: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-    padding: 0,
-  },
-  exportActionTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  editorSaveHeaderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6D5DFC',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  editorStatusSelectorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#F9FAFB',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-  },
-  editorStatusChip: {
-    backgroundColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginRight: 6,
-  },
-  editorStatusChipActive: {
-    backgroundColor: '#EEECFF',
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-  },
-  editorStatusChipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  editorStatusChipTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  editorSubTabsHeader: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-  },
-  editorSubTabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  editorSubTabActive: {
-    borderBottomColor: '#6D5DFC',
-  },
-  editorSubTabText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  editorSubTabTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '800',
-  },
-  editorToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#F3F4F6',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  editorToolbarBtn: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 4,
-    marginRight: 4,
-  },
-  mainEditorInput: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#1F2937',
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-    textAlignVertical: 'top',
-  },
-  aiAssistIntroBox: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#E1DDFF',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  aiAssistIntroTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#5B4EDB',
-    marginTop: 4,
-  },
-  aiAssistIntroDesc: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-    marginTop: 4,
-  },
-  aiDraftingStepsBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    alignItems: 'center',
-  },
-  aiDraftingTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  diffContainer: {
-    backgroundColor: '#FFF0F5',
-    borderWidth: 1,
-    borderColor: '#EC4899',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  diffHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  diffHeaderTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#EC4899',
-  },
-  diffMetaInfo: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  diffBodyScroll: {
-    maxHeight: 250,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#FCE8E6',
-    padding: 10,
-  },
-  diffContentText: {
-    fontSize: 11,
-    color: '#1F2937',
-    lineHeight: 16,
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-  },
-  diffActionsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  diffAcceptBtn: {
-    flex: 1.5,
-    backgroundColor: '#EC4899',
-    borderRadius: 6,
-    height: 32,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  diffAcceptText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  diffRejectBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#EC4899',
-    borderRadius: 6,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  diffRejectText: {
-    color: '#EC4899',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  aiActionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingBottom: 24,
-  },
-  aiActionCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    padding: 10,
-  },
-  aiActionCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  aiActionCardTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  aiActionCardDesc: {
-    fontSize: 9,
-    color: '#6B7280',
-    marginTop: 2,
-    lineHeight: 12,
-  },
-  restoreBtnLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  // Evidence Vault styles
-  evidenceTabContainer: {
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 120 : 100,
-  },
-  evidenceHeader: {
-    marginBottom: 16,
-  },
-  evidenceCaseTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  evidenceBadgesRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
-  },
-  evidenceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#F3F4F6',
-  },
-  evidenceBadgeActive: {
-    backgroundColor: '#EEECFF',
-  },
-  evidenceBadgePriority: {
-    backgroundColor: '#FCE8E6',
-  },
-  evidenceBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  lockerCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-    marginBottom: 16,
-  },
-  lockerCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  lockerIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#EEECFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  lockerCardTitleBlock: {
-    flex: 1,
-  },
-  lockerCardTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  lockerCardSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  lockerActionsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  lockerPrimaryBtn: {
-    flex: 1.2,
-    backgroundColor: '#6D5DFC',
-    borderRadius: 8,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  lockerPrimaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  lockerSecondaryBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-    borderRadius: 8,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  lockerSecondaryBtnText: {
-    color: '#6D5DFC',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  metricsScrollView: {
-    marginBottom: 16,
-  },
-  metricsContainer: {
-    gap: 10,
-    paddingRight: 16,
-  },
-  metricItemCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 12,
-    width: 100,
-    alignItems: 'center',
-  },
-  metricItemIconBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  metricItemCount: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  metricItemLabel: {
-    fontSize: 9,
-    color: '#6B7280',
-    marginTop: 2,
-    textAlign: 'center',
-    fontWeight: '600',
-  },
-  searchFilterContainer: {
-    marginBottom: 16,
-  },
-  evidenceSearchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 40,
-    marginBottom: 10,
-  },
-  evidenceSearchIcon: {
-    marginRight: 8,
-  },
-  evidenceSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1F2937',
-    padding: 0,
-  },
-  pillsScrollView: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  pillsContainer: {
-    gap: 8,
-    paddingRight: 32,
-  },
-  evidenceFilterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  evidenceFilterPillActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  evidenceFilterPillText: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  evidenceFilterPillTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  emptyEvidenceContainer: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#D1D5DB',
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
-  },
-  emptyEvidenceTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  emptyEvidenceSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  evidenceListContainer: {
-    gap: 16,
-  },
-  evidenceCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
-  },
-  evidenceCardMain: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-  },
-  evidenceIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  evidenceCardMetaBlock: {
-    flex: 1,
-  },
-  evidenceCardTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  exhibitCode: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    textTransform: 'uppercase',
-  },
-  evStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    gap: 4,
-  },
-  evStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  evStatusBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  evidenceName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  evidenceDesc: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 16,
-    marginBottom: 8,
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 8,
-  },
-  tagPill: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  tagPillText: {
-    fontSize: 9,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  evidenceUploaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  uploaderText: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  evidenceActionsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    backgroundColor: '#F9FAFB',
-  },
-  evidenceActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 10,
-    borderRightWidth: 1,
-    borderRightColor: '#F3F4F6',
-  },
-  evidenceActionText: {
-    fontSize: 11,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  typeSelectPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  typeSelectPillActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  typeSelectPillText: {
-    fontSize: 11,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  typeSelectPillTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  evidenceInputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 6,
-    marginTop: 8,
-  },
-  loaderModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  loaderModalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 340,
-    alignItems: 'center',
-  },
-  loaderIconWrapper: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#F9FAFB',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  loaderModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2937',
-    textAlign: 'center',
-  },
-  loaderModalSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 20,
-    lineHeight: 18,
-  },
-  loaderStepsContainer: {
-    width: '100%',
-    gap: 12,
-  },
-  loaderStepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  loaderStepBullet: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  loaderStepBulletCompleted: {
-    borderColor: '#10B981',
-    backgroundColor: '#10B981',
-  },
-  loaderStepBulletActive: {
-    borderColor: '#6D5DFC',
-  },
-  loaderStepBulletDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'transparent',
-  },
-  loaderStepBulletDotActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  loaderStepText: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  loaderStepTextCompleted: {
-    color: '#1F2937',
-    fontWeight: '600',
-  },
-  loaderStepTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  detailsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-  },
-  detailsBackBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  detailsExhibitNumber: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    textTransform: 'uppercase',
-  },
-  detailsFileName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 2,
-  },
-  detailsScrollContent: {
-    padding: 16,
-    gap: 16,
-    backgroundColor: '#F9FAFB',
-  },
-  metadataCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  metaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  metaGridItem: {
-    width: '45%',
-  },
-  metaLabel: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  metaValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginTop: 2,
-  },
-  hashText: {
-    fontSize: 11,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  ocrSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  ocrHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  copyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  copyBtnText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  ocrTextScroll: {
-    height: 120,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  ocrTextContent: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: '#4B5563',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  aiFindingsCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  aiHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  confidenceBadge: {
-    backgroundColor: '#E6F4EA',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginLeft: 'auto',
-  },
-  confidenceText: {
-    fontSize: 10,
-    color: '#10B981',
-    fontWeight: '700',
-  },
-  findingsSubLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    textTransform: 'uppercase',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  findingsValue: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 18,
-  },
-  entitySection: {
-    gap: 10,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  entityBlock: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  entityLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1F2937',
-    width: 60,
-    marginTop: 2,
-  },
-  entityChipsContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  entityChip: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  entityChipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  bulletItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-    paddingLeft: 4,
-  },
-  bulletDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#6D5DFC',
-  },
-  bulletText: {
-    fontSize: 12,
-    color: '#4B5563',
-    flex: 1,
-  },
-  governingRulesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  ruleBadge: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  ruleBadgeText: {
-    fontSize: 10,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  weaknessItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FCE8E6',
-    borderRadius: 6,
-    padding: 8,
-    marginBottom: 6,
-  },
-  weaknessText: {
-    fontSize: 11,
-    color: '#EF4444',
-    fontWeight: '600',
-    flex: 1,
-  },
-  linkagesCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginBottom: 16,
-  },
-  linkagesSubtitle: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: -8,
-    marginBottom: 12,
-  },
-  linksGrid: {
-    gap: 10,
-  },
-  linkCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    gap: 12,
-  },
-  linkCellIconBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  linkCellTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  linkCellDesc: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  statusSelectOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  statusSelectTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  statusSelectDesc: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  formCancelBtn: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formCancelBtnText: {
-    color: '#4B5563',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  // Contract specific redesigned styles
-  contractUploadCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  contractUploadIconBg: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#EEECFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  contractUploadTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  contractUploadSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 12,
-    paddingHorizontal: 16,
-  },
-  contractFormatsText: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    marginBottom: 16,
-  },
-  contractUploadActions: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-    paddingHorizontal: 8,
-  },
-  contractUploadPrimaryBtn: {
-    flex: 1.2,
-    backgroundColor: '#6D5DFC',
-    borderRadius: 8,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  contractUploadPrimaryText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  contractUploadSecondaryBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-    borderRadius: 8,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  contractUploadSecondaryText: {
-    color: '#6D5DFC',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  contractLoaderContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  contractLoaderIconWrapper: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#EEECFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  contractLoaderTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  contractLoaderSubtitle: {
-    fontSize: 11,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  contractOverviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 12,
-  },
-  contractOverviewName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  contractOverviewSize: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  contractOverviewActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  contractOverviewSyncBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  contractOverviewSyncText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  contractOverviewReuploadBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contractMetricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  contractMetricCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 10,
-    padding: 10,
-    width: '23%',
-    alignItems: 'center',
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  contractMetricLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  contractMetricValue: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1F2937',
-    textAlign: 'center',
-  },
-  contractPillsScroll: {
-    marginVertical: 4,
-  },
-  contractTabPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  contractTabPillActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  contractTabPillText: {
-    fontSize: 11,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  contractTabPillTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  overviewTable: {
-    gap: 6,
-  },
-  overviewTableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    paddingVertical: 6,
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  overviewTableLabel: {
-    width: 100,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  overviewTableValue: {
-    flex: 1,
-    fontSize: 11,
-    color: '#1F2937',
-    lineHeight: 15,
-  },
-  // AI Legal Task Manager Styles
-  caseHeaderBanner: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 12,
-    marginTop: 12,
-    marginBottom: 12,
-  },
-  caseHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  caseHeaderSubtitle: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  taskDashboard: {
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  taskMetricCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderLeftWidth: 4,
-    borderRadius: 10,
-    padding: 10,
-    marginRight: 8,
-    minWidth: 90,
-    alignItems: 'center',
-  },
-  metricNum: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  taskMetricLabel: {
-    fontSize: 9,
-    color: '#6B7280',
-    marginTop: 2,
-    fontWeight: '700',
-  },
-  aiBriefCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    marginHorizontal: 12,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  aiBriefHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    backgroundColor: '#F9FAFB',
-  },
-  aiBriefTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#8B5CF6',
-  },
-  aiBriefContent: {
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECEC',
-  },
-  aiBriefText: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  weeklyPlannerCategory: {
-    marginBottom: 8,
-  },
-  weeklyCategoryHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  weeklyCategoryText: {
-    fontSize: 10,
-    color: '#6B7280',
-    lineHeight: 13,
-  },
-  quickActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginHorizontal: 12,
-    marginBottom: 12,
-  },
-  quickActionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  quickActionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  taskSearchBarRow: {
-    marginHorizontal: 12,
-    marginBottom: 8,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 40,
-  },
-  searchInputText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#1F2937',
-    padding: 0,
-  },
-  taskFilterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  activeFilterChip: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  chipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  activeChipText: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  timelineGroup: {
-    marginBottom: 16,
-  },
-  timelineGroupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderLeftWidth: 3,
-    paddingLeft: 8,
-    marginBottom: 8,
-  },
-  timelineGroupTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  timelineGroupCount: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  timelineGroupCountText: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  timelineGroupContent: {
-    gap: 8,
-  },
-  taskCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 12,
-    padding: 12,
-  },
-  taskCardExpanded: {
-    borderColor: '#D1D5DB',
-  },
-  taskCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkboxContainer: {
-    marginRight: 4,
-  },
-  taskCardTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
+    sortLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6B7280',
+    },
+    sortOptionsContainer: {
+      gap: 6,
+    },
+    sortOptionChip: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    sortOptionChipActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    sortOptionText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    sortOptionTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    versionBadge: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    versionBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: '#4B5563',
+    },
+    renameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flex: 1,
+    },
+    renameInput: {
+      flex: 1,
+      height: 32,
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      fontSize: 11,
+      color: '#1F2937',
+      backgroundColor: '#FFFFFF',
+    },
+    renameActionBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: '#10B981',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    editorModalContainer: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+    },
+    editorModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
+      backgroundColor: '#FFFFFF',
+    },
+    editorCloseBtn: {
+      width: 36,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 18,
+    },
+    editorHeaderTitleInput: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+      padding: 0,
+    },
+    exportActionTrigger: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      backgroundColor: '#F3F4F6',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    editorSaveHeaderBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#6D5DFC',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    editorStatusSelectorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      backgroundColor: '#F9FAFB',
+      borderBottomWidth: 1,
+      borderBottomColor: '#ECECEC',
+    },
+    editorStatusChip: {
+      backgroundColor: '#E5E7EB',
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      marginRight: 6,
+    },
+    editorStatusChipActive: {
+      backgroundColor: '#EEECFF',
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+    },
+    editorStatusChipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    editorStatusChipTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    editorSubTabsHeader: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+    },
+    editorSubTabButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 12,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    editorSubTabActive: {
+      borderBottomColor: '#6D5DFC',
+    },
+    editorSubTabText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#6B7280',
+    },
+    editorSubTabTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '800',
+    },
+    editorToolbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: '#F3F4F6',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
+    },
+    editorToolbarBtn: {
+      width: 28,
+      height: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 4,
+      marginRight: 4,
+    },
+    mainEditorInput: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: '#1F2937',
+      fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+      textAlignVertical: 'top',
+    },
+    aiAssistIntroBox: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#E1DDFF',
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+    },
+    aiAssistIntroTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#5B4EDB',
+      marginTop: 4,
+    },
+    aiAssistIntroDesc: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+      marginTop: 4,
+    },
+    aiDraftingStepsBox: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 8,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      alignItems: 'center',
+    },
+    aiDraftingTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 12,
+    },
+    diffContainer: {
+      backgroundColor: '#FFF0F5',
+      borderWidth: 1,
+      borderColor: '#EC4899',
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+    },
+    diffHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    diffHeaderTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#EC4899',
+    },
+    diffMetaInfo: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+      marginBottom: 8,
+    },
+    diffBodyScroll: {
+      maxHeight: 250,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#FCE8E6',
+      padding: 10,
+    },
+    diffContentText: {
+      fontSize: 11,
+      color: '#1F2937',
+      lineHeight: 16,
+      fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    },
+    diffActionsRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 10,
+    },
+    diffAcceptBtn: {
+      flex: 1.5,
+      backgroundColor: '#EC4899',
+      borderRadius: 6,
+      height: 32,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    diffAcceptText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    diffRejectBtn: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#EC4899',
+      borderRadius: 6,
+      height: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    diffRejectText: {
+      color: '#EC4899',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    aiActionsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      paddingBottom: 24,
+    },
+    aiActionCard: {
+      width: '48%',
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      padding: 10,
+    },
+    aiActionCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    aiActionCardTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    aiActionCardDesc: {
+      fontSize: 9,
+      color: '#6B7280',
+      marginTop: 2,
+      lineHeight: 12,
+    },
+    restoreBtnLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    // Evidence Vault styles
+    evidenceTabContainer: {
+      padding: 16,
+      paddingBottom: Platform.OS === 'ios' ? 120 : 100,
+    },
+    evidenceHeader: {
+      marginBottom: 16,
+    },
+    evidenceCaseTitle: {
+      fontSize: 22,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    evidenceBadgesRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 6,
+    },
+    evidenceBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: '#F3F4F6',
+    },
+    evidenceBadgeActive: {
+      backgroundColor: '#EEECFF',
+    },
+    evidenceBadgePriority: {
+      backgroundColor: '#FCE8E6',
+    },
+    evidenceBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    lockerCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      elevation: 3,
+      marginBottom: 16,
+    },
+    lockerCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 16,
+    },
+    lockerIconBg: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: '#EEECFF',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    lockerCardTitleBlock: {
+      flex: 1,
+    },
+    lockerCardTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    lockerCardSubtitle: {
+      fontSize: 12,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    lockerActionsRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    lockerPrimaryBtn: {
+      flex: 1.2,
+      backgroundColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 6,
+    },
+    lockerPrimaryBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    lockerSecondaryBtn: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 6,
+    },
+    lockerSecondaryBtnText: {
+      color: '#6D5DFC',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    metricsScrollView: {
+      marginBottom: 16,
+    },
+    metricsContainer: {
+      gap: 10,
+      paddingRight: 16,
+    },
+    metricItemCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 12,
+      width: 100,
+      alignItems: 'center',
+    },
+    metricItemIconBg: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    metricItemCount: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    metricItemLabel: {
+      fontSize: 9,
+      color: '#6B7280',
+      marginTop: 2,
+      textAlign: 'center',
+      fontWeight: '600',
+    },
+    searchFilterContainer: {
+      marginBottom: 16,
+    },
+    evidenceSearchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      height: 40,
+      marginBottom: 10,
+    },
+    evidenceSearchIcon: {
+      marginRight: 8,
+    },
+    evidenceSearchInput: {
+      flex: 1,
+      fontSize: 13,
+      color: '#1F2937',
+      padding: 0,
+    },
+    pillsScrollView: {
+      marginHorizontal: -16,
+      paddingHorizontal: 16,
+    },
+    pillsContainer: {
+      gap: 8,
+      paddingRight: 32,
+    },
+    evidenceFilterPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: '#F3F4F6',
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    evidenceFilterPillActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    evidenceFilterPillText: {
+      fontSize: 12,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    evidenceFilterPillTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    emptyEvidenceContainer: {
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: '#D1D5DB',
+      borderRadius: 16,
+      padding: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 16,
+    },
+    emptyEvidenceTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    emptyEvidenceSubtitle: {
+      fontSize: 12,
+      color: '#6B7280',
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+    evidenceListContainer: {
+      gap: 16,
+    },
+    evidenceCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.02,
+      shadowRadius: 4,
+      elevation: 2,
+      overflow: 'hidden',
+    },
+    evidenceCardMain: {
+      flexDirection: 'row',
+      padding: 16,
+      gap: 12,
+    },
+    evidenceIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    evidenceCardMetaBlock: {
+      flex: 1,
+    },
+    evidenceCardTitleRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    exhibitCode: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      textTransform: 'uppercase',
+    },
+    evStatusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 12,
+      gap: 4,
+    },
+    evStatusDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    evStatusBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    evidenceName: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 4,
+    },
+    evidenceDesc: {
+      fontSize: 12,
+      color: '#4B5563',
+      lineHeight: 16,
+      marginBottom: 8,
+    },
+    tagsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginBottom: 8,
+    },
+    tagPill: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    tagPillText: {
+      fontSize: 9,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    evidenceUploaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    uploaderText: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      fontWeight: '500',
+    },
+    evidenceActionsRow: {
+      flexDirection: 'row',
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      backgroundColor: '#F9FAFB',
+    },
+    evidenceActionBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 10,
+      borderRightWidth: 1,
+      borderRightColor: '#F3F4F6',
+    },
+    evidenceActionText: {
+      fontSize: 11,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    typeSelectPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 14,
+      backgroundColor: '#F3F4F6',
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    typeSelectPillActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    typeSelectPillText: {
+      fontSize: 11,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    typeSelectPillTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    evidenceInputLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginBottom: 6,
+      marginTop: 8,
+    },
+    loaderModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.65)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    loaderModalContent: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 20,
+      padding: 24,
+      width: '100%',
+      maxWidth: 340,
+      alignItems: 'center',
+    },
+    loaderIconWrapper: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: '#F9FAFB',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    loaderModalTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+      textAlign: 'center',
+    },
+    loaderModalSubtitle: {
+      fontSize: 12,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginTop: 6,
+      marginBottom: 20,
+      lineHeight: 18,
+    },
+    loaderStepsContainer: {
+      width: '100%',
+      gap: 12,
+    },
+    loaderStepRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    loaderStepBullet: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: '#D1D5DB',
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#FFFFFF',
+    },
+    loaderStepBulletCompleted: {
+      borderColor: '#10B981',
+      backgroundColor: '#10B981',
+    },
+    loaderStepBulletActive: {
+      borderColor: '#6D5DFC',
+    },
+    loaderStepBulletDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: 'transparent',
+    },
+    loaderStepBulletDotActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    loaderStepText: {
+      fontSize: 12,
+      color: '#9CA3AF',
+      fontWeight: '500',
+    },
+    loaderStepTextCompleted: {
+      color: '#1F2937',
+      fontWeight: '600',
+    },
+    loaderStepTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    detailsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+    },
+    detailsBackBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    detailsExhibitNumber: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      textTransform: 'uppercase',
+    },
+    detailsFileName: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginTop: 2,
+    },
+    detailsScrollContent: {
+      padding: 16,
+      gap: 16,
+      backgroundColor: '#F9FAFB',
+    },
+    metadataCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    sectionTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 12,
+    },
+    metaGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    metaGridItem: {
+      width: '45%',
+    },
+    metaLabel: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      fontWeight: '600',
+      textTransform: 'uppercase',
+    },
+    metaValue: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginTop: 2,
+    },
+    hashText: {
+      fontSize: 11,
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      color: '#6B7280',
+      marginTop: 4,
+    },
+    ocrSection: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    ocrHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    copyBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    copyBtnText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    ocrTextScroll: {
+      height: 120,
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    ocrTextContent: {
+      fontSize: 11,
+      lineHeight: 16,
+      color: '#4B5563',
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    },
+    aiFindingsCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    aiHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    confidenceBadge: {
+      backgroundColor: '#E6F4EA',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 8,
+      marginLeft: 'auto',
+    },
+    confidenceText: {
+      fontSize: 10,
+      color: '#10B981',
+      fontWeight: '700',
+    },
+    findingsSubLabel: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      textTransform: 'uppercase',
+      marginTop: 12,
+      marginBottom: 6,
+    },
+    findingsValue: {
+      fontSize: 13,
+      color: '#4B5563',
+      lineHeight: 18,
+    },
+    entitySection: {
+      gap: 10,
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    entityBlock: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
+    entityLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#1F2937',
+      width: 60,
+      marginTop: 2,
+    },
+    entityChipsContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    entityChip: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    entityChipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    bulletItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 6,
+      paddingLeft: 4,
+    },
+    bulletDot: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#6D5DFC',
+    },
+    bulletText: {
+      fontSize: 12,
+      color: '#4B5563',
+      flex: 1,
+    },
+    governingRulesRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    ruleBadge: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    ruleBadgeText: {
+      fontSize: 10,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    weaknessItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#FCE8E6',
+      borderRadius: 6,
+      padding: 8,
+      marginBottom: 6,
+    },
+    weaknessText: {
+      fontSize: 11,
+      color: '#EF4444',
+      fontWeight: '600',
+      flex: 1,
+    },
+    linkagesCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginBottom: 16,
+    },
+    linkagesSubtitle: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: -8,
+      marginBottom: 12,
+    },
+    linksGrid: {
+      gap: 10,
+    },
+    linkCell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderRadius: 10,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      gap: 12,
+    },
+    linkCellIconBg: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    linkCellTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    linkCellDesc: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    statusSelectOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+    },
+    statusSelectTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    statusSelectDesc: {
+      fontSize: 11,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    formCancelBtn: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    formCancelBtnText: {
+      color: '#4B5563',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    // Contract specific redesigned styles
+    contractUploadCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1.5,
+      borderColor: '#D1D5DB',
+      borderStyle: 'dashed',
+      borderRadius: 16,
+      padding: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 20,
+      marginTop: 10,
+    },
+    contractUploadIconBg: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: '#EEECFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    contractUploadTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    contractUploadSubtitle: {
+      fontSize: 12,
+      color: '#6B7280',
+      textAlign: 'center',
+      lineHeight: 18,
+      marginBottom: 12,
+      paddingHorizontal: 16,
+    },
+    contractFormatsText: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      fontWeight: '600',
+      marginBottom: 16,
+    },
+    contractUploadActions: {
+      flexDirection: 'row',
+      gap: 12,
+      width: '100%',
+      paddingHorizontal: 8,
+    },
+    contractUploadPrimaryBtn: {
+      flex: 1.2,
+      backgroundColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 6,
+    },
+    contractUploadPrimaryText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    contractUploadSecondaryBtn: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+      borderRadius: 8,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 6,
+    },
+    contractUploadSecondaryText: {
+      color: '#6D5DFC',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    contractLoaderContainer: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 24,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    contractLoaderIconWrapper: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: '#EEECFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    contractLoaderTitle: {
+      fontSize: 17,
+      fontWeight: '800',
+      color: '#1F2937',
+      textAlign: 'center',
+      marginBottom: 4,
+    },
+    contractLoaderSubtitle: {
+      fontSize: 11,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginBottom: 20,
+    },
+    contractOverviewHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 12,
+    },
+    contractOverviewName: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    contractOverviewSize: {
+      fontSize: 11,
+      color: '#9CA3AF',
+      fontWeight: '600',
+      marginTop: 2,
+    },
+    contractOverviewActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    contractOverviewSyncBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    contractOverviewSyncText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    contractOverviewReuploadBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: '#F3F4F6',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    contractMetricsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      justifyContent: 'space-between',
+    },
+    contractMetricCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 10,
+      padding: 10,
+      width: '23%',
+      alignItems: 'center',
+      minHeight: 52,
+      justifyContent: 'center',
+    },
+    contractMetricLabel: {
+      fontSize: 8,
+      fontWeight: '700',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      textAlign: 'center',
+      marginBottom: 2,
+    },
+    contractMetricValue: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#1F2937',
+      textAlign: 'center',
+    },
+    contractPillsScroll: {
+      marginVertical: 4,
+    },
+    contractTabPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 14,
+      backgroundColor: '#F3F4F6',
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    contractTabPillActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    contractTabPillText: {
+      fontSize: 11,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    contractTabPillTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    overviewTable: {
+      gap: 6,
+    },
+    overviewTableRow: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+      paddingVertical: 6,
+      gap: 12,
+      alignItems: 'flex-start',
+    },
+    overviewTableLabel: {
+      width: 100,
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    overviewTableValue: {
+      flex: 1,
+      fontSize: 11,
+      color: '#1F2937',
+      lineHeight: 15,
+    },
+    // AI Legal Task Manager Styles
+    caseHeaderBanner: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 16,
+      padding: 16,
+      marginHorizontal: 12,
+      marginTop: 12,
+      marginBottom: 12,
+    },
+    caseHeaderTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    caseHeaderSubtitle: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+      fontWeight: '600',
+    },
+    taskDashboard: {
+      paddingHorizontal: 12,
+      marginBottom: 12,
+    },
+    taskMetricCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderLeftWidth: 4,
+      borderRadius: 10,
+      padding: 10,
+      marginRight: 8,
+      minWidth: 90,
+      alignItems: 'center',
+    },
+    metricNum: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    taskMetricLabel: {
+      fontSize: 9,
+      color: '#6B7280',
+      marginTop: 2,
+      fontWeight: '700',
+    },
+    aiBriefCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      marginHorizontal: 12,
+      marginBottom: 12,
+      overflow: 'hidden',
+    },
+    aiBriefHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 12,
+      backgroundColor: '#F9FAFB',
+    },
+    aiBriefTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#8B5CF6',
+    },
+    aiBriefContent: {
+      padding: 12,
+      borderTopWidth: 1,
+      borderTopColor: '#ECECEC',
+    },
+    aiBriefText: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    weeklyPlannerCategory: {
+      marginBottom: 8,
+    },
+    weeklyCategoryHeader: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 2,
+    },
+    weeklyCategoryText: {
+      fontSize: 10,
+      color: '#6B7280',
+      lineHeight: 13,
+    },
+    quickActionRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginHorizontal: 12,
+      marginBottom: 12,
+    },
+    quickActionButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: 10,
+    },
+    quickActionButtonText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    taskSearchBarRow: {
+      marginHorizontal: 12,
+      marginBottom: 8,
+    },
+    searchInputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      height: 40,
+    },
+    searchInputText: {
+      flex: 1,
+      fontSize: 12,
+      color: '#1F2937',
+      padding: 0,
+    },
+    taskFilterChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: '#F3F4F6',
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    activeFilterChip: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    chipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    activeChipText: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    timelineGroup: {
+      marginBottom: 16,
+    },
+    timelineGroupHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderLeftWidth: 3,
+      paddingLeft: 8,
+      marginBottom: 8,
+    },
+    timelineGroupTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    timelineGroupCount: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 8,
+    },
+    timelineGroupCountText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+    timelineGroupContent: {
+      gap: 8,
+    },
+    taskCard: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 12,
+      padding: 12,
+    },
+    taskCardExpanded: {
+      borderColor: '#D1D5DB',
+    },
+    taskCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    checkboxContainer: {
+      marginRight: 4,
+    },
+    taskCardTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
 
-  badgeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-    flexWrap: 'wrap',
-  },
-  priorityBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  priorityBadgeText: {
-    fontSize: 8,
-    fontWeight: '700',
-  },
-  taskAiBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: '#DDD6FE',
-  },
-  taskAiBadgeText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  deadlineLabel: {
-    fontSize: 9,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  checklistProgressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-  },
-  taskProgressText: {
-    fontSize: 9,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  progressBarContainer: {
-    flex: 1,
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBarActive: {
-    height: '100%',
-    backgroundColor: '#10B981',
-  },
-  detailDrawer: {
-    marginTop: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 8,
-  },
-  expandedDesc: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 14,
-    marginBottom: 10,
-  },
-  subtasksContainer: {
-    marginBottom: 10,
-  },
-  sectionSubTitle: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  taskChecklistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 4,
-  },
-  checklistItemText: {
-    fontSize: 11,
-    color: '#374151',
-  },
-  checklistItemTextCompleted: {
-    textDecorationLine: 'line-through',
-    color: '#9CA3AF',
-  },
-  linkagesContainer: {
-    marginBottom: 10,
-  },
-  pillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  linkPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  linkPillText: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  metaDetailsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 12,
-  },
-  metaText: {
-    fontSize: 10,
-    color: '#4B5563',
-  },
-  cardActionsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 0.5,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 8,
-  },
-  actionIconButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    borderRightWidth: 0.5,
-    borderRightColor: '#E5E7EB',
-  },
-  actionIconText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '700',
-  },
-  aiSuggestedQueueBox: {
-    marginHorizontal: 12,
-    marginTop: 16,
-    backgroundColor: '#F5F3FF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-  },
-  aiSuggestedQueueHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  aiSuggestedQueueTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#5B21B6',
-  },
-  aiSuggestedQueueSubtitle: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginBottom: 12,
-    lineHeight: 13,
-  },
-  aiSuggestedItemCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 0.5,
-    borderColor: '#DDD6FE',
-  },
-  aiSuggestedCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  aiSuggestedCardTitle: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  aiSuggestedCardReason: {
-    fontSize: 10,
-    color: '#4B5563',
-    marginTop: 6,
-    lineHeight: 14,
-  },
-  aiSuggestedCardDue: {
-    fontSize: 9,
-    color: '#8B5CF6',
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  aiSuggestedCardActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  aiSuggestedBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  aiSuggestedBtnText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  modalContentContainer: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '85%',
-    padding: 16,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  modalFormScroll: {
-    marginBottom: 16,
-  },
-  formLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#4B5563',
-    textTransform: 'uppercase',
-    marginBottom: 6,
-    marginTop: 10,
-  },
-  taskFormInput: {
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 12,
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  pickerBorder: {
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 8,
-    marginBottom: 8,
-    justifyContent: 'center',
-  },
-  picker: {
-    height: 40,
-    color: '#1F2937',
-  },
-  modalActionButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  modalBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  voicePromptText: {
-    fontSize: 11,
-    color: '#6B7280',
-    lineHeight: 15,
-    marginBottom: 12,
-  },
-  voicePresetBtn: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 0.5,
-    borderColor: '#E5E7EB',
-  },
-  voicePresetBtnText: {
-    fontSize: 10,
-    color: '#374151',
-    fontWeight: '600',
-  },
-  voiceProcessingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  voiceProcessingText: {
-    fontSize: 11,
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  taskModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  // --- Case Notes Stylesheet ---
-  noteDashboardContainer: {
-    marginVertical: 12,
-    paddingHorizontal: 4,
-  },
-  noteMetricCard: {
-    backgroundColor: '#F3E8FF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginRight: 10,
-    minWidth: 105,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E9D5FF',
-  },
-  noteMetricValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#7C3AED',
-  },
-  noteMetricLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#6B21A8',
-    marginTop: 2,
-  },
-  noteQuickActionsBar: {
-    flexDirection: 'row',
-    gap: 8,
-    marginVertical: 8,
-    paddingHorizontal: 4,
-  },
-  noteQuickActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#6D5DFC',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  noteQuickActionText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  noteAiInsightsPanel: {
-    backgroundColor: '#FAF5FF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D8B4FE',
-    padding: 12,
-    marginVertical: 10,
-    marginHorizontal: 4,
-  },
-  noteAiInsightsTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6D5DFC',
-  },
-  noteAiInsightsSubtitle: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  noteAiInsightsSection: {
-    marginTop: 8,
-  },
-  noteAiInsightsHeading: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 4,
-  },
-  noteAiInsightsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  noteAiInsightsText: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  noteEntityChip: {
-    backgroundColor: '#E8DFFA',
-    color: '#6D5DFC',
-    fontSize: 10,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  noteSearchBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginVertical: 10,
-    marginHorizontal: 4,
-  },
-  noteSearchIcon: {
-    marginRight: 8,
-  },
-  noteSearchInput: {
-    flex: 1,
-    height: 40,
-    fontSize: 12,
-    color: '#1F2937',
-  },
-  noteFiltersRow: {
-    marginVertical: 6,
-    marginHorizontal: 4,
-  },
-  noteFilterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 15,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  noteFilterChipActive: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-  },
-  noteFilterChipText: {
-    fontSize: 11,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  noteFilterChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  noteListHeading: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-    marginHorizontal: 4,
-  },
-  noteEmptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noteEmptyText: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 10,
-    paddingHorizontal: 20,
-  },
-  noteEmptyBtn: {
-    marginTop: 15,
-    backgroundColor: '#6D5DFC',
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  noteEmptyBtnText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  noteCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 12,
-    marginBottom: 10,
-    marginHorizontal: 4,
-  },
-  noteCardExpanded: {
-    borderColor: '#D1D5DB',
-  },
-  noteCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  noteFavoriteTouch: {
-    marginRight: 6,
-  },
-  noteHeaderMetaRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  noteCategoryTag: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  notePriorityBadge: {
-    fontSize: 9,
-    fontWeight: '700',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  notePriorityCritical: {
-    backgroundColor: '#FEE2E2',
-    color: '#DC2626',
-  },
-  notePriorityHigh: {
-    backgroundColor: '#FFEDD5',
-    color: '#D97706',
-  },
-  notePriorityMedium: {
-    backgroundColor: '#FEF3C7',
-    color: '#B45309',
-  },
-  notePriorityLow: {
-    backgroundColor: '#ECFDF5',
-    color: '#059669',
-  },
-  notePinTouch: {
-    marginLeft: 6,
-  },
-  noteClickArea: {
-    paddingVertical: 4,
-  },
-  noteCardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  noteCardDescription: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-  },
-  noteFooterSummaryRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  noteFooterSummaryText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  noteDrawerContent: {
-    marginTop: 12,
-    borderTopWidth: 0.5,
-    borderColor: '#E5E7EB',
-    paddingTop: 12,
-  },
-  noteToolbarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 6,
-    padding: 4,
-    marginBottom: 8,
-    gap: 4,
-  },
-  noteToolbarBtn: {
-    padding: 6,
-    borderRadius: 4,
-  },
-  noteToolbarBtnActive: {
-    backgroundColor: '#E5E7EB',
-  },
-  noteToolbarDivider: {
-    width: 1,
-    height: 16,
-    backgroundColor: '#D1D5DB',
-    marginHorizontal: 4,
-  },
-  noteTextEditorArea: {
-    minHeight: 100,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 11,
-    color: '#1F2937',
-    textAlignVertical: 'top',
-    borderWidth: 0.5,
-    borderColor: '#D1D5DB',
-  },
-  noteAiFindingsBox: {
-    backgroundColor: '#F9F5FF',
-    borderWidth: 1,
-    borderColor: '#E9D5FF',
-    borderRadius: 8,
-    padding: 8,
-    marginVertical: 8,
-  },
-  noteAiFindingsTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#7C3AED',
-    marginBottom: 4,
-  },
-  noteAiFindingsHeading: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#5B21B6',
-    marginTop: 6,
-    marginBottom: 2,
-  },
-  noteAiFindingsText: {
-    fontSize: 10,
-    color: '#4B5563',
-    lineHeight: 14,
-  },
-  noteAiFindingsBullet: {
-    fontSize: 10,
-    color: '#4B5563',
-    lineHeight: 14,
-    paddingLeft: 4,
-  },
-  noteEntitiesContainer: {
-    marginVertical: 6,
-  },
-  noteEntitiesTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 4,
-  },
-  noteEntitiesFlex: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  noteEntityTouchChip: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 0.5,
-    borderColor: '#D1D5DB',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  noteEntityTouchChipText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  noteEntityTouchChipType: {
-    fontSize: 8,
-    color: '#6B7280',
-  },
-  noteLinkageCheckboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginVertical: 3,
-  },
-  noteLinkageCheckboxText: {
-    fontSize: 10,
-    color: '#4B5563',
-  },
-  noteLinkageCheckboxTextConfirmed: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  noteActionsFlex: {
-    gap: 6,
-  },
-  noteActionRowTouch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#6D5DFC',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  noteActionRowTouchDisabled: {
-    backgroundColor: '#10B981',
-  },
-  noteActionRowTouchText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  noteHistoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginVertical: 8,
-    borderTopWidth: 0.5,
-    borderColor: '#E5E7EB',
-    paddingTop: 8,
-  },
-  noteHistoryLabel: {
-    fontSize: 9,
-    color: '#9CA3AF',
-  },
-  noteHistoryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  noteHistoryBtnText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  noteCardActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    borderTopWidth: 0.5,
-    borderColor: '#E5E7EB',
-    paddingTop: 8,
-    marginTop: 6,
-  },
-  noteCardIconBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  noteCardIconBtnDanger: {
-    borderColor: '#FEE2E2',
-  },
-  noteCardIconText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  noteModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noteModalContent: {
-    width: '95%',
-    maxHeight: '90%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  noteFormHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderColor: '#F3F4F6',
-    paddingBottom: 10,
-  },
-  noteModalTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  noteFormLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#374151',
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  noteFormCategoryFlex: {
-    flexDirection: 'row',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  noteFormCategoryChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  noteFormCategoryChipActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  noteFormCategoryChipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  noteFormCategoryChipTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  noteFormInput: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 11,
-    color: '#1F2937',
-    backgroundColor: '#F9FAFB',
-  },
-  noteFormPriorityFlex: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  noteFormPriorityChip: {
-    flex: 1,
-    paddingVertical: 6,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  noteFormPriorityChipActive: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-  },
-  noteFormPriorityChipText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  noteFormPriorityChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  noteHorizontalScrollBar: {
-    marginVertical: 4,
-  },
-  noteSelectorHorizontalItem: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    marginRight: 6,
-    borderWidth: 0.5,
-    borderColor: '#D1D5DB',
-  },
-  noteSelectorHorizontalItemActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  noteSelectorHorizontalItemText: {
-    fontSize: 10,
-    color: '#4B5563',
-  },
-  noteSelectorHorizontalItemTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  noteTemplateSection: {
-    marginTop: 10,
-    padding: 10,
-    backgroundColor: '#FAF5FF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E9D5FF',
-  },
-  noteTemplateTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#7C3AED',
-    marginBottom: 4,
-  },
-  noteFormToolbarRow: {
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: '#F3F4F6',
-    padding: 4,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: '#E5E7EB',
-  },
-  noteFormToolbarIcon: {
-    padding: 4,
-    borderRadius: 4,
-  },
-  noteFormSwitchRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginVertical: 10,
-  },
-  noteFormSwitchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-  },
-  noteFormSwitchBtnActive: {
-    backgroundColor: '#6D5DFC',
-    borderColor: '#6D5DFC',
-  },
-  noteFormSwitchText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  noteFormSwitchTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  noteFormAutosaveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  noteFormAutosaveIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  noteFormAutosaveText: {
-    fontSize: 9,
-    color: '#6B7280',
-  },
-  noteHorizontalSelectorScroll: {
-    marginVertical: 4,
-  },
-  noteModalActionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderColor: '#F3F4F6',
-    paddingTop: 10,
-  },
-  noteFormCancelBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    alignItems: 'center',
-  },
-  noteFormCancelBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#374151',
-  },
-  noteFormSaveBtn: {
-    flex: 1,
-    backgroundColor: '#6D5DFC',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  noteFormSaveBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  voiceNoteModalContentBody: {
-    paddingVertical: 15,
-  },
-  voiceNoteTranscribingContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  voiceNoteTranscribingHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  caseHeaderMain: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  caseHeaderBadgeRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  voiceNoteTranscribingText: {
-    fontSize: 10,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 6,
-    paddingHorizontal: 15,
-    lineHeight: 14,
-  },
-  voiceNoteRecordContainer: {
-    alignItems: 'center',
-  },
-  voiceNoteRecordHeading: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 10,
-  },
-  voiceNoteWaveformRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 80,
-    width: '100%',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  voiceNoteWaveformBar: {
-    width: 6,
-    height: 8,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 3,
-  },
-  voiceNoteRecordDurationText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#EF4444',
-    marginBottom: 15,
-  },
-  voiceNoteRecordBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  voiceNoteRecordBtnActive: {
-    backgroundColor: '#1F2937',
-  },
-  voiceNoteRecordInstruction: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 12,
-  },
-  noteVersionItemCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 10,
-    marginBottom: 8,
-  },
-  noteVersionItemCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  noteVersionItemCardTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  noteVersionItemCardDate: {
-    fontSize: 9,
-    color: '#9CA3AF',
-  },
-  noteVersionItemCardContent: {
-    fontSize: 10,
-    color: '#4B5563',
-    lineHeight: 14,
-    marginBottom: 8,
-  },
-  noteVersionItemRestoreBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#EEECFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  noteVersionItemRestoreBtnText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  caseHeaderContainer: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-  },
-  orderDashboardContainer: {
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  orderMetricCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderLeftWidth: 4,
-    minWidth: 120,
-  },
-  orderMetricValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  orderMetricLabel: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  orderQuickActionsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    gap: 10,
-    marginBottom: 10,
-  },
-  orderQuickBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  orderQuickBtnOutline: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#6D5DFC',
-  },
-  orderQuickBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  orderSearchBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 10,
-  },
-  orderSearchIcon: {
-    marginRight: 6,
-  },
-  orderSearchInput: {
-    flex: 1,
-    height: 38,
-    fontSize: 12,
-    color: '#1F2937',
-  },
-  orderFiltersWrapper: {
-    paddingHorizontal: 12,
-    marginBottom: 10,
-  },
-  orderFilterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-  },
-  orderFilterChipActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  orderFilterChipText: {
-    fontSize: 11,
-    color: '#4B5563',
-    fontWeight: '500',
-  },
-  orderFilterChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  orderCardList: {
-    paddingHorizontal: 12,
-  },
-  orderCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  orderCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  orderCardHeaderLeft: {
-    flexDirection: 'row',
-    gap: 8,
-    flex: 1,
-  },
-  orderCardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  orderCardSubtitle: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  orderStatusBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  orderBadgeCompleted: {
-    backgroundColor: '#10B98115',
-  },
-  orderBadgeAnalyzed: {
-    backgroundColor: '#6D5DFC15',
-  },
-  orderStatusBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  orderCardSummary: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-    marginBottom: 8,
-  },
-  orderHighlightsContainer: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 6,
-    padding: 8,
-    gap: 4,
-    marginBottom: 8,
-  },
-  orderHighlightRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  orderHighlightText: {
-    fontSize: 10,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  orderCardFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    paddingTop: 8,
-  },
-  orderCardUploadMeta: {
-    fontSize: 9,
-    color: '#9CA3AF',
-  },
-  orderCardActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  orderActionIconBtn: {
-    padding: 4,
-    borderRadius: 4,
-    backgroundColor: '#F3F4F6',
-  },
-  orderModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  orderOcrLoaderBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  ocrLoaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 15,
-  },
-  ocrLoaderSpinner: {
-    marginVertical: 15,
-  },
-  ocrProgressBarWrapper: {
-    width: '100%',
-    height: 6,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  ocrProgressBarFill: {
-    height: '100%',
-    backgroundColor: '#6D5DFC',
-  },
-  ocrProgressPercentage: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6D5DFC',
-    marginBottom: 12,
-  },
-  ocrLoaderStepText: {
-    fontSize: 11,
-    color: '#4B5563',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  ocrPipelineIndicators: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  ocrPipelineStep: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#E5E7EB',
-  },
-  ocrPipelineStepActive: {
-    backgroundColor: '#6D5DFC',
-  },
-  orderFormContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    width: '100%',
-    maxHeight: '80%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-    overflow: 'hidden',
-  },
-  orderFormHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  orderFormHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  orderFormScrollContent: {
-    padding: 16,
-  },
-  orderFormLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#374151',
-    marginBottom: 6,
-    marginTop: 10,
-  },
-  orderFormInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 12,
-    color: '#1F2937',
-    backgroundColor: '#F9FAFB',
-  },
-  orderFormRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
-  },
-  orderHorizontalSelectorScroll: {
-    marginVertical: 6,
-  },
-  orderSelectorHorizontalItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  orderSelectorHorizontalItemActive: {
-    backgroundColor: '#EEECFF',
-    borderColor: '#6D5DFC',
-  },
-  orderSelectorHorizontalItemText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '500',
-  },
-  orderSelectorHorizontalItemTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '700',
-  },
-  orderFormTextArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  orderFormFooter: {
-    flexDirection: 'row',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    gap: 10,
-  },
-  orderFormBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orderFormBtnCancel: {
-    backgroundColor: '#F3F4F6',
-  },
-  orderFormBtnCancelText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  orderFormBtnSubmit: {
-    backgroundColor: '#6D5DFC',
-  },
-  orderFormBtnSubmitText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  orderDrawerContainer: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  orderDrawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-  },
-  orderDrawerBackBtn: {
-    padding: 4,
-  },
-  orderDrawerHeaderTitleWrapper: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  orderDrawerTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  orderDrawerSubtitle: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  orderDrawerCloseBtn: {
-    padding: 4,
-  },
-  orderSubTabSelector: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  orderSubTabItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  orderSubTabItemActive: {
-    backgroundColor: '#EEECFF',
-  },
-  orderSubTabItemText: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  orderSubTabItemTextActive: {
-    color: '#6D5DFC',
-    fontWeight: '800',
-  },
-  orderDrawerContentScroll: {
-    padding: 12,
-  },
-  pdfViewerCard: {
-    backgroundColor: '#1F2937',
-    borderRadius: 10,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  pdfViewerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    padding: 8,
-    backgroundColor: '#111827',
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-  },
-  pdfViewerHeaderText: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '600',
-  },
-  pdfViewerScroll: {
-    height: 120,
-    padding: 10,
-  },
-  pdfViewerTextCode: {
-    fontSize: 10,
-    color: '#F3F4F6',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    lineHeight: 14,
-  },
-  syncTabContentBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 12,
-  },
-  drawerSectionHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 10,
-  },
-  metadataGrid: {
-    gap: 10,
-  },
-  metadataGridRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  metadataGridCol: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-    padding: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  metaLabelText: {
-    fontSize: 9,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  metaValueText: {
-    fontSize: 11,
-    color: '#1F2937',
-    fontWeight: '700',
-  },
-  aiSummaryDetailBox: {
-    backgroundColor: '#EEECFF',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  aiSummaryShortText: {
-    fontSize: 11,
-    color: '#4B5563',
-    lineHeight: 15,
-    fontWeight: '500',
-  },
-  keyPointBulletRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 6,
-    alignItems: 'flex-start',
-  },
-  keyPointBulletText: {
-    fontSize: 11,
-    color: '#374151',
-    lineHeight: 15,
-    flex: 1,
-  },
-  subtextAlert: {
-    fontSize: 10,
-    color: '#6B7280',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginVertical: 10,
-  },
-  complianceDrawerItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    marginBottom: 8,
-  },
-  complianceDrawerLeft: {
-    flexDirection: 'row',
-    gap: 8,
-    flex: 1,
-  },
-  complianceDescText: {
-    fontSize: 11,
-    color: '#1F2937',
-    fontWeight: '600',
-  },
-  lineThroughText: {
-    textDecorationLine: 'line-through',
-    color: '#9CA3AF',
-  },
-  complianceMetaText: {
-    fontSize: 9,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  suggestedHelpText: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginBottom: 10,
-  },
-  suggestionPromoteRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    marginBottom: 8,
-  },
-  suggestionTypeBadge: {
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  orderSuggestionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1F2937',
-    flex: 1,
-  },
-  orderSuggestionDesc: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  suggestionPromoteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#EEECFF',
-  },
-  suggestionPromoteBtnAccepted: {
-    backgroundColor: '#10B981',
-  },
-  suggestionPromoteBtnText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6D5DFC',
-  },
-  riskBadgeCard: {
-    backgroundColor: '#EF444405',
-    padding: 10,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#EF4444',
-    marginBottom: 10,
-  },
-  riskCardLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  riskCardValue: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  probabilityBox: {
-    backgroundColor: '#F9FAFB',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    marginBottom: 12,
-  },
-  probabilityLabel: {
-    fontSize: 10,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  probabilityBarWrapper: {
-    height: 6,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginVertical: 4,
-  },
-  probabilityBarFill: {
-    height: '100%',
-    backgroundColor: '#6D5DFC',
-  },
-  probabilityPercentText: {
-    fontSize: 9,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  riskAnalysisSubheading: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 6,
-  },
-  riskDefectRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 4,
-    alignItems: 'center',
-  },
-  riskDefectText: {
-    fontSize: 10,
-    color: '#EF4444',
-    fontWeight: '500',
-  },
-  drawerLinksGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
-  },
-  drawerLinkCard: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-    padding: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  drawerLinkLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#4B5563',
-    textAlign: 'center',
-  },
-  workspaceSyncPanel: {
-    backgroundColor: '#EEECFF',
-    borderRadius: 12,
-    padding: 15,
-    borderWidth: 1,
-    borderColor: '#6D5DFC30',
-    marginBottom: 20,
-  },
-  syncPanelHeading: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6D5DFC',
-    marginBottom: 4,
-  },
-  syncPanelDesc: {
-    fontSize: 10,
-    color: '#4B5563',
-    lineHeight: 14,
-    marginBottom: 10,
-  },
-  syncCheckboxesGrid: {
-    gap: 8,
-    marginBottom: 12,
-  },
-  syncCheckboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  syncCheckboxLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  syncBatchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#6D5DFC',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  syncBatchBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  syncSuccessMessage: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#E8F5E9',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  syncSuccessText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#10B981',
-  },
-  // --- NEW WORKSPACE ANALYSIS STYLES ---
-  analysisLoadingOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.95)', // Sleek dark slate glassmorphism
-    justifyContent: 'center',
-    padding: 24,
-  },
-  analysisLoadingSafeArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  analysisLoadingHeader: {
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  analysisLoadingTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    marginTop: 12,
-    letterSpacing: 0.5,
-  },
-  analysisLoadingSubtitle: {
-    fontSize: 14,
-    color: '#94A3B8',
-    marginTop: 6,
-  },
-  analysisLoadingChecklist: {
-    width: '100%',
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 16,
-    marginVertical: 30,
-  },
-  analysisChecklistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  analysisChecklistIconContainer: {
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  analysisPendingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#475569',
-  },
-  analysisChecklistText: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  analysisChecklistTextCompleted: {
-    color: '#34D399', // Mint/success green
-    textDecorationLine: 'none',
-  },
-  analysisChecklistTextActive: {
-    color: '#6D5DFC', // Theme primary
-    fontWeight: '700',
-  },
-  analysisChecklistTextPending: {
-    color: '#64748B',
-  },
-  analysisLoadingFooter: {
-    alignItems: 'center',
-    width: '100%',
-    gap: 16,
-  },
-  analysisLoadingFooterText: {
-    fontSize: 13,
-    color: '#64748B',
-    fontStyle: 'italic',
-  },
-  analysisCancelLoadingBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#475569',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  analysisCancelLoadingBtnText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+    badgeContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 4,
+      flexWrap: 'wrap',
+    },
+    priorityBadge: {
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+    },
+    priorityBadgeText: {
+      fontSize: 8,
+      fontWeight: '700',
+    },
+    taskAiBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+      borderWidth: 0.5,
+      borderColor: '#DDD6FE',
+    },
+    taskAiBadgeText: {
+      fontSize: 8,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    deadlineLabel: {
+      fontSize: 9,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    checklistProgressRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 6,
+    },
+    taskProgressText: {
+      fontSize: 9,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    progressBarContainer: {
+      flex: 1,
+      height: 4,
+      backgroundColor: '#E5E7EB',
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressBarActive: {
+      height: '100%',
+      backgroundColor: '#10B981',
+    },
+    detailDrawer: {
+      marginTop: 10,
+      borderTopWidth: 0.5,
+      borderTopColor: '#E5E7EB',
+      paddingTop: 8,
+    },
+    expandedDesc: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 14,
+      marginBottom: 10,
+    },
+    subtasksContainer: {
+      marginBottom: 10,
+    },
+    sectionSubTitle: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      marginBottom: 6,
+    },
+    taskChecklistRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
+    checklistItemText: {
+      fontSize: 11,
+      color: '#374151',
+    },
+    checklistItemTextCompleted: {
+      textDecorationLine: 'line-through',
+      color: '#9CA3AF',
+    },
+    linkagesContainer: {
+      marginBottom: 10,
+    },
+    pillsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    linkPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    linkPillText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+    metaDetailsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+      marginBottom: 12,
+    },
+    metaText: {
+      fontSize: 10,
+      color: '#4B5563',
+    },
+    cardActionsRow: {
+      flexDirection: 'row',
+      borderTopWidth: 0.5,
+      borderTopColor: '#E5E7EB',
+      paddingTop: 8,
+    },
+    actionIconButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+      borderRightWidth: 0.5,
+      borderRightColor: '#E5E7EB',
+    },
+    actionIconText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '700',
+    },
+    aiSuggestedQueueBox: {
+      marginHorizontal: 12,
+      marginTop: 16,
+      backgroundColor: '#F5F3FF',
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#DDD6FE',
+    },
+    aiSuggestedQueueHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 4,
+    },
+    aiSuggestedQueueTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#5B21B6',
+    },
+    aiSuggestedQueueSubtitle: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginBottom: 12,
+      lineHeight: 13,
+    },
+    aiSuggestedItemCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 10,
+      borderWidth: 0.5,
+      borderColor: '#DDD6FE',
+    },
+    aiSuggestedCardTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
+    aiSuggestedCardTitle: {
+      flex: 1,
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    aiSuggestedCardReason: {
+      fontSize: 10,
+      color: '#4B5563',
+      marginTop: 6,
+      lineHeight: 14,
+    },
+    aiSuggestedCardDue: {
+      fontSize: 9,
+      color: '#8B5CF6',
+      fontWeight: '700',
+      marginTop: 4,
+    },
+    aiSuggestedCardActions: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 10,
+    },
+    aiSuggestedBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    aiSuggestedBtnText: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    modalContentContainer: {
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      maxHeight: '85%',
+      padding: 16,
+    },
+    modalHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    modalTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    modalFormScroll: {
+      marginBottom: 16,
+    },
+    formLabel: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#4B5563',
+      textTransform: 'uppercase',
+      marginBottom: 6,
+      marginTop: 10,
+    },
+    taskFormInput: {
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 12,
+      color: '#1F2937',
+      marginBottom: 8,
+    },
+    pickerBorder: {
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      borderRadius: 8,
+      marginBottom: 8,
+      justifyContent: 'center',
+    },
+    picker: {
+      height: 40,
+      color: '#1F2937',
+    },
+    modalActionButtonsRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    modalBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 10,
+      alignItems: 'center',
+    },
+    modalBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    voicePromptText: {
+      fontSize: 11,
+      color: '#6B7280',
+      lineHeight: 15,
+      marginBottom: 12,
+    },
+    voicePresetBtn: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 0.5,
+      borderColor: '#E5E7EB',
+    },
+    voicePresetBtnText: {
+      fontSize: 10,
+      color: '#374151',
+      fontWeight: '600',
+    },
+    voiceProcessingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 12,
+    },
+    voiceProcessingText: {
+      fontSize: 11,
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    taskModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'flex-end',
+    },
+    // --- Case Notes Stylesheet ---
+    noteDashboardContainer: {
+      marginVertical: 12,
+      paddingHorizontal: 4,
+    },
+    noteMetricCard: {
+      backgroundColor: '#F3E8FF',
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      marginRight: 10,
+      minWidth: 105,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#E9D5FF',
+    },
+    noteMetricValue: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#7C3AED',
+    },
+    noteMetricLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#6B21A8',
+      marginTop: 2,
+    },
+    noteQuickActionsBar: {
+      flexDirection: 'row',
+      gap: 8,
+      marginVertical: 8,
+      paddingHorizontal: 4,
+    },
+    noteQuickActionBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      backgroundColor: '#6D5DFC',
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    noteQuickActionText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    noteAiInsightsPanel: {
+      backgroundColor: '#FAF5FF',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#D8B4FE',
+      padding: 12,
+      marginVertical: 10,
+      marginHorizontal: 4,
+    },
+    noteAiInsightsTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#6D5DFC',
+    },
+    noteAiInsightsSubtitle: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+      marginBottom: 8,
+    },
+    noteAiInsightsSection: {
+      marginTop: 8,
+    },
+    noteAiInsightsHeading: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginBottom: 4,
+    },
+    noteAiInsightsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    noteAiInsightsText: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    noteEntityChip: {
+      backgroundColor: '#E8DFFA',
+      color: '#6D5DFC',
+      fontSize: 10,
+      fontWeight: '700',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 12,
+    },
+    noteSearchBarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      marginVertical: 10,
+      marginHorizontal: 4,
+    },
+    noteSearchIcon: {
+      marginRight: 8,
+    },
+    noteSearchInput: {
+      flex: 1,
+      height: 40,
+      fontSize: 12,
+      color: '#1F2937',
+    },
+    noteFiltersRow: {
+      marginVertical: 6,
+      marginHorizontal: 4,
+    },
+    noteFilterChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 15,
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    noteFilterChipActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    noteFilterChipText: {
+      fontSize: 11,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    noteFilterChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    noteListHeading: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginTop: 16,
+      marginBottom: 8,
+      marginHorizontal: 4,
+    },
+    noteEmptyState: {
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    noteEmptyText: {
+      fontSize: 12,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginTop: 10,
+      paddingHorizontal: 20,
+    },
+    noteEmptyBtn: {
+      marginTop: 15,
+      backgroundColor: '#6D5DFC',
+      paddingHorizontal: 18,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    noteEmptyBtnText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    noteCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      padding: 12,
+      marginBottom: 10,
+      marginHorizontal: 4,
+    },
+    noteCardExpanded: {
+      borderColor: '#D1D5DB',
+    },
+    noteCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    noteFavoriteTouch: {
+      marginRight: 6,
+    },
+    noteHeaderMetaRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    noteCategoryTag: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    notePriorityBadge: {
+      fontSize: 9,
+      fontWeight: '700',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    notePriorityCritical: {
+      backgroundColor: '#FEE2E2',
+      color: '#DC2626',
+    },
+    notePriorityHigh: {
+      backgroundColor: '#FFEDD5',
+      color: '#D97706',
+    },
+    notePriorityMedium: {
+      backgroundColor: '#FEF3C7',
+      color: '#B45309',
+    },
+    notePriorityLow: {
+      backgroundColor: '#ECFDF5',
+      color: '#059669',
+    },
+    notePinTouch: {
+      marginLeft: 6,
+    },
+    noteClickArea: {
+      paddingVertical: 4,
+    },
+    noteCardTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1F2937',
+      marginBottom: 4,
+    },
+    noteCardDescription: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+    },
+    noteFooterSummaryRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 8,
+    },
+    noteFooterSummaryText: {
+      fontSize: 9,
+      fontWeight: '600',
+      color: '#6B7280',
+    },
+    noteDrawerContent: {
+      marginTop: 12,
+      borderTopWidth: 0.5,
+      borderColor: '#E5E7EB',
+      paddingTop: 12,
+    },
+    noteToolbarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F3F4F6',
+      borderRadius: 6,
+      padding: 4,
+      marginBottom: 8,
+      gap: 4,
+    },
+    noteToolbarBtn: {
+      padding: 6,
+      borderRadius: 4,
+    },
+    noteToolbarBtnActive: {
+      backgroundColor: '#E5E7EB',
+    },
+    noteToolbarDivider: {
+      width: 1,
+      height: 16,
+      backgroundColor: '#D1D5DB',
+      marginHorizontal: 4,
+    },
+    noteTextEditorArea: {
+      minHeight: 100,
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      padding: 8,
+      fontSize: 11,
+      color: '#1F2937',
+      textAlignVertical: 'top',
+      borderWidth: 0.5,
+      borderColor: '#D1D5DB',
+    },
+    noteAiFindingsBox: {
+      backgroundColor: '#F9F5FF',
+      borderWidth: 1,
+      borderColor: '#E9D5FF',
+      borderRadius: 8,
+      padding: 8,
+      marginVertical: 8,
+    },
+    noteAiFindingsTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#7C3AED',
+      marginBottom: 4,
+    },
+    noteAiFindingsHeading: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#5B21B6',
+      marginTop: 6,
+      marginBottom: 2,
+    },
+    noteAiFindingsText: {
+      fontSize: 10,
+      color: '#4B5563',
+      lineHeight: 14,
+    },
+    noteAiFindingsBullet: {
+      fontSize: 10,
+      color: '#4B5563',
+      lineHeight: 14,
+      paddingLeft: 4,
+    },
+    noteEntitiesContainer: {
+      marginVertical: 6,
+    },
+    noteEntitiesTitle: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginBottom: 4,
+    },
+    noteEntitiesFlex: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    noteEntityTouchChip: {
+      backgroundColor: '#F3F4F6',
+      borderWidth: 0.5,
+      borderColor: '#D1D5DB',
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+    },
+    noteEntityTouchChipText: {
+      fontSize: 9,
+      fontWeight: '600',
+      color: '#374151',
+    },
+    noteEntityTouchChipType: {
+      fontSize: 8,
+      color: '#6B7280',
+    },
+    noteLinkageCheckboxRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginVertical: 3,
+    },
+    noteLinkageCheckboxText: {
+      fontSize: 10,
+      color: '#4B5563',
+    },
+    noteLinkageCheckboxTextConfirmed: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    noteActionsFlex: {
+      gap: 6,
+    },
+    noteActionRowTouch: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#6D5DFC',
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 6,
+    },
+    noteActionRowTouchDisabled: {
+      backgroundColor: '#10B981',
+    },
+    noteActionRowTouchText: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    noteHistoryRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginVertical: 8,
+      borderTopWidth: 0.5,
+      borderColor: '#E5E7EB',
+      paddingTop: 8,
+    },
+    noteHistoryLabel: {
+      fontSize: 9,
+      color: '#9CA3AF',
+    },
+    noteHistoryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    noteHistoryBtnText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    noteCardActionsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      borderTopWidth: 0.5,
+      borderColor: '#E5E7EB',
+      paddingTop: 8,
+      marginTop: 6,
+    },
+    noteCardIconBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    noteCardIconBtnDanger: {
+      borderColor: '#FEE2E2',
+    },
+    noteCardIconText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    noteModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    feedbackOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    feedbackCard: {
+      width: '90%',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 20,
+      alignItems: 'stretch',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    feedbackTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 12,
+    },
+    cancelBtn: {
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    feedbackButton: {
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    noteModalContent: {
+      width: '95%',
+      maxHeight: '90%',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 16,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    noteFormHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderColor: '#F3F4F6',
+      paddingBottom: 10,
+    },
+    noteModalTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: '#111827',
+    },
+    noteFormLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#374151',
+      marginTop: 10,
+      marginBottom: 4,
+    },
+    noteFormCategoryFlex: {
+      flexDirection: 'row',
+      gap: 6,
+      flexWrap: 'wrap',
+    },
+    noteFormCategoryChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    noteFormCategoryChipActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    noteFormCategoryChipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    noteFormCategoryChipTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    noteFormInput: {
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderRadius: 8,
+      padding: 8,
+      fontSize: 11,
+      color: '#1F2937',
+      backgroundColor: '#F9FAFB',
+    },
+    noteFormPriorityFlex: {
+      flexDirection: 'row',
+      gap: 6,
+    },
+    noteFormPriorityChip: {
+      flex: 1,
+      paddingVertical: 6,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    noteFormPriorityChipActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    noteFormPriorityChipText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    noteFormPriorityChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    noteHorizontalScrollBar: {
+      marginVertical: 4,
+    },
+    noteSelectorHorizontalItem: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: '#F3F4F6',
+      borderRadius: 8,
+      marginRight: 6,
+      borderWidth: 0.5,
+      borderColor: '#D1D5DB',
+    },
+    noteSelectorHorizontalItemActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    noteSelectorHorizontalItemText: {
+      fontSize: 10,
+      color: '#4B5563',
+    },
+    noteSelectorHorizontalItemTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    noteTemplateSection: {
+      marginTop: 10,
+      padding: 10,
+      backgroundColor: '#FAF5FF',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E9D5FF',
+    },
+    noteTemplateTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#7C3AED',
+      marginBottom: 4,
+    },
+    noteFormToolbarRow: {
+      flexDirection: 'row',
+      gap: 6,
+      backgroundColor: '#F3F4F6',
+      padding: 4,
+      borderTopLeftRadius: 8,
+      borderTopRightRadius: 8,
+      borderWidth: 1,
+      borderBottomWidth: 0,
+      borderColor: '#E5E7EB',
+    },
+    noteFormToolbarIcon: {
+      padding: 4,
+      borderRadius: 4,
+    },
+    noteFormSwitchRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginVertical: 10,
+    },
+    noteFormSwitchBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      backgroundColor: '#FFFFFF',
+    },
+    noteFormSwitchBtnActive: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    noteFormSwitchText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    noteFormSwitchTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    noteFormAutosaveRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 4,
+      marginBottom: 10,
+    },
+    noteFormAutosaveIndicator: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#10B981',
+    },
+    noteFormAutosaveText: {
+      fontSize: 9,
+      color: '#6B7280',
+    },
+    noteHorizontalSelectorScroll: {
+      marginVertical: 4,
+    },
+    noteModalActionsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 10,
+      borderTopWidth: 1,
+      borderColor: '#F3F4F6',
+      paddingTop: 10,
+    },
+    noteFormCancelBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      alignItems: 'center',
+    },
+    noteFormCancelBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#374151',
+    },
+    noteFormSaveBtn: {
+      flex: 1,
+      backgroundColor: '#6D5DFC',
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    noteFormSaveBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    voiceNoteModalContentBody: {
+      paddingVertical: 15,
+    },
+    voiceNoteTranscribingContainer: {
+      alignItems: 'center',
+      paddingVertical: 20,
+    },
+    voiceNoteTranscribingHeading: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      marginTop: 12,
+      textAlign: 'center',
+    },
+    caseHeaderMain: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    caseHeaderBadgeRow: {
+      flexDirection: 'row',
+      gap: 6,
+    },
+    voiceNoteTranscribingText: {
+      fontSize: 10,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginTop: 6,
+      paddingHorizontal: 15,
+      lineHeight: 14,
+    },
+    voiceNoteRecordContainer: {
+      alignItems: 'center',
+    },
+    voiceNoteRecordHeading: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 10,
+    },
+    voiceNoteWaveformRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      height: 80,
+      width: '100%',
+      justifyContent: 'center',
+      marginBottom: 10,
+    },
+    voiceNoteWaveformBar: {
+      width: 6,
+      height: 8,
+      backgroundColor: '#E5E7EB',
+      borderRadius: 3,
+    },
+    voiceNoteRecordDurationText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#EF4444',
+      marginBottom: 15,
+    },
+    voiceNoteRecordBtn: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: '#EF4444',
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 4,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+    },
+    voiceNoteRecordBtnActive: {
+      backgroundColor: '#1F2937',
+    },
+    voiceNoteRecordInstruction: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 12,
+    },
+    noteVersionItemCard: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      padding: 10,
+      marginBottom: 8,
+    },
+    noteVersionItemCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 6,
+    },
+    noteVersionItemCardTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    noteVersionItemCardDate: {
+      fontSize: 9,
+      color: '#9CA3AF',
+    },
+    noteVersionItemCardContent: {
+      fontSize: 10,
+      color: '#4B5563',
+      lineHeight: 14,
+      marginBottom: 8,
+    },
+    noteVersionItemRestoreBtn: {
+      alignSelf: 'flex-start',
+      backgroundColor: '#EEECFF',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 4,
+    },
+    noteVersionItemRestoreBtnText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    caseHeaderContainer: {
+      padding: 12,
+      borderBottomWidth: 1,
+      borderColor: '#E5E7EB',
+      backgroundColor: '#FFFFFF',
+    },
+    orderDashboardContainer: {
+      marginTop: 10,
+      marginBottom: 10,
+    },
+    orderMetricCard: {
+      backgroundColor: '#FFFFFF',
+      padding: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderLeftWidth: 4,
+      minWidth: 120,
+    },
+    orderMetricValue: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    orderMetricLabel: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    orderQuickActionsRow: {
+      flexDirection: 'row',
+      paddingHorizontal: 12,
+      gap: 10,
+      marginBottom: 10,
+    },
+    orderQuickBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    orderQuickBtnOutline: {
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#6D5DFC',
+    },
+    orderQuickBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    orderSearchBarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FFFFFF',
+      marginHorizontal: 12,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      marginBottom: 10,
+    },
+    orderSearchIcon: {
+      marginRight: 6,
+    },
+    orderSearchInput: {
+      flex: 1,
+      height: 38,
+      fontSize: 12,
+      color: '#1F2937',
+    },
+    orderFiltersWrapper: {
+      paddingHorizontal: 12,
+      marginBottom: 10,
+    },
+    orderFilterChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: '#F3F4F6',
+      marginRight: 8,
+    },
+    orderFilterChipActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    orderFilterChipText: {
+      fontSize: 11,
+      color: '#4B5563',
+      fontWeight: '500',
+    },
+    orderFilterChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    orderCardList: {
+      paddingHorizontal: 12,
+    },
+    orderCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      marginBottom: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 1,
+    },
+    orderCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 8,
+    },
+    orderCardHeaderLeft: {
+      flexDirection: 'row',
+      gap: 8,
+      flex: 1,
+    },
+    orderCardTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    orderCardSubtitle: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    orderStatusBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 4,
+    },
+    orderBadgeCompleted: {
+      backgroundColor: '#10B98115',
+    },
+    orderBadgeAnalyzed: {
+      backgroundColor: '#6D5DFC15',
+    },
+    orderStatusBadgeText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    orderCardSummary: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+      marginBottom: 8,
+    },
+    orderHighlightsContainer: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 6,
+      padding: 8,
+      gap: 4,
+      marginBottom: 8,
+    },
+    orderHighlightRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    orderHighlightText: {
+      fontSize: 10,
+      color: '#374151',
+      fontWeight: '500',
+    },
+    orderCardFooterRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      paddingTop: 8,
+    },
+    orderCardUploadMeta: {
+      fontSize: 9,
+      color: '#9CA3AF',
+    },
+    orderCardActions: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    orderActionIconBtn: {
+      padding: 4,
+      borderRadius: 4,
+      backgroundColor: '#F3F4F6',
+    },
+    orderModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    orderOcrLoaderBox: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 20,
+      width: '100%',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 5,
+    },
+    ocrLoaderTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 15,
+    },
+    ocrLoaderSpinner: {
+      marginVertical: 15,
+    },
+    ocrProgressBarWrapper: {
+      width: '100%',
+      height: 6,
+      backgroundColor: '#E5E7EB',
+      borderRadius: 3,
+      overflow: 'hidden',
+      marginBottom: 6,
+    },
+    ocrProgressBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    ocrProgressPercentage: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+      marginBottom: 12,
+    },
+    ocrLoaderStepText: {
+      fontSize: 11,
+      color: '#4B5563',
+      textAlign: 'center',
+      marginBottom: 15,
+    },
+    ocrPipelineIndicators: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    ocrPipelineStep: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: '#E5E7EB',
+    },
+    ocrPipelineStepActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    orderFormContainer: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      width: '100%',
+      maxHeight: '80%',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 5,
+      overflow: 'hidden',
+    },
+    orderFormHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+    },
+    orderFormHeaderTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    orderFormScrollContent: {
+      padding: 16,
+    },
+    orderFormLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#374151',
+      marginBottom: 6,
+      marginTop: 10,
+    },
+    orderFormInput: {
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 12,
+      color: '#1F2937',
+      backgroundColor: '#F9FAFB',
+    },
+    orderFormRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    orderHorizontalSelectorScroll: {
+      marginVertical: 6,
+    },
+    orderSelectorHorizontalItem: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 6,
+      backgroundColor: '#F3F4F6',
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    orderSelectorHorizontalItemActive: {
+      backgroundColor: '#EEECFF',
+      borderColor: '#6D5DFC',
+    },
+    orderSelectorHorizontalItemText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '500',
+    },
+    orderSelectorHorizontalItemTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '700',
+    },
+    orderFormTextArea: {
+      height: 80,
+      textAlignVertical: 'top',
+    },
+    orderFormFooter: {
+      flexDirection: 'row',
+      padding: 16,
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      gap: 10,
+    },
+    orderFormBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    orderFormBtnCancel: {
+      backgroundColor: '#F3F4F6',
+    },
+    orderFormBtnCancelText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#4B5563',
+    },
+    orderFormBtnSubmit: {
+      backgroundColor: '#6D5DFC',
+    },
+    orderFormBtnSubmitText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    orderDrawerContainer: {
+      flex: 1,
+      backgroundColor: '#F9FAFB',
+    },
+    orderDrawerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
+      backgroundColor: '#FFFFFF',
+    },
+    orderDrawerBackBtn: {
+      padding: 4,
+    },
+    orderDrawerHeaderTitleWrapper: {
+      flex: 1,
+      marginLeft: 10,
+    },
+    orderDrawerTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#1F2937',
+    },
+    orderDrawerSubtitle: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    orderDrawerCloseBtn: {
+      padding: 4,
+    },
+    orderSubTabSelector: {
+      backgroundColor: '#FFFFFF',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
+    },
+    orderSubTabItem: {
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      borderRadius: 6,
+      marginRight: 8,
+    },
+    orderSubTabItemActive: {
+      backgroundColor: '#EEECFF',
+    },
+    orderSubTabItemText: {
+      fontSize: 11,
+      color: '#6B7280',
+      fontWeight: '600',
+    },
+    orderSubTabItemTextActive: {
+      color: '#6D5DFC',
+      fontWeight: '800',
+    },
+    orderDrawerContentScroll: {
+      padding: 12,
+    },
+    pdfViewerCard: {
+      backgroundColor: '#1F2937',
+      borderRadius: 10,
+      overflow: 'hidden',
+      marginBottom: 12,
+    },
+    pdfViewerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      padding: 8,
+      backgroundColor: '#111827',
+      borderBottomWidth: 1,
+      borderBottomColor: '#374151',
+    },
+    pdfViewerHeaderText: {
+      fontSize: 10,
+      color: '#9CA3AF',
+      fontWeight: '600',
+    },
+    pdfViewerScroll: {
+      height: 120,
+      padding: 10,
+    },
+    pdfViewerTextCode: {
+      fontSize: 10,
+      color: '#F3F4F6',
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      lineHeight: 14,
+    },
+    syncTabContentBox: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 10,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      marginBottom: 12,
+    },
+    drawerSectionHeading: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 10,
+    },
+    metadataGrid: {
+      gap: 10,
+    },
+    metadataGridRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    metadataGridCol: {
+      flex: 1,
+      backgroundColor: '#F9FAFB',
+      padding: 8,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+    },
+    metaLabelText: {
+      fontSize: 9,
+      color: '#9CA3AF',
+      fontWeight: '600',
+      marginBottom: 2,
+    },
+    metaValueText: {
+      fontSize: 11,
+      color: '#1F2937',
+      fontWeight: '700',
+    },
+    aiSummaryDetailBox: {
+      backgroundColor: '#EEECFF',
+      padding: 10,
+      borderRadius: 8,
+      marginBottom: 12,
+    },
+    aiSummaryShortText: {
+      fontSize: 11,
+      color: '#4B5563',
+      lineHeight: 15,
+      fontWeight: '500',
+    },
+    keyPointBulletRow: {
+      flexDirection: 'row',
+      gap: 6,
+      marginBottom: 6,
+      alignItems: 'flex-start',
+    },
+    keyPointBulletText: {
+      fontSize: 11,
+      color: '#374151',
+      lineHeight: 15,
+      flex: 1,
+    },
+    subtextAlert: {
+      fontSize: 10,
+      color: '#6B7280',
+      fontStyle: 'italic',
+      textAlign: 'center',
+      marginVertical: 10,
+    },
+    complianceDrawerItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      marginBottom: 8,
+    },
+    complianceDrawerLeft: {
+      flexDirection: 'row',
+      gap: 8,
+      flex: 1,
+    },
+    complianceDescText: {
+      fontSize: 11,
+      color: '#1F2937',
+      fontWeight: '600',
+    },
+    lineThroughText: {
+      textDecorationLine: 'line-through',
+      color: '#9CA3AF',
+    },
+    complianceMetaText: {
+      fontSize: 9,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    suggestedHelpText: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginBottom: 10,
+    },
+    suggestionPromoteRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      marginBottom: 8,
+    },
+    suggestionTypeBadge: {
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    orderSuggestionTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#1F2937',
+      flex: 1,
+    },
+    orderSuggestionDesc: {
+      fontSize: 10,
+      color: '#6B7280',
+      marginTop: 2,
+    },
+    suggestionPromoteBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: '#EEECFF',
+    },
+    suggestionPromoteBtnAccepted: {
+      backgroundColor: '#10B981',
+    },
+    suggestionPromoteBtnText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    riskBadgeCard: {
+      backgroundColor: '#EF444405',
+      padding: 10,
+      borderRadius: 8,
+      borderLeftWidth: 3,
+      borderLeftColor: '#EF4444',
+      marginBottom: 10,
+    },
+    riskCardLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#1F2937',
+    },
+    riskCardValue: {
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    probabilityBox: {
+      backgroundColor: '#F9FAFB',
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
+      marginBottom: 12,
+    },
+    probabilityLabel: {
+      fontSize: 10,
+      color: '#6B7280',
+      fontWeight: '600',
+      marginBottom: 4,
+    },
+    probabilityBarWrapper: {
+      height: 6,
+      backgroundColor: '#E5E7EB',
+      borderRadius: 3,
+      overflow: 'hidden',
+      marginVertical: 4,
+    },
+    probabilityBarFill: {
+      height: '100%',
+      backgroundColor: '#6D5DFC',
+    },
+    probabilityPercentText: {
+      fontSize: 9,
+      color: '#9CA3AF',
+      fontWeight: '500',
+    },
+    riskAnalysisSubheading: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#4B5563',
+      marginBottom: 6,
+    },
+    riskDefectRow: {
+      flexDirection: 'row',
+      gap: 6,
+      marginBottom: 4,
+      alignItems: 'center',
+    },
+    riskDefectText: {
+      fontSize: 10,
+      color: '#EF4444',
+      fontWeight: '500',
+    },
+    drawerLinksGrid: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 6,
+    },
+    drawerLinkCard: {
+      flex: 1,
+      backgroundColor: '#F9FAFB',
+      padding: 8,
+      borderRadius: 8,
+      alignItems: 'center',
+      gap: 4,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    drawerLinkLabel: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#4B5563',
+      textAlign: 'center',
+    },
+    workspaceSyncPanel: {
+      backgroundColor: '#EEECFF',
+      borderRadius: 12,
+      padding: 15,
+      borderWidth: 1,
+      borderColor: '#6D5DFC30',
+      marginBottom: 20,
+    },
+    syncPanelHeading: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#6D5DFC',
+      marginBottom: 4,
+    },
+    syncPanelDesc: {
+      fontSize: 10,
+      color: '#4B5563',
+      lineHeight: 14,
+      marginBottom: 10,
+    },
+    syncCheckboxesGrid: {
+      gap: 8,
+      marginBottom: 12,
+    },
+    syncCheckboxRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: '#FFFFFF',
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    },
+    syncCheckboxLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#374151',
+    },
+    syncBatchBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: '#6D5DFC',
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    syncBatchBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    syncSuccessMessage: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      backgroundColor: '#E8F5E9',
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    syncSuccessText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#10B981',
+    },
+    // --- NEW WORKSPACE ANALYSIS STYLES ---
+    analysisLoadingOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.95)', // Sleek dark slate glassmorphism
+      justifyContent: 'center',
+      padding: 24,
+    },
+    analysisLoadingSafeArea: {
+      flex: 1,
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    analysisLoadingHeader: {
+      alignItems: 'center',
+      marginTop: 20,
+    },
+    analysisLoadingTitle: {
+      fontSize: 24,
+      fontWeight: '900',
+      color: '#FFFFFF',
+      marginTop: 12,
+      letterSpacing: 0.5,
+    },
+    analysisLoadingSubtitle: {
+      fontSize: 14,
+      color: '#94A3B8',
+      marginTop: 6,
+    },
+    analysisLoadingChecklist: {
+      width: '100%',
+      backgroundColor: 'rgba(30, 41, 59, 0.5)',
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.08)',
+      gap: 16,
+      marginVertical: 30,
+    },
+    analysisChecklistRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    analysisChecklistIconContainer: {
+      width: 24,
+      height: 24,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    analysisPendingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#475569',
+    },
+    analysisChecklistText: {
+      fontSize: 14,
+      color: '#64748B',
+      fontWeight: '500',
+    },
+    analysisChecklistTextCompleted: {
+      color: '#34D399', // Mint/success green
+      textDecorationLine: 'none',
+    },
+    analysisChecklistTextActive: {
+      color: '#6D5DFC', // Theme primary
+      fontWeight: '700',
+    },
+    analysisChecklistTextPending: {
+      color: '#64748B',
+    },
+    analysisLoadingFooter: {
+      alignItems: 'center',
+      width: '100%',
+      gap: 16,
+    },
+    analysisLoadingFooterText: {
+      fontSize: 13,
+      color: '#64748B',
+      fontStyle: 'italic',
+    },
+    analysisCancelLoadingBtn: {
+      paddingVertical: 12,
+      paddingHorizontal: 24,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#475569',
+      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    },
+    analysisCancelLoadingBtnText: {
+      color: '#94A3B8',
+      fontSize: 13,
+      fontWeight: '600',
+    },
 
-  // Error modal & prompts
-  analysisErrorOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  analysisErrorModalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 340,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  analysisErrorModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  analysisErrorModalDesc: {
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 24,
-  },
-  analysisErrorModalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  analysisErrorBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  analysisErrorBtnOutline: {
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-  },
-  analysisErrorBtnPrimary: {
-    backgroundColor: '#EF4444',
-  },
-  analysisErrorBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
+    // Error modal & prompts
+    analysisErrorOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    analysisErrorModalContent: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 24,
+      width: '100%',
+      maxWidth: 340,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.1,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    analysisErrorModalTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    analysisErrorModalDesc: {
+      fontSize: 13,
+      color: '#6B7280',
+      textAlign: 'center',
+      lineHeight: 18,
+      marginBottom: 24,
+    },
+    analysisErrorModalButtons: {
+      flexDirection: 'row',
+      gap: 12,
+      width: '100%',
+    },
+    analysisErrorBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    analysisErrorBtnOutline: {
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+    },
+    analysisErrorBtnPrimary: {
+      backgroundColor: '#EF4444',
+    },
+    analysisErrorBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+    },
 
-  analysisPromptOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  analysisPromptModalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 340,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  analysisPromptModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  analysisPromptModalDesc: {
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 24,
-  },
-  analysisPromptModalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  analysisPromptBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  analysisPromptBtnOutline: {
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    backgroundColor: '#FFFFFF',
-  },
-  analysisPromptBtnPrimary: {
-    backgroundColor: '#6D5DFC',
-  },
-  analysisPromptBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
+    analysisPromptOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    analysisPromptModalContent: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 16,
+      padding: 24,
+      width: '100%',
+      maxWidth: 340,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.1,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    analysisPromptModalTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#1F2937',
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    analysisPromptModalDesc: {
+      fontSize: 13,
+      color: '#6B7280',
+      textAlign: 'center',
+      lineHeight: 18,
+      marginBottom: 24,
+    },
+    analysisPromptModalButtons: {
+      flexDirection: 'row',
+      gap: 12,
+      width: '100%',
+    },
+    analysisPromptBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    analysisPromptBtnOutline: {
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      backgroundColor: '#FFFFFF',
+    },
+    analysisPromptBtnPrimary: {
+      backgroundColor: '#6D5DFC',
+    },
+    analysisPromptBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+    },
 
-  // Analysis report tab
-  analysisMetricsRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 16,
-  },
-  analysisMetricCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  analysisMetricVal: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#1F2937',
-    marginTop: 6,
-  },
-  analysisMetricLbl: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  analysisMetaBadgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  analysisMetaBadge: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  analysisMetaBadgeText: {
-    fontSize: 10,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  analysisOverviewCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    marginBottom: 16,
-  },
-  analysisOverviewCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  analysisOverviewLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#4B5563',
-    textTransform: 'uppercase',
-  },
-  analysisRiskBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  analysisRiskBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  analysisOverviewText: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 18,
-  },
-  analysisAccordionCard: {
-    backgroundColor: theme.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  analysisAccordionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: theme.card,
-  },
-  analysisAccordionHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  analysisAccordionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  analysisAccordionContent: {
-    padding: 16,
-    backgroundColor: theme.surfaceVariant,
-    borderTopWidth: 1,
-    borderTopColor: theme.divider,
-  },
-  analysisReportTextParagraph: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    lineHeight: 20,
-  },
-  analysisReportSubSectionTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    textTransform: 'uppercase',
-    marginTop: 14,
-    marginBottom: 6,
-    letterSpacing: 0.5,
-  },
-  analysisReportBullet: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginVertical: 4,
-    paddingRight: 12,
-  },
-  analysisReportBulletDot: {
-    fontSize: 12,
-    color: theme.primary,
-    marginTop: 1,
-  },
-  analysisReportBulletText: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    lineHeight: 18,
-    flex: 1,
-  },
-  analysisReportEmptyText: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    fontStyle: 'italic',
-  },
-  analysisHistoryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.divider,
-  },
-  analysisHistoryTextCol: {
-    flex: 1,
-    marginRight: 10,
-  },
-  analysisHistoryVersionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  analysisHistoryDateText: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    marginTop: 2,
-  },
-  analysisHistorySummaryText: {
-    fontSize: 11,
-    color: theme.textSecondary,
-    marginTop: 4,
-  },
-  analysisHistoryLoadBtn: {
-    backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  analysisHistoryLoadBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  analysisReportActionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
-    marginBottom: 32,
-  },
-});
+    // Analysis report tab
+    analysisMetricsRow: {
+      flexDirection: 'row',
+      gap: 16,
+      marginBottom: 16,
+    },
+    analysisMetricCard: {
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 2,
+      alignItems: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.02,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    analysisMetricVal: {
+      fontSize: 24,
+      fontWeight: '900',
+      color: '#1F2937',
+      marginTop: 6,
+    },
+    analysisMetricLbl: {
+      fontSize: 11,
+      color: '#6B7280',
+      fontWeight: '600',
+      marginTop: 4,
+      textAlign: 'center',
+    },
+    analysisMetaBadgeRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 16,
+    },
+    analysisMetaBadge: {
+      backgroundColor: '#F3F4F6',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    analysisMetaBadgeText: {
+      fontSize: 10,
+      color: '#4B5563',
+      fontWeight: '600',
+    },
+    analysisOverviewCard: {
+      backgroundColor: '#F9FAFB',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#ECECEC',
+      marginBottom: 16,
+    },
+    analysisOverviewCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    analysisOverviewLabel: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#4B5563',
+      textTransform: 'uppercase',
+    },
+    analysisRiskBadge: {
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    analysisRiskBadgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#FFFFFF',
+    },
+    analysisOverviewText: {
+      fontSize: 13,
+      color: '#4B5563',
+      lineHeight: 18,
+    },
+    analysisAccordionCard: {
+      backgroundColor: theme.card,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 12,
+      overflow: 'hidden',
+    },
+    analysisAccordionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: theme.card,
+    },
+    analysisAccordionHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    analysisAccordionTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: theme.textPrimary,
+    },
+    analysisAccordionContent: {
+      padding: 16,
+      backgroundColor: theme.surfaceVariant,
+      borderTopWidth: 1,
+      borderTopColor: theme.divider,
+    },
+    analysisReportTextParagraph: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      lineHeight: 20,
+    },
+    analysisReportSubSectionTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: theme.textPrimary,
+      textTransform: 'uppercase',
+      marginTop: 14,
+      marginBottom: 6,
+      letterSpacing: 0.5,
+    },
+    analysisReportBullet: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      marginVertical: 4,
+      paddingRight: 12,
+    },
+    analysisReportBulletDot: {
+      fontSize: 12,
+      color: theme.primary,
+      marginTop: 1,
+    },
+    analysisReportBulletText: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      lineHeight: 18,
+      flex: 1,
+    },
+    analysisReportEmptyText: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      fontStyle: 'italic',
+    },
+    analysisHistoryRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.divider,
+    },
+    analysisHistoryTextCol: {
+      flex: 1,
+      marginRight: 10,
+    },
+    analysisHistoryVersionText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.textPrimary,
+    },
+    analysisHistoryDateText: {
+      fontSize: 10,
+      color: theme.textSecondary,
+      marginTop: 2,
+    },
+    analysisHistorySummaryText: {
+      fontSize: 11,
+      color: theme.textSecondary,
+      marginTop: 4,
+    },
+    analysisHistoryLoadBtn: {
+      backgroundColor: isDark ? 'rgba(123, 97, 255, 0.15)' : '#EEECFF',
+      borderRadius: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    analysisHistoryLoadBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+    analysisReportActionButtons: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 16,
+      marginBottom: 32,
+    },
+    dmsTabSelectorContainer: {
+      flexDirection: 'row',
+      backgroundColor: theme.surfaceVariant || '#EEECFF',
+      borderRadius: 12,
+      padding: 4,
+      marginBottom: 16,
+    },
+    dmsTabBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderRadius: 8,
+      gap: 6,
+    },
+    dmsTabBtnActive: {
+      backgroundColor: '#6D5DFC',
+    },
+    dmsTabBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.textSecondary || '#64748B',
+    },
+    dmsTabBtnTextActive: {
+      color: '#FFFFFF',
+    },
+    uploadProgressCard: {
+      padding: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+      marginBottom: 16,
+    },
+    dmsControlRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+      flexWrap: 'wrap',
+    },
+    dmsSortPill: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: theme.surfaceVariant || '#EEECFF',
+      marginRight: 6,
+      marginBottom: 4,
+    },
+    dmsSortPillActive: {
+      backgroundColor: 'rgba(109, 93, 252, 0.1)',
+    },
+    dmsSortPillText: {
+      fontSize: 9,
+      fontWeight: '600',
+      color: theme.textSecondary || '#64748B',
+    },
+    dmsCheckbox: {
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      borderColor: '#94A3B8',
+      marginRight: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    dmsCheckboxChecked: {
+      backgroundColor: '#6D5DFC',
+      borderColor: '#6D5DFC',
+    },
+    exhibitBadgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    dmsActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+    },
+    dmsActionBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#6D5DFC',
+    },
+    bulkToolbar: {
+      position: 'absolute',
+      bottom: 20,
+      left: 20,
+      right: 20,
+      borderRadius: 12,
+      borderWidth: 1,
+      padding: 12,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 10,
+      elevation: 8,
+      zIndex: 999,
+    },
+    bulkBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+    },
+    bulkBtnText: {
+      fontSize: 11,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    dmsModalInput: {
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 14,
+      marginTop: 12,
+      alignSelf: 'stretch',
+    },
+  });
 }

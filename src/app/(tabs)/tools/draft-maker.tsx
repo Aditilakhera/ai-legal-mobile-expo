@@ -1352,8 +1352,8 @@ export default function DraftMakerScreen() {
           {/* Option 1: Existing Case Workspace */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <View style={[styles.iconBadge, { backgroundColor: '#EBF5FF' }]}>
-                <Ionicons name="folder-open-outline" size={24} color="#208AEF" />
+              <View style={[styles.iconBadge, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                <Ionicons name="folder-open-outline" size={24} color="#8A5CF5" />
               </View>
               <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Existing Case Workspace</Text>
             </View>
@@ -1366,7 +1366,7 @@ export default function DraftMakerScreen() {
               <Text style={[styles.bulletItem, { color: theme.textSecondary }]}>• Evidentiary Timeline</Text>
               <Text style={[styles.bulletItem, { color: theme.textSecondary }]}>• Previous AI Analysis</Text>
             </View>
-            <TouchableOpacity style={styles.cardBtn} onPress={() => setIsCaseSelectOpen(true)}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={() => setIsCaseSelectOpen(true)}>
               <Text style={styles.cardBtnText}>Select Case Workspace</Text>
             </TouchableOpacity>
           </View>
@@ -1374,8 +1374,8 @@ export default function DraftMakerScreen() {
           {/* Option 2: Upload Documents */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <View style={[styles.iconBadge, { backgroundColor: '#E6F7F0' }]}>
-                <Ionicons name="cloud-upload-outline" size={24} color="#10B981" />
+              <View style={[styles.iconBadge, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                <Ionicons name="cloud-upload-outline" size={24} color="#8A5CF5" />
               </View>
               <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Upload Documents</Text>
             </View>
@@ -1387,7 +1387,7 @@ export default function DraftMakerScreen() {
               <Text style={[styles.bulletItem, { color: theme.textSecondary }]}>• Parties & Witnesses</Text>
               <Text style={[styles.bulletItem, { color: theme.textSecondary }]}>• Timeline Milestones</Text>
             </View>
-            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#10B981' }]} onPress={() => setIsUploadOpen(true)}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={() => setIsUploadOpen(true)}>
               <Text style={styles.cardBtnText}>Upload Documents</Text>
             </TouchableOpacity>
           </View>
@@ -1395,15 +1395,15 @@ export default function DraftMakerScreen() {
           {/* Option 3: Manual Entry */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <View style={[styles.iconBadge, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="create-outline" size={24} color="#D97706" />
+              <View style={[styles.iconBadge, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                <Ionicons name="create-outline" size={24} color="#8A5CF5" />
               </View>
               <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Manual Entry</Text>
             </View>
             <Text style={[styles.cardDesc, { color: theme.textSecondary, marginBottom: 12 }]}>
               Create document from scratch by manually keying in fields.
             </Text>
-            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#D97706' }]} onPress={handleContinueManually}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={handleContinueManually}>
               <Text style={styles.cardBtnText}>Continue Manually</Text>
             </TouchableOpacity>
           </View>
@@ -1414,7 +1414,7 @@ export default function DraftMakerScreen() {
       {step === 'IMPORT' && (
         <View style={[styles.analyzingWrapper, { backgroundColor: theme.background }]}>
           <View style={[styles.analyzingBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <ActivityIndicator size="large" color="#6D5DFC" style={{ marginBottom: 16 }} />
+            <ActivityIndicator size="large" color="#8A5CF5" style={{ marginBottom: 16 }} />
             <Text style={[styles.sectionTitle, { color: theme.textPrimary, textAlign: 'center' }]}>Importing Case Context</Text>
             <Text style={[styles.sectionDesc, { color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
               AI is indexing timeline registers, statutory guidelines, parties, and evidence assets.

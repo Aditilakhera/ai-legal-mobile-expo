@@ -20,6 +20,7 @@ import { useThemeContext, useToastContext } from '@/providers';
 import { TextInput, TextArea } from '@/components/ui';
 import { CaseService } from '@/services/case.service';
 import { CaseWorkspace } from '@/types';
+import { formatWhatsAppNumber } from '../utils/phone';
 
 
 // Category Dropdown options
@@ -304,6 +305,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
   const [opponentName, setOpponentName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientMobileNumber, setClientMobileNumber] = useState('');
+  const [clientWhatsAppNumber, setClientWhatsAppNumber] = useState('');
   const [clientAddress, setClientAddress] = useState('');
   const [opponentEmail, setOpponentEmail] = useState('');
   const [opponentPhone, setOpponentPhone] = useState('');
@@ -347,7 +350,7 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
 
   // Load existing data if editing
   useEffect(() => {
-    if (initialData && editCaseId) {
+    if (visible && initialData && editCaseId) {
       setName(initialData.name || '');
       setStatus(initialData.status || 'Active');
       setPriority(initialData.priority || 'Medium');
@@ -359,6 +362,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       setOpponentName(initialData.opponentName || '');
       setClientEmail((initialData as any).clientEmail || '');
       setClientPhone((initialData as any).clientPhone || '');
+      setClientMobileNumber((initialData as any).clientMobileNumber || (initialData as any).clientPhone || '');
+      setClientWhatsAppNumber((initialData as any).clientWhatsAppNumber || '');
       setClientAddress((initialData as any).clientAddress || '');
       setOpponentEmail((initialData as any).opponentEmail || '');
       setOpponentPhone((initialData as any).opponentPhone || '');
@@ -384,9 +389,24 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       setLimitationDate((initialData as any).limitationDate || '');
 
       setSummary(initialData.summary || (initialData as any).caseSummary || '');
-      setFactsInput(initialData.facts?.join(', ') || '');
+      setFactsInput(
+        initialData.facts
+          ? initialData.facts
+              .map((f: any) => (typeof f === 'string' ? f : f.description || f.title || ''))
+              .filter(Boolean)
+              .join(', ')
+          : ''
+      );
       setReliefSought((initialData as any).reliefSought || (initialData as any).relief?.join(', ') || '');
-      setInternalNotes((initialData as any).internalNotes || (initialData as any).notes || '');
+      
+      const rawNotes = (initialData as any).internalNotes || (initialData as any).notes || '';
+      let notesStr = '';
+      if (typeof rawNotes === 'string') {
+        notesStr = rawNotes;
+      } else if (Array.isArray(rawNotes)) {
+        notesStr = rawNotes.map((n: any) => typeof n === 'string' ? n : n.content || n.title || '').filter(Boolean).join('\n');
+      }
+      setInternalNotes(notesStr);
 
       setPoliceStation((initialData as any).policeStation || '');
       setFIRNumber((initialData as any).firNumber || '');
@@ -394,10 +414,10 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       setReferenceNumber((initialData as any).referenceNumber || '');
       setTagsInput((initialData as any).tags?.join(', ') || '');
       setLabelsInput((initialData as any).labels?.join(', ') || '');
-    } else {
+    } else if (!visible) {
       resetForm();
     }
-  }, [initialData, editCaseId]);
+  }, [initialData, editCaseId, visible]);
 
   // AI Suggestions
   const [aiSuggestions, setAiSuggestions] = useState<any>(null);
@@ -444,6 +464,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       opponentRole !== ((initialData as any).opponentRole || 'Defendant') ||
       clientEmail !== ((initialData as any).clientEmail || '') ||
       clientPhone !== ((initialData as any).clientPhone || '') ||
+      clientMobileNumber !== ((initialData as any).clientMobileNumber || '') ||
+      clientWhatsAppNumber !== ((initialData as any).clientWhatsAppNumber || '') ||
       clientAddress !== ((initialData as any).clientAddress || '') ||
       opponentEmail !== ((initialData as any).opponentEmail || '') ||
       opponentPhone !== ((initialData as any).opponentPhone || '') ||
@@ -464,9 +486,16 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       noticeDate !== ((initialData as any).noticeDate || '') ||
       nextHearingDate !== ((initialData as any).nextHearingDate || (initialData as any).hearingDate || '') ||
       limitationDate !== ((initialData as any).limitationDate || '') ||
-      factsInput !== (initialData.facts?.join(', ') || '') ||
+      factsInput !== (initialData.facts ? initialData.facts.map((f: any) => typeof f === 'string' ? f : f.description || f.title || '').filter(Boolean).join(', ') : '') ||
       reliefSought !== ((initialData as any).reliefSought || (initialData as any).relief?.join(', ') || '') ||
-      internalNotes !== ((initialData as any).internalNotes || (initialData as any).notes || '') ||
+      internalNotes !== (() => {
+        const rawNotes = (initialData as any).internalNotes || (initialData as any).notes || '';
+        if (typeof rawNotes === 'string') return rawNotes;
+        if (Array.isArray(rawNotes)) {
+          return rawNotes.map((n: any) => typeof n === 'string' ? n : n.content || n.title || '').filter(Boolean).join('\n');
+        }
+        return '';
+      })() ||
       policeStation !== ((initialData as any).policeStation || '') ||
       firNumber !== ((initialData as any).firNumber || '') ||
       caseNumber !== ((initialData as any).caseNumber || '') ||
@@ -489,6 +518,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
     if (opponentRole !== ((initialData as any).opponentRole || 'Defendant')) fields.push('Opponent Role');
     if (clientEmail !== ((initialData as any).clientEmail || '')) fields.push('Client Email');
     if (clientPhone !== ((initialData as any).clientPhone || '')) fields.push('Client Phone');
+    if (clientMobileNumber !== ((initialData as any).clientMobileNumber || '')) fields.push('Client Mobile');
+    if (clientWhatsAppNumber !== ((initialData as any).clientWhatsAppNumber || '')) fields.push('Client WhatsApp');
     if (clientAddress !== ((initialData as any).clientAddress || '')) fields.push('Client Address');
     if (opponentEmail !== ((initialData as any).opponentEmail || '')) fields.push('Opponent Email');
     if (opponentPhone !== ((initialData as any).opponentPhone || '')) fields.push('Opponent Phone');
@@ -510,9 +541,18 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
     if (nextHearingDate !== ((initialData as any).nextHearingDate || (initialData as any).hearingDate || '')) fields.push('Hearing Date');
     if (limitationDate !== ((initialData as any).limitationDate || '')) fields.push('Limitation Date');
     if (summary !== (initialData.summary || (initialData as any).caseSummary || '')) fields.push('Case Summary');
-    if (factsInput !== (initialData.facts?.join(', ') || '')) fields.push('Facts');
+    const initialFactsStr = initialData.facts ? initialData.facts.map((f: any) => typeof f === 'string' ? f : f.description || f.title || '').filter(Boolean).join(', ') : '';
+    if (factsInput !== initialFactsStr) fields.push('Facts');
     if (reliefSought !== ((initialData as any).reliefSought || (initialData as any).relief?.join(', ') || '')) fields.push('Relief Sought');
-    if (internalNotes !== ((initialData as any).internalNotes || (initialData as any).notes || '')) fields.push('Internal Notes');
+    
+    const rawNotes = (initialData as any).internalNotes || (initialData as any).notes || '';
+    let initialNotesStr = '';
+    if (typeof rawNotes === 'string') {
+      initialNotesStr = rawNotes;
+    } else if (Array.isArray(rawNotes)) {
+      initialNotesStr = rawNotes.map((n: any) => typeof n === 'string' ? n : n.content || n.title || '').filter(Boolean).join('\n');
+    }
+    if (internalNotes !== initialNotesStr) fields.push('Internal Notes');
     if (policeStation !== ((initialData as any).policeStation || '')) fields.push('Police Station');
     if (firNumber !== ((initialData as any).firNumber || '')) fields.push('FIR Number');
     if (caseNumber !== ((initialData as any).caseNumber || '')) fields.push('Case Number');
@@ -545,21 +585,62 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
     const nextErrors: Record<string, string> = {};
 
     if (!name.trim()) nextErrors.name = 'Case Title Required';
-    if (!caseCategory.trim()) nextErrors.caseCategory = 'Category Required';
     if (!clientName.trim()) nextErrors.clientName = 'Client Name Required';
     if (!opponentName.trim()) nextErrors.opponentName = 'Opponent Name Required';
-    if (!courtType.trim()) nextErrors.courtType = 'Court Type Required';
-    if (!summary.trim()) nextErrors.summary = 'Summary Required';
+    
+    if (!editCaseId) {
+      if (!caseCategory.trim()) nextErrors.caseCategory = 'Category Required';
+      if (!courtType.trim()) nextErrors.courtType = 'Court Type Required';
+      if (!summary.trim()) nextErrors.summary = 'Summary Required';
+    }
+
+    // Email format validation (only if non-empty)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (clientEmail.trim() && !emailRegex.test(clientEmail.trim())) {
+      nextErrors.clientEmail = 'Invalid Email Format';
+    }
+    if (opponentEmail.trim() && !emailRegex.test(opponentEmail.trim())) {
+      nextErrors.opponentEmail = 'Invalid Email Format';
+    }
+
+    // Phone format validation (only if non-empty)
+    const phoneRegex = /^[+\d\s-]{10,20}$/;
+    if (clientPhone.trim()) {
+      const formatted = formatWhatsAppNumber(clientPhone.trim());
+      if (!formatted) {
+        nextErrors.clientPhone = 'Invalid Client Phone format (Use 10 digits or 91 country code)';
+      }
+    }
+    if (clientMobileNumber.trim()) {
+      const formatted = formatWhatsAppNumber(clientMobileNumber.trim());
+      if (!formatted) {
+        nextErrors.clientMobileNumber = 'Invalid Mobile number format (Use 10 digits or 91 country code)';
+      }
+    }
+    if (clientWhatsAppNumber.trim()) {
+      const formatted = formatWhatsAppNumber(clientWhatsAppNumber.trim());
+      if (!formatted) {
+        nextErrors.clientWhatsAppNumber = 'Invalid WhatsApp number format (Use 10 digits or 91 country code)';
+      }
+    }
+    if (opponentPhone.trim() && !phoneRegex.test(opponentPhone.trim())) {
+      nextErrors.opponentPhone = 'Invalid Phone Format (Min 10 digits)';
+    }
 
     if (Object.keys(nextErrors).length > 0) {
       console.log('VALIDATION FAILED', nextErrors);
       setErrors(nextErrors);
-      showToast('error', 'Form Incomplete', 'Please fill all required case details.');
+      showToast('error', 'Form Incomplete', 'Please check validation errors.');
       formScrollViewRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
 
     console.log('VALIDATION PASSED');
+
+    const cleanWhatsApp = clientWhatsAppNumber.trim() ? (formatWhatsAppNumber(clientWhatsAppNumber.trim()) || clientWhatsAppNumber.trim()) : '';
+    const cleanMobile = clientMobileNumber.trim() 
+      ? (formatWhatsAppNumber(clientMobileNumber.trim()) || clientMobileNumber.trim()) 
+      : (clientPhone.trim() ? (formatWhatsAppNumber(clientPhone.trim()) || clientPhone.trim()) : '');
 
     if (editCaseId && !hasChanges()) {
       console.log('NO CHANGES DETECTED');
@@ -572,59 +653,147 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
     setIsSubmitting(true);
 
     try {
-      const payload: Partial<CaseWorkspace> = {
-        name: name.trim(),
-        clientName: clientName.trim(),
-        opponentName: opponentName.trim(),
-        caseType: caseCategory,
-        courtName: court || 'District Court',
-        summary: summary.trim(),
-        priority: priority as any,
-        status: status as any,
-        isLegalCase: true,
-        facts: factsInput 
-          ? factsInput.split(',').map((s, idx) => ({ id: `fact_${Date.now()}_${idx}`, date: new Date().toLocaleDateString(), description: s.trim() })) 
-          : (summary ? [{ id: `fact_${Date.now()}`, date: new Date().toLocaleDateString(), description: summary }] : []),
-        legalIssues: aiSuggestions?.acts ? [aiSuggestions.acts] : [],
-      };
+      let payload: Partial<CaseWorkspace> = {};
 
-      Object.assign(payload, {
-        clientRole,
-        opponentRole,
-        clientEmail: clientEmail.trim(),
-        clientPhone: clientPhone.trim(),
-        clientAddress: clientAddress.trim(),
-        opponentEmail: opponentEmail.trim(),
-        opponentPhone: opponentPhone.trim(),
-        opponentAddress: opponentAddress.trim(),
-        advocate: advocate.trim(),
-        clientAdvocate: advocate.trim(),
-        opponentAdvocate: opponentAdvocate.trim(),
-        lawFirm: lawFirm.trim(),
-        additionalParties: additionalParties.trim(),
-        courtType,
-        stateName,
-        state: stateName,
-        district: district.trim(),
-        city: city.trim(),
-        courtNumber: courtNumber.trim(),
-        incidentDate,
-        filingDate,
-        agreementDate,
-        noticeDate,
-        nextHearingDate,
-        hearingDate: nextHearingDate,
-        limitationDate,
-        reliefSought: reliefSought.trim() ? reliefSought.split(',').map(s => s.trim()) : [],
-        internalNotes: internalNotes.trim(),
-        notes: internalNotes.trim(),
-        policeStation: policeStation.trim(),
-        firNumber: firNumber.trim(),
-        caseNumber: caseNumber.trim(),
-        referenceNumber: referenceNumber.trim(),
-        tags: tagsInput.split(',').map(s => s.trim()).filter(Boolean),
-        labels: labelsInput.split(',').map(s => s.trim()).filter(Boolean),
-      });
+      if (editCaseId && initialData) {
+        // Construct partial payload of only changed fields!
+        const addIfChanged = (key: string, currentValue: any, initialValue: any) => {
+          if (currentValue !== initialValue) {
+            (payload as any)[key] = currentValue;
+          }
+        };
+
+        addIfChanged('name', name.trim(), initialData.name || '');
+        addIfChanged('status', status, initialData.status || 'Active');
+        addIfChanged('priority', priority, initialData.priority || 'Medium');
+        addIfChanged('caseType', caseCategory, initialData.caseType || (initialData as any).caseCategory || (initialData as any).category || '');
+        addIfChanged('clientName', clientName.trim(), initialData.clientName || '');
+        addIfChanged('opponentName', opponentName.trim(), initialData.opponentName || '');
+        addIfChanged('summary', summary.trim(), initialData.summary || (initialData as any).caseSummary || '');
+        
+        addIfChanged('clientRole', clientRole, (initialData as any).clientRole || 'Complainant');
+        addIfChanged('opponentRole', opponentRole, (initialData as any).opponentRole || 'Defendant');
+        addIfChanged('clientEmail', clientEmail.trim(), (initialData as any).clientEmail || '');
+        addIfChanged('clientPhone', cleanMobile, (initialData as any).clientPhone || '');
+        addIfChanged('clientMobileNumber', cleanMobile, (initialData as any).clientMobileNumber || '');
+        addIfChanged('clientWhatsAppNumber', cleanWhatsApp, (initialData as any).clientWhatsAppNumber || '');
+        addIfChanged('clientAddress', clientAddress.trim(), (initialData as any).clientAddress || '');
+        
+        addIfChanged('opponentEmail', opponentEmail.trim(), (initialData as any).opponentEmail || '');
+        addIfChanged('opponentPhone', opponentPhone.trim(), (initialData as any).opponentPhone || '');
+        addIfChanged('opponentAddress', opponentAddress.trim(), (initialData as any).opponentAddress || '');
+        
+        addIfChanged('advocate', advocate.trim(), (initialData as any).advocate || (initialData as any).clientAdvocate || '');
+        addIfChanged('clientAdvocate', advocate.trim(), (initialData as any).clientAdvocate || '');
+        addIfChanged('opponentAdvocate', opponentAdvocate.trim(), (initialData as any).opponentAdvocate || '');
+        addIfChanged('lawFirm', lawFirm.trim(), (initialData as any).lawFirm || '');
+        addIfChanged('additionalParties', additionalParties.trim(), (initialData as any).additionalParties || '');
+        
+        addIfChanged('courtName', court || 'District Court', initialData.courtName || '');
+        addIfChanged('courtType', courtType, (initialData as any).courtType || '');
+        addIfChanged('stateName', stateName, (initialData as any).stateName || (initialData as any).state || '');
+        addIfChanged('state', stateName, (initialData as any).state || '');
+        addIfChanged('district', district.trim(), (initialData as any).district || '');
+        addIfChanged('city', city.trim(), (initialData as any).city || '');
+        addIfChanged('courtNumber', courtNumber.trim(), (initialData as any).courtNumber || '');
+        
+        addIfChanged('incidentDate', incidentDate, (initialData as any).incidentDate || '');
+        addIfChanged('filingDate', filingDate, (initialData as any).filingDate || '');
+        addIfChanged('agreementDate', agreementDate, (initialData as any).agreementDate || '');
+        addIfChanged('noticeDate', noticeDate, (initialData as any).noticeDate || '');
+        addIfChanged('nextHearingDate', nextHearingDate, (initialData as any).nextHearingDate || (initialData as any).hearingDate || '');
+        addIfChanged('hearingDate', nextHearingDate, (initialData as any).hearingDate || '');
+        addIfChanged('limitationDate', limitationDate, (initialData as any).limitationDate || '');
+        
+        const reliefArray = reliefSought.trim() ? reliefSought.split(',').map(s => s.trim()) : [];
+        const initialReliefArray = (initialData as any).reliefSought || (initialData as any).relief || [];
+        if (JSON.stringify(reliefArray) !== JSON.stringify(initialReliefArray)) {
+          (payload as any).reliefSought = reliefArray;
+        }
+
+        const rawNotes = (initialData as any).internalNotes || (initialData as any).notes || '';
+        let initialNotesStr = '';
+        if (typeof rawNotes === 'string') {
+          initialNotesStr = rawNotes;
+        } else if (Array.isArray(rawNotes)) {
+          initialNotesStr = rawNotes.map((n: any) => typeof n === 'string' ? n : n.content || n.title || '').filter(Boolean).join('\n');
+        }
+        
+        if (internalNotes.trim() !== initialNotesStr) {
+          (payload as any).internalNotes = internalNotes.trim();
+          (payload as any).notes = [{ title: 'Case Note', content: internalNotes.trim() }];
+        }
+        
+        addIfChanged('policeStation', policeStation.trim(), (initialData as any).policeStation || '');
+        addIfChanged('firNumber', firNumber.trim(), (initialData as any).firNumber || '');
+        addIfChanged('caseNumber', caseNumber.trim(), (initialData as any).caseNumber || '');
+        addIfChanged('referenceNumber', referenceNumber.trim(), (initialData as any).referenceNumber || '');
+        
+        const tagsArray = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
+        const initialTagsArray = (initialData as any).tags || [];
+        if (JSON.stringify(tagsArray) !== JSON.stringify(initialTagsArray)) {
+          (payload as any).tags = tagsArray;
+        }
+
+        const labelsArray = labelsInput.split(',').map(s => s.trim()).filter(Boolean);
+        const initialLabelsArray = (initialData as any).labels || [];
+        if (JSON.stringify(labelsArray) !== JSON.stringify(initialLabelsArray)) {
+          (payload as any).labels = labelsArray;
+        }
+      } else {
+        payload = {
+          name: name.trim(),
+          clientName: clientName.trim(),
+          opponentName: opponentName.trim(),
+          caseType: caseCategory,
+          courtName: court || 'District Court',
+          summary: summary.trim(),
+          priority: priority as any,
+          status: status as any,
+          isLegalCase: true,
+          facts: factsInput 
+            ? factsInput.split(',').map((s, idx) => ({ id: `fact_${Date.now()}_${idx}`, date: new Date().toLocaleDateString(), description: s.trim() })) 
+            : (summary ? [{ id: `fact_${Date.now()}`, date: new Date().toLocaleDateString(), description: summary }] : []),
+          legalIssues: aiSuggestions?.acts ? [aiSuggestions.acts] : [],
+          clientRole,
+          opponentRole,
+          clientEmail: clientEmail.trim(),
+          clientPhone: cleanMobile,
+          clientMobileNumber: cleanMobile,
+          clientWhatsAppNumber: cleanWhatsApp,
+          clientAddress: clientAddress.trim(),
+          opponentEmail: opponentEmail.trim(),
+          opponentPhone: opponentPhone.trim(),
+          opponentAddress: opponentAddress.trim(),
+          advocate: advocate.trim(),
+          clientAdvocate: advocate.trim(),
+          opponentAdvocate: opponentAdvocate.trim(),
+          lawFirm: lawFirm.trim(),
+          additionalParties: additionalParties.trim(),
+          courtType,
+          stateName,
+          state: stateName,
+          district: district.trim(),
+          city: city.trim(),
+          courtNumber: courtNumber.trim(),
+          incidentDate,
+          filingDate,
+          agreementDate,
+          noticeDate,
+          nextHearingDate,
+          hearingDate: nextHearingDate,
+          limitationDate,
+          reliefSought: (reliefSought.trim() ? reliefSought.split(',').map(s => s.trim()) : []) as any,
+          internalNotes: internalNotes.trim(),
+          notes: (internalNotes.trim() ? [{ title: 'Case Note', content: internalNotes.trim() }] : []) as any,
+          policeStation: policeStation.trim(),
+          firNumber: firNumber.trim(),
+          caseNumber: caseNumber.trim(),
+          referenceNumber: referenceNumber.trim(),
+          tags: tagsInput.split(',').map(s => s.trim()).filter(Boolean) as any,
+          labels: labelsInput.split(',').map(s => s.trim()).filter(Boolean) as any,
+        } as any;
+      }
 
       console.log('UPDATE REQUEST SENT', JSON.stringify(payload, null, 2));
 
@@ -668,7 +837,7 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
         console.log('LOCAL STATE UPDATED');
         console.log('UI REFRESHED');
         console.log('SAVE COMPLETED');
-        showToast('success', 'Case Updated', '✅ Case updated successfully. All AI modules have been synchronized.');
+        showToast('success', 'Case Updated Successfully', '✅ Case Updated Successfully');
       } else {
         const res = await CaseService.createCase(payload);
         console.log('CREATE RESPONSE RECEIVED', JSON.stringify(res, null, 2));
@@ -680,7 +849,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
       onClose();
     } catch (err: any) {
       console.error('Error saving case:', err);
-      showToast('error', 'Save Failed', 'Unable to save changes. Please check your connection and try again.');
+      const errMsg = err?.response?.data?.error || err?.response?.data?.details || err?.message || 'Unable to save changes.';
+      showToast('error', 'Update Failed', `Error: ${errMsg}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -726,6 +896,8 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
     setOpponentName('');
     setClientEmail('');
     setClientPhone('');
+    setClientMobileNumber('');
+    setClientWhatsAppNumber('');
     setClientAddress('');
     setOpponentEmail('');
     setOpponentPhone('');
@@ -821,7 +993,7 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
                   {editCaseId ? 'Edit Case Details' : 'New Case Intelligence'}
                 </Text>
                 <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-                  {editCaseId ? 'Update your case information. All connected AI modules will automatically reflect the latest information.' : 'Enter professional legal case details'}
+                  {editCaseId ? 'Update existing case information' : 'Enter professional legal case details'}
                 </Text>
               </View>
             </View>
@@ -897,29 +1069,12 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
                 />
 
                 <TextInput
-                  label="Client Email"
-                  placeholder="client@example.com"
-                  value={clientEmail}
-                  onChangeText={setClientEmail}
-                  leftIcon={<Text style={{ fontSize: 16 }}>📧</Text>}
-                />
-
-                <TextInput
-                  label="Client Phone"
-                  placeholder="e.g. +91 9999999999"
-                  value={clientPhone}
-                  onChangeText={setClientPhone}
-                  leftIcon={<Text style={{ fontSize: 16 }}>📞</Text>}
-                />
-
-                <TextInput
                   label="Client Address"
                   placeholder="Client Residential/Business Address"
                   value={clientAddress}
                   onChangeText={setClientAddress}
                   leftIcon={<Text style={{ fontSize: 16 }}>🏠</Text>}
                 />
-
                 <SmartDropdown
                   label="Opponent Role"
                   value={opponentRole}
@@ -993,6 +1148,38 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
                   value={additionalParties}
                   onChangeText={setAdditionalParties}
                   leftIcon={<Text style={{ fontSize: 16 }}>👥</Text>}
+                />
+              </View>
+
+              {/* CLIENT CONTACT INFORMATION */}
+              <View style={[styles.sectionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={styles.sectionHeading}>● CLIENT CONTACT INFORMATION</Text>
+                
+                <TextInput
+                  label="Mobile Number"
+                  placeholder="e.g. +91 9999999999"
+                  value={clientMobileNumber}
+                  onChangeText={(val) => {
+                    setClientMobileNumber(val);
+                    setClientPhone(val); // fallback for legacy code
+                  }}
+                  leftIcon={<Text style={{ fontSize: 16 }}>📞</Text>}
+                />
+
+                <TextInput
+                  label="WhatsApp Number"
+                  placeholder="e.g. +91 9999999999"
+                  value={clientWhatsAppNumber}
+                  onChangeText={setClientWhatsAppNumber}
+                  leftIcon={<Text style={{ fontSize: 16 }}>💬</Text>}
+                />
+
+                <TextInput
+                  label="Email (Optional)"
+                  placeholder="client@example.com"
+                  value={clientEmail}
+                  onChangeText={setClientEmail}
+                  leftIcon={<Text style={{ fontSize: 16 }}>📧</Text>}
                 />
               </View>
 
@@ -1249,7 +1436,7 @@ export const NewCaseIntelligenceModal: React.FC<NewCaseIntelligenceModalProps> =
                   </View>
                 ) : (
                   <Text style={styles.createBtnText}>
-                    {editCaseId ? 'SAVE CHANGES' : 'Create Case'}
+                    {editCaseId ? 'Update Case' : 'Create Case'}
                   </Text>
                 )}
               </TouchableOpacity>

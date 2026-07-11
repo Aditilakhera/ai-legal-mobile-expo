@@ -196,7 +196,7 @@ export default function CasesScreen() {
   // Open Edit form modal
   const handleOpenEditModal = (c: CaseWorkspace) => {
     setIsActionSheetOpen(false);
-    setEditingCaseId(null);
+    setEditingCaseId(c._id);
     setIsNewCaseModalOpen(true);
   };
 
@@ -1125,10 +1125,18 @@ export default function CasesScreen() {
       {/* CREATE & EDIT CASE DIALOG FORM MODAL */}
       <NewCaseIntelligenceModal
         visible={isNewCaseModalOpen}
-        onClose={() => setIsNewCaseModalOpen(false)}
-        onSuccess={() => {
-          fetchCases(true);
+        onClose={() => {
+          setIsNewCaseModalOpen(false);
+          setEditingCaseId(null);
         }}
+        onSuccess={(updatedCase) => {
+          fetchCases(true);
+          if (updatedCase?._id) {
+            router.push(`/workspace/${updatedCase._id}` as any);
+          }
+        }}
+        editCaseId={editingCaseId || undefined}
+        initialData={selectedCase || undefined}
       />
 
       {/* DELETE CONFIRMATION DIALOG MODAL */}

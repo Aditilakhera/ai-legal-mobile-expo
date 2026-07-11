@@ -2315,21 +2315,21 @@ export default function ArgumentBuilderScreen() {
                   ]}
                   onPress={showAttachmentOptions}
                 >
-                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
-                    <Ionicons name="cloud-upload-outline" size={22} color="#10B981" />
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                    <Ionicons name="cloud-upload-outline" size={22} color="#8A5CF5" />
                   </View>
                   <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Upload Legal Documents</Text>
                   <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]} numberOfLines={2}>
                     Extract parties, timeline, and facts from PDF, Word or images.
                   </Text>
                   {attachments.length > 0 && (
-                    <View style={[styles.activeCaseBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                      <Text style={[styles.activeCaseBadgeText, { color: '#10B981' }]}>
+                    <View style={[styles.activeCaseBadge, { backgroundColor: 'rgba(138, 92, 245, 0.15)' }]}>
+                      <Text style={[styles.activeCaseBadgeText, { color: '#8A5CF5' }]}>
                         {attachments.length} file(s) attached
                       </Text>
                     </View>
                   )}
-                  <View style={[styles.sourceCardBtn, { backgroundColor: '#10B981' }]}>
+                  <View style={[styles.sourceCardBtn, { backgroundColor: '#8A5CF5' }]}>
                     <Text style={styles.sourceCardBtnText}>Upload Documents</Text>
                   </View>
                 </TouchableOpacity>
@@ -2342,14 +2342,14 @@ export default function ArgumentBuilderScreen() {
                   ]}
                   onPress={() => handleSelectSource('manual')}
                 >
-                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(249, 115, 22, 0.12)' }]}>
-                    <Ionicons name="create-outline" size={22} color="#F97316" />
+                  <View style={[styles.sourceIconWrapper, { backgroundColor: 'rgba(138, 92, 245, 0.12)' }]}>
+                    <Ionicons name="create-outline" size={22} color="#8A5CF5" />
                   </View>
                   <Text style={[styles.sourceCardTitle, { color: theme.textPrimary }]}>Manual Entry</Text>
                   <Text style={[styles.sourceCardDesc, { color: theme.textSecondary }]} numberOfLines={2}>
                     Launch Intake Wizard: Write details, dictate, or run an AI interview.
                   </Text>
-                  <View style={[styles.sourceCardBtn, { backgroundColor: '#F97316' }]}>
+                  <View style={[styles.sourceCardBtn, { backgroundColor: '#8A5CF5' }]}>
                     <Text style={styles.sourceCardBtnText}>Enter Facts</Text>
                   </View>
                 </TouchableOpacity>

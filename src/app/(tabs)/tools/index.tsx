@@ -103,7 +103,7 @@ const ADVANCED_FEATURES_LIST = [
     bgColor: '#F5F3FF',
     color: '#7C3AED',
     route: '/tools/mock-courtroom',
-    badge: 'FLAGSHIP PRO',
+    badge: '👑 PRO',
   },
   {
     id: 'knowledge-hub',
@@ -113,7 +113,17 @@ const ADVANCED_FEATURES_LIST = [
     bgColor: '#F0F9FF',
     color: '#0284C7',
     route: '/tools/knowledge-hub',
-    badge: 'ENTERPRISE OS',
+    badge: '⭐ PREMIUM',
+  },
+  {
+    id: 'client-connect',
+    title: 'AI Client Connect™',
+    description: 'Smart AI-powered communication system that helps lawyers professionally contact clients through WhatsApp or Phone, generate AI message drafts, send hearing reminders, request documents, follow up on payments, collect evidence, and maintain complete communication history.',
+    image: null as any,
+    bgColor: '#E8FDF0',
+    color: '#22C55E',
+    route: '/tools/client-connect',
+    badge: '⭐ PREMIUM',
   },
 ];
 
@@ -221,12 +231,16 @@ export default function ToolsScreen() {
 
                 <View style={styles.cardHeader}>
                   {/* Premium Courtroom representation vector container */}
-                  <View style={[styles.iconWrapper, { backgroundColor: tool.bgColor }]}>
-                    <Image
-                      source={tool.image}
-                      style={styles.toolIcon3D}
-                      resizeMode="contain"
-                    />
+                  <View style={[styles.iconWrapper, { backgroundColor: tool.bgColor, justifyContent: 'center', alignItems: 'center' }]}>
+                    {tool.id === 'client-connect' ? (
+                      <Ionicons name="logo-whatsapp" size={26} color="#22C55E" />
+                    ) : (
+                      <Image
+                        source={tool.image}
+                        style={styles.toolIcon3D}
+                        resizeMode="contain"
+                      />
+                    )}
                   </View>
                   <Ionicons
                     name="chevron-forward"

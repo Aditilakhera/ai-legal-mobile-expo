@@ -767,36 +767,36 @@ export default function CasePredictorScreen() {
 
           {/* Card 1: Existing Case Workspace */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Ionicons name="briefcase-outline" size={26} color="#0EA5E9" style={{ marginBottom: 8 }} />
+            <Ionicons name="briefcase-outline" size={26} color="#8A5CF5" style={{ marginBottom: 8 }} />
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Existing Case Workspace</Text>
             <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
               Pull case files directly from My Cases to synchronize timelines, parties, and evidence assets.
             </Text>
-            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#0EA5E9' }]} onPress={() => setIsCaseSelectOpen(true)}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={() => setIsCaseSelectOpen(true)}>
               <Text style={styles.cardBtnText}>Select Case Workspace</Text>
             </TouchableOpacity>
           </View>
 
           {/* Card 2: Upload Documents */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Ionicons name="cloud-upload-outline" size={26} color="#10B981" style={{ marginBottom: 8 }} />
+            <Ionicons name="cloud-upload-outline" size={26} color="#8A5CF5" style={{ marginBottom: 8 }} />
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Upload Court Pleadings</Text>
             <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
               Drop PDF, DOCX, or ZIP documents to run OCR extraction, issue mapping, and litigation intelligence.
             </Text>
-            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#10B981' }]} onPress={() => setIsUploadOpen(true)}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={() => setIsUploadOpen(true)}>
               <Text style={styles.cardBtnText}>Upload Documents</Text>
             </TouchableOpacity>
           </View>
 
           {/* Card 3: Manual Case Facts */}
           <View style={[styles.workspaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Ionicons name="document-text-outline" size={26} color="#0D9488" style={{ marginBottom: 8 }} />
+            <Ionicons name="document-text-outline" size={26} color="#8A5CF5" style={{ marginBottom: 8 }} />
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Manual Case Facts</Text>
             <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
               Enter case title, claims, facts, and evidence descriptions manually to calculate outcome predictions.
             </Text>
-            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#0D9488' }]} onPress={() => setIsManualFormOpen(true)}>
+            <TouchableOpacity style={[styles.cardBtn, { backgroundColor: '#8A5CF5' }]} onPress={() => setIsManualFormOpen(true)}>
               <Text style={styles.cardBtnText}>Write Facts Manually</Text>
             </TouchableOpacity>
           </View>
@@ -808,7 +808,7 @@ export default function CasePredictorScreen() {
       {step === 'ANALYZING' && (
         <View style={[styles.analyzingWrapper, { backgroundColor: theme.background }]}>
           <View style={[styles.analyzingBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <ActivityIndicator size="large" color="#10B981" style={{ marginBottom: 16 }} />
+            <ActivityIndicator size="large" color="#8A5CF5" style={{ marginBottom: 16 }} />
             <Text style={[styles.sectionTitle, { color: theme.textPrimary, textAlign: 'center' }]}>Running Litigation Predictions</Text>
             <Text style={[styles.sectionDesc, { color: theme.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
               Mapping procedural violations, scanning binding precedents, and drafting courtroom strategies.
@@ -2342,7 +2342,7 @@ function getStyles(theme: any, isDark: boolean) {
     },
     progressBarFill: {
       height: '100%',
-      backgroundColor: '#10B981',
+      backgroundColor: '#8A5CF5',
     },
     stepsList: {
       maxHeight: 280,

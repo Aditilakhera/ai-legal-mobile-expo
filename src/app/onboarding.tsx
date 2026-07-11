@@ -43,67 +43,20 @@ interface SlideInfo {
 }
 
 // ─── High Performance Isolated Typewriter Sub-component ───────────────────
-interface TypewriterTextProps {
-  tokens: SpeechToken[];
-  onComplete?: () => void;
-}
-
-const TypewriterText: React.FC<TypewriterTextProps> = ({ tokens, onComplete }) => {
-  const [visibleChars, setVisibleChars] = useState(0);
-  const totalChars = tokens.reduce((acc, t) => acc + t.text.length, 0);
-
-  useEffect(() => {
-    setVisibleChars(0);
-    const intervalId = setInterval(() => {
-      setVisibleChars((prev) => {
-        if (prev < totalChars) {
-          return prev + 1;
-        } else {
-          clearInterval(intervalId);
-          if (onComplete) onComplete();
-          return prev;
-        }
-      });
-    }, 22); // Paced character addition
-
-    return () => clearInterval(intervalId);
-  }, [tokens]);
-
-  // Slices tokens to render only currently visible character counts
-  let count = 0;
-  const renderedTokens: SpeechToken[] = [];
-  for (const token of tokens) {
-    if (count >= visibleChars) break;
-    const remaining = visibleChars - count;
-    if (token.text.length <= remaining) {
-      renderedTokens.push(token);
-      count += token.text.length;
-    } else {
-      renderedTokens.push({ text: token.text.substring(0, remaining), bold: token.bold });
-      count += remaining;
-    }
-  }
-
-  return (
-    <Text style={styles.speechTextContainer}>
-      {renderedTokens.map((token, idx) => (
-        <Text
-          key={idx}
-          style={[
-            styles.speechBaseText,
-            token.bold && styles.speechBoldText
-          ]}
-        >
-          {token.text}
-        </Text>
-      ))}
-    </Text>
-  );
-};
+// TypewriterText removed to handle typing, cursor, and speech state directly within OnboardingScreen.
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isBlinkingCursor, setIsBlinkingCursor] = useState(false);
+
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextSlideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speakEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cursorOpacity = useRef(new Animated.Value(1)).current;
 
   const slides: SlideInfo[] = [
     {
@@ -131,6 +84,22 @@ export default function OnboardingScreen() {
       ],
       icon: 'document-text-outline',
       accentGlow: '#3B82F6',
+    },
+    {
+      topic: 'My Cases · Legal CRM',
+      tokens: [
+        { text: 'Organise ' },
+        { text: 'cases', bold: true },
+        { text: ', ' },
+        { text: 'clients', bold: true },
+        { text: ', documents, ' },
+        { text: 'evidence', bold: true },
+        { text: ', hearings, notes, timelines and ' },
+        { text: 'AI insights', bold: true },
+        { text: ' in one unified legal workspace.' }
+      ],
+      icon: 'briefcase-outline',
+      accentGlow: '#0EA5E9',
     },
     {
       topic: 'Case Predictor',
@@ -315,39 +284,115 @@ export default function OnboardingScreen() {
     return () => clearTimeout(blinkTimer);
   }, []);
 
-  // Dialogue look sequences and mouth loop coordination
+  const startTyping = (slideIndex: number) => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (nextSlideTimeoutRef.current) clearTimeout(nextSlideTimeoutRef.current);
+    if (speakEndTimeoutRef.current) clearTimeout(speakEndTimeoutRef.current);
+
+    const tokens = slides[slideIndex].tokens;
+    const chars: { char: string; bold?: boolean }[] = [];
+    tokens.forEach((t) => {
+      for (let i = 0; i < t.text.length; i++) {
+        chars.push({ char: t.text[i], bold: t.bold });
+      }
+    });
+
+    setVisibleCount(0);
+    setIsSpeaking(true);
+    setIsBlinkingCursor(true);
+
+    let currentIndex = 0;
+
+    const typeNextChar = () => {
+      if (currentIndex < chars.length) {
+        currentIndex++;
+        setVisibleCount(currentIndex);
+
+        const lastChar = chars[currentIndex - 1].char;
+        let delay = 20 + Math.random() * 15; // 20-35ms
+
+        if (lastChar === '.' || lastChar === '?' || lastChar === '!') {
+          delay = 400; // Punctuation pause
+        } else if (lastChar === ',') {
+          delay = 200; // Comma pause
+        }
+
+        typingTimeoutRef.current = setTimeout(typeNextChar, delay);
+      } else {
+        // Typing complete — stop animations, wait for user to press Next
+        speakEndTimeoutRef.current = setTimeout(() => {
+          setIsSpeaking(false);
+          setIsBlinkingCursor(false);
+        }, 400);
+      }
+    };
+
+    typingTimeoutRef.current = setTimeout(typeNextChar, 100);
+  };
+
+  // Blinking cursor opacity loop
+  useEffect(() => {
+    let cursorSequence: Animated.CompositeAnimation | null = null;
+    if (isBlinkingCursor) {
+      cursorOpacity.setValue(1);
+      cursorSequence = Animated.loop(
+        Animated.sequence([
+          Animated.timing(cursorOpacity, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(cursorOpacity, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      cursorSequence.start();
+    } else {
+      cursorOpacity.setValue(0);
+    }
+    return () => {
+      if (cursorSequence) cursorSequence.stop();
+    };
+  }, [isBlinkingCursor]);
+
+  // Speaking mouth movement loop
+  useEffect(() => {
+    let mouthSequence: Animated.CompositeAnimation | null = null;
+    if (isSpeaking) {
+      mouthSpeech.setValue(1);
+      mouthSequence = Animated.loop(
+        Animated.sequence([
+          Animated.timing(mouthSpeech, {
+            toValue: 0.3,
+            duration: 80,
+            useNativeDriver: true,
+          }),
+          Animated.timing(mouthSpeech, {
+            toValue: 1,
+            duration: 90,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      mouthSequence.start();
+    } else {
+      mouthSpeech.setValue(1);
+    }
+    return () => {
+      if (mouthSequence) mouthSequence.stop();
+    };
+  }, [isSpeaking]);
+
+  // Dialogue look sequences
   useEffect(() => {
     const totalSlideChars = slides[currentSlide].tokens.reduce((acc, t) => acc + t.text.length, 0);
-    const typingDuration = totalSlideChars * 22;
+    const typingDuration = totalSlideChars * 30;
 
-    // Reset looking target
     setLookTarget('user');
 
-    // Mouth movement animation loop
-    mouthSpeech.setValue(1);
-    const mouthSequence = Animated.loop(
-      Animated.sequence([
-        Animated.timing(mouthSpeech, {
-          toValue: 0.3,
-          duration: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(mouthSpeech, {
-          toValue: 1,
-          duration: 90,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    mouthSequence.start();
-
-    // Stop speaking after text finishes
-    const mouthStopTimer = setTimeout(() => {
-      mouthSequence.stop();
-      mouthSpeech.setValue(1);
-    }, typingDuration);
-
-    // Schedule looking sequence changes
     const lookFeatureTimer = setTimeout(() => {
       setLookTarget('feature');
     }, typingDuration * 0.25);
@@ -361,13 +406,21 @@ export default function OnboardingScreen() {
     }, typingDuration * 0.85);
 
     return () => {
-      mouthSequence.stop();
-      clearTimeout(mouthStopTimer);
       clearTimeout(lookFeatureTimer);
       clearTimeout(lookTextTimer);
       clearTimeout(lookUserTimer);
     };
   }, [currentSlide]);
+
+  // Start typing on mount
+  useEffect(() => {
+    startTyping(0);
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (nextSlideTimeoutRef.current) clearTimeout(nextSlideTimeoutRef.current);
+      if (speakEndTimeoutRef.current) clearTimeout(speakEndTimeoutRef.current);
+    };
+  }, []);
 
   // Animate head, eye pupils, and hair based on looking target state
   useEffect(() => {
@@ -382,7 +435,8 @@ export default function OnboardingScreen() {
       turnX = -2.5;
       hairAngle = -1.0;
     } else if (lookTarget === 'feature') {
-      const isRight = currentSlide === 2 || currentSlide === 4;
+      // Slides 1 (Contract) and 5 (AI Drafting) have panels on the left of character
+      const isRight = currentSlide === 1 || currentSlide === 5;
       eyeX = isRight ? 2.0 : -2.0;
       eyeY = -0.5;
       turnX = isRight ? 4 : -4;
@@ -431,58 +485,52 @@ export default function OnboardingScreen() {
     let targetY = 45; // baseline target Y shifted down to 45 (was 10)
 
     if (currentSlide === 0) {
+      // Welcome
       targetX = 0;
-      targetY = 50; // was 15
+      targetY = 50;
     } else if (currentSlide === 1) {
+      // Contract Analyzer — laser scan card on left
       targetX = 25;
-      targetY = 40; // was 10
-
+      targetY = 40;
       Animated.loop(
         Animated.sequence([
-          Animated.timing(laserScannerY, {
-            toValue: 1,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(laserScannerY, {
-            toValue: 0,
-            duration: 0,
-            useNativeDriver: true,
-          }),
+          Animated.timing(laserScannerY, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(laserScannerY, { toValue: 0, duration: 0, useNativeDriver: true }),
         ])
       ).start();
     } else if (currentSlide === 2) {
+      // My Cases — centred, slight lean right
+      targetX = 10;
+      targetY = 45;
+    } else if (currentSlide === 3) {
+      // Case Predictor — outcome dial on right
       targetX = -25;
-      targetY = 40; // was 10
-
+      targetY = 40;
       Animated.timing(outcomeDialProgress, {
         toValue: 0.85,
         duration: 1500,
         easing: Easing.out(Easing.ease),
         useNativeDriver: false,
       }).start();
-    } else if (currentSlide === 3) {
+    } else if (currentSlide === 4) {
+      // Strategy Engine
       targetX = 0;
-      targetY = 50; // was 15
-
+      targetY = 50;
       Animated.timing(roadFilingProgress, {
         toValue: 1,
         duration: 2000,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }).start();
-    } else if (currentSlide === 4) {
-      targetX = 25;
-      targetY = 40; // was 10
-
-      Animated.timing(documentTyping, {
-        toValue: 1,
-        duration: 1800,
-        useNativeDriver: true,
-      }).start();
     } else if (currentSlide === 5) {
+      // AI Drafting
+      targetX = 25;
+      targetY = 40;
+      Animated.timing(documentTyping, { toValue: 1, duration: 1800, useNativeDriver: true }).start();
+    } else if (currentSlide === 6) {
+      // Ready
       targetX = 0;
-      targetY = 35; // was 5
+      targetY = 35;
     }
 
     Animated.parallel([
@@ -502,14 +550,32 @@ export default function OnboardingScreen() {
   }, [currentSlide]);
 
   const handleNext = () => {
+    // While still typing: "Skip Typing" — complete text instantly, stay on this card
+    if (isSpeaking) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (nextSlideTimeoutRef.current) clearTimeout(nextSlideTimeoutRef.current);
+      if (speakEndTimeoutRef.current) clearTimeout(speakEndTimeoutRef.current);
+      const totalChars = slides[currentSlide].tokens.reduce((acc, t) => acc + t.text.length, 0);
+      setVisibleCount(totalChars);
+      setIsSpeaking(false);
+      setIsBlinkingCursor(false);
+      return; // ← stay on this card, do NOT advance
+    }
+
+    // Typing finished: "Next" — fade out, slide in next card
     if (currentSlide < slides.length - 1) {
-      setCurrentSlide((prev) => prev + 1);
+      const nextIndex = currentSlide + 1;
+      setCurrentSlide(nextIndex);
+      startTyping(nextIndex);
     } else {
       router.push('/auth/login');
     }
   };
 
   const handleSkip = () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (nextSlideTimeoutRef.current) clearTimeout(nextSlideTimeoutRef.current);
+    if (speakEndTimeoutRef.current) clearTimeout(speakEndTimeoutRef.current);
     router.push('/auth/login');
   };
 
@@ -533,6 +599,22 @@ export default function OnboardingScreen() {
     inputRange: [0, 1],
     outputRange: [0, -12],
   });
+
+  // Slice tokens based on typewriter progress (visibleCount)
+  const currentTokens = slides[currentSlide].tokens;
+  let tokenCharCount = 0;
+  const renderedTokens: { text: string; bold?: boolean }[] = [];
+  for (const token of currentTokens) {
+    if (tokenCharCount >= visibleCount) break;
+    const remaining = visibleCount - tokenCharCount;
+    if (token.text.length <= remaining) {
+      renderedTokens.push(token);
+      tokenCharCount += token.text.length;
+    } else {
+      renderedTokens.push({ text: token.text.substring(0, remaining), bold: token.bold });
+      tokenCharCount += remaining;
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -801,7 +883,7 @@ export default function OnboardingScreen() {
           {/* Interactive Feature Animations floating next to guide character (Shifted closer to character) */}
           <View style={styles.overlayIllustration} pointerEvents="none">
             
-            {/* Slide 2: Contract page scanner */}
+            {/* Slide 2 (index 1): Contract page scanner */}
             {currentSlide === 1 && (
               <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], right: '47%', top: '26%' }]}>
                 <View style={styles.docMiniLayout}>
@@ -811,39 +893,55 @@ export default function OnboardingScreen() {
                   </View>
                   <View style={[styles.miniTextLine, { width: '85%' }]} />
                   <View style={[styles.miniTextLine, { width: '70%' }]} />
-                  
-                  {/* Highlighted risk warning block */}
                   <View style={styles.glowClauseBadge}>
                     <Text style={styles.glowClauseText}>Indemnity: High Risk</Text>
                   </View>
-
-                  {/* Laser Scan line */}
                   <Animated.View
-                    style={[
-                      styles.laserLine,
-                      {
-                        transform: [
-                          {
-                            translateY: laserScannerY.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, 75],
-                            })
-                          }
-                        ]
-                      }
-                    ]}
+                    style={[styles.laserLine, { transform: [{ translateY: laserScannerY.interpolate({ inputRange: [0, 1], outputRange: [0, 75] }) }] }]}
                   />
                 </View>
               </Animated.View>
             )}
 
-            {/* Slide 3: Case Estimator meter */}
+            {/* Slide 3 (index 2): My Cases — Legal CRM workspace mini-card */}
             {currentSlide === 2 && (
+              <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], left: '48%', top: '22%' }]}>
+                <View style={[styles.docMiniLayout, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD', width: 105, height: 118 }]}>
+                  <View style={styles.docHeader}>
+                    <Ionicons name="briefcase" size={12} color="#0EA5E9" />
+                    <Text style={[styles.docTitleText, { color: '#0369A1' }]}>Case #047</Text>
+                  </View>
+                  {/* Client row */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 4 }}>
+                    <Ionicons name="person-circle-outline" size={10} color="#0EA5E9" />
+                    <Text style={{ fontSize: 7.5, fontWeight: '700', color: '#0369A1' }}>Sharma vs. State</Text>
+                  </View>
+                  {/* Mini stat badges */}
+                  <View style={{ flexDirection: 'row', gap: 3, flexWrap: 'wrap', marginBottom: 4 }}>
+                    <View style={[styles.miniBadge, { backgroundColor: '#DCFCE7' }]}>
+                      <Text style={[styles.miniBadgeText, { color: '#16A34A' }]}>6 Docs</Text>
+                    </View>
+                    <View style={[styles.miniBadge, { backgroundColor: '#FEE2E2' }]}>
+                      <Text style={[styles.miniBadgeText, { color: '#DC2626' }]}>3 Ev.</Text>
+                    </View>
+                    <View style={[styles.miniBadge, { backgroundColor: '#EDE9FE' }]}>
+                      <Text style={[styles.miniBadgeText, { color: '#7C3AED' }]}>AI ✦</Text>
+                    </View>
+                  </View>
+                  {/* Next hearing */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <Ionicons name="calendar-outline" size={9} color="#64748B" />
+                    <Text style={{ fontSize: 6.5, color: '#64748B', fontWeight: '600' }}>Hearing: 18 Jul</Text>
+                  </View>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Slide 4 (index 3): Case Estimator meter */}
+            {currentSlide === 3 && (
               <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], left: '47%', top: '26%' }]}>
                 <View style={styles.predictMiniLayout}>
                   <Text style={styles.cardHeaderSmall}>Win Probability</Text>
-                  
-                  {/* Gauge indicator */}
                   <View style={styles.arcContainer}>
                     <View style={styles.arcOuterBack} />
                     <View style={styles.arcOuterFill} />
@@ -852,7 +950,6 @@ export default function OnboardingScreen() {
                       <Text style={styles.arcLabel}>Success rate</Text>
                     </View>
                   </View>
-                  
                   <View style={styles.badgeRow}>
                     <View style={[styles.miniBadge, { backgroundColor: '#ECFDF5' }]}><Text style={styles.miniBadgeText}>Strong Fact</Text></View>
                   </View>
@@ -860,8 +957,8 @@ export default function OnboardingScreen() {
               </Animated.View>
             )}
 
-            {/* Slide 4: Strategy Roadmap timeline (Roadmap card height: 95px, width: 105px to fit text correctly) */}
-            {currentSlide === 3 && (
+            {/* Slide 5 (index 4): Strategy Roadmap */}
+            {currentSlide === 4 && (
               <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], top: '24%', right: '20%' }]}>
                 <View style={styles.roadmapMiniLayout}>
                   <Text style={styles.cardHeaderSmall}>Roadmap Nodes</Text>
@@ -881,8 +978,8 @@ export default function OnboardingScreen() {
               </Animated.View>
             )}
 
-            {/* Slide 5: AI Drafting typed Document */}
-            {currentSlide === 4 && (
+            {/* Slide 6 (index 5): AI Drafting document */}
+            {currentSlide === 5 && (
               <Animated.View style={[styles.miniAppCard, { transform: [{ translateY: floatTranslateY }], right: '47%', top: '26%' }]}>
                 <View style={styles.docMiniLayout}>
                   <View style={styles.docHeader}>
@@ -892,8 +989,6 @@ export default function OnboardingScreen() {
                   <View style={[styles.miniTextLine, { width: '80%', backgroundColor: '#F59E0B' }]} />
                   <View style={[styles.miniTextLine, { width: '90%' }]} />
                   <View style={[styles.miniTextLine, { width: '60%' }]} />
-
-                  {/* Typing draft indicator */}
                   <View style={[styles.glowClauseBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
                     <Text style={[styles.glowClauseText, { color: '#D97706' }]}>Draft Formatted: OK</Text>
                   </View>
@@ -901,8 +996,8 @@ export default function OnboardingScreen() {
               </Animated.View>
             )}
 
-            {/* Slide 6: Point indicators success check */}
-            {currentSlide === 5 && (
+            {/* Slide 7 (index 6): Ready — success check */}
+            {currentSlide === 6 && (
               <View style={[styles.miniAppCard, { right: '42%', top: '24%' }]}>
                 <View style={styles.successCheckGlow}>
                   <Ionicons name="checkmark-sharp" size={28} color="#FFFFFF" />
@@ -925,13 +1020,30 @@ export default function OnboardingScreen() {
         >
           {/* Header indicator category label */}
           <View style={styles.slideHeader}>
-            <Ionicons name={slides[currentSlide].icon as any} size={18} color="#6D5DFC" style={{ marginRight: 6 }} />
-            <Text style={styles.topicLabel}>{slides[currentSlide].topic}</Text>
+            <Ionicons name={slides[currentSlide].icon as any} size={18} color={slides[currentSlide].accentGlow} style={{ marginRight: 6 }} />
+            <Text style={[styles.topicLabel, { color: slides[currentSlide].accentGlow }]}>{slides[currentSlide].topic}</Text>
           </View>
 
           {/* High Contrast, Large Readable Text Bubble (Automatic wraps - Isolated rendering to avoid main thread recursion) */}
           <View style={styles.speechTextWrapper}>
-            <TypewriterText tokens={slides[currentSlide].tokens} />
+            <Text key="stable-typewriter-text" style={styles.speechTextContainer}>
+              {renderedTokens.map((token, idx) => (
+                <Text
+                  key={`token-${idx}`}
+                  style={[
+                    styles.speechBaseText,
+                    token.bold && styles.speechBoldText
+                  ]}
+                >
+                  {token.text}
+                </Text>
+              ))}
+              {isBlinkingCursor && (
+                <Animated.Text style={[styles.speechBaseText, { opacity: cursorOpacity, color: '#6D5DFC' }]}>
+                  ▌
+                </Animated.Text>
+              )}
+            </Text>
           </View>
 
           {/* Action Row & Pagination slide indices */}
@@ -956,8 +1068,8 @@ export default function OnboardingScreen() {
             {/* Action flow routing buttons */}
             {currentSlide < slides.length - 1 ? (
               <Pressable style={styles.nextBtn} onPress={handleNext}>
-                <Text style={styles.nextBtnText}>Next</Text>
-                <Ionicons name="arrow-forward" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                <Text style={styles.nextBtnText}>{isSpeaking ? 'Skip Typing ›' : 'Next'}</Text>
+                {!isSpeaking && <Ionicons name="arrow-forward" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />}
               </Pressable>
             ) : (
               <View style={styles.finalButtonsRow}>
@@ -1713,7 +1825,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   speechTextWrapper: {
-    minHeight: 80, // avoids jumps while typing
+    minHeight: 110, // stable height prevents layout jumps as text grows
     justifyContent: 'center',
   },
   speechTextContainer: {

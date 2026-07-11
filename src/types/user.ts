@@ -175,6 +175,27 @@ export interface NotificationInboxItem {
   data?: any;
 }
 
+export interface UserSubscription {
+  plan: 'FREE' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
+  status: 'active' | 'cancelled' | 'expired' | 'past_due' | 'inactive';
+  paymentId?: string;
+  orderId?: string;
+  expiryDate?: string;
+  purchaseDate?: string;
+  amount?: number;
+  currency?: string;
+  gateway?: string;
+  invoice?: string;
+  autoRenew?: boolean;
+}
+
+export interface UserUsage {
+  mockCourtroomTrials: number;
+  knowledgeHubTrials: number;
+  clientConnectTrials: number;
+  resetDate: string;
+}
+
 export interface UserProfile {
   _id: string;
   id?: string;
@@ -190,6 +211,8 @@ export interface UserProfile {
   credits: number;
   founderStatus: boolean;
   notificationsInbox: NotificationInboxItem[];
+  subscription?: UserSubscription;
+  usage?: UserUsage;
   createdAt: string;
   updatedAt: string;
 }

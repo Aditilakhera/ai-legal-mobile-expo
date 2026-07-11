@@ -41,6 +41,10 @@ export const API_ENDPOINTS = {
     Evidence: (id: string) => `/projects/${id}/evidence` as const,
     Tasks: (id: string) => `/projects/${id}/tasks` as const,
     Research: (id: string) => `/projects/${id}/research` as const,
+    ClientConnectDraft: (id: string) => `/projects/${id}/client-connect/draft` as const,
+    ClientConnectLog: (id: string) => `/projects/${id}/client-connect/log` as const,
+    ClientConnectLogs: (id: string) => `/projects/${id}/client-connect/logs` as const,
+    ClientConnectLogItem: (id: string, logId: string) => `/projects/${id}/client-connect/logs/${logId}` as const,
   },
 
   // Chat Sessions
@@ -81,5 +85,12 @@ export const API_ENDPOINTS = {
   // Voice & Speech Recognition
   Voice: {
     Transcribe: '/voice/transcribe',
+  },
+
+  // Mock Courtroom
+  MockCourtroom: {
+    Respond: '/projects/mock-courtroom/respond',
+    Report: '/projects/mock-courtroom/report',
+    PracticeReport: '/projects/mock-courtroom/practice-report',
   },
 } as const;

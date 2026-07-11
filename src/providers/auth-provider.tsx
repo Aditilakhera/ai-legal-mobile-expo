@@ -92,7 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             })
             .catch(async (error) => {
-              console.error('[AUTH PROVIDER] Background validation failed:', error);
+              console.warn('[AUTH PROVIDER] Background validation failed:', error.message || error);
               // If unauthorized (401), force logout
               if (error.statusCode === 401 || error.message?.includes('401') || error.error?.includes('401')) {
                 console.warn('[AUTH PROVIDER] Token invalid or expired, clearing session.');
@@ -101,8 +101,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // If network error, retain offline mode (do nothing)
             });
         }
-      } catch (err) {
-        console.error('[AUTH PROVIDER] Failed to hydrate authentication tokens', err);
+      } catch (err: any) {
+        console.warn('[AUTH PROVIDER] Failed to hydrate authentication tokens:', err.message || err);
       } finally {
         try {
           const hardware = await LocalAuthentication.hasHardwareAsync();

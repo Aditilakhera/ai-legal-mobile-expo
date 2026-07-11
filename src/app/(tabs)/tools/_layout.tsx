@@ -35,6 +35,7 @@ export default function ToolsLayout() {
       <Stack.Screen name="research-assistant" options={{ title: 'Research Assistant' }} />
       <Stack.Screen name="mock-courtroom" options={{ title: 'Mock Courtroom' }} />
       <Stack.Screen name="knowledge-hub" options={{ title: 'AI Legal Knowledge Hub' }} />
+      <Stack.Screen name="client-connect" options={{ title: 'AI Client Connect' }} />
     </Stack>
   );
 }

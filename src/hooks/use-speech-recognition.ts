@@ -205,9 +205,18 @@ export function useSpeechRecognition(onTranscriptionComplete: (text: string) => 
 
     // --- Native: Expo AV Whisper Fallback ---
     try {
+      if (recordingInstanceRef.current) {
+        try {
+          await recordingInstanceRef.current.stopAndUnloadAsync();
+        } catch (e) {
+          console.warn('[useSpeechRecognition] Cleanup failed:', e);
+        }
+        recordingInstanceRef.current = null;
+      }
+
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
-        showToast('error', 'Microphone Permission Required', 'Please enable microphone access in settings.');
+        showToast('error', 'Microphone permission required.', 'Allow microphone access to use voice input.');
         return;
       }
 

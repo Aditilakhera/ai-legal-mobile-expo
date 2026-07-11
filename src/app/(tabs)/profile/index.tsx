@@ -73,6 +73,7 @@ export default function ProfileScreen() {
 
   const profile = useUserStore((s) => s.profile);
   const setProfile = useUserStore((s) => s.setProfile);
+  const activePlan = profile?.subscription?.plan || 'FREE';
 
   const [isEditing, setIsEditing] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
@@ -554,17 +555,33 @@ export default function ProfileScreen() {
                       </Text>
                     </View>
 
-                    {profile?.founderStatus ? (
-                      <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
-                        <Ionicons name="ribbon-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
-                        <Text style={[styles.membershipText, { color: theme.primary }]}>{t('profile.founderMember')}</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.membershipBadge, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
-                        <Ionicons name="star-outline" size={10} color={theme.primary} style={{ marginRight: 3 }} />
-                        <Text style={[styles.membershipText, { color: theme.primary }]}>{t('profile.premiumMember')}</Text>
-                      </View>
-                    )}
+                    <View style={[
+                      styles.membershipBadge,
+                      activePlan === 'FREE' && { backgroundColor: 'rgba(100, 116, 139, 0.08)', borderColor: '#64748B' },
+                      activePlan === 'STARTER' && { backgroundColor: 'rgba(59, 130, 246, 0.08)', borderColor: '#3B82F6' },
+                      activePlan === 'PROFESSIONAL' && { backgroundColor: 'rgba(138, 92, 245, 0.08)', borderColor: '#8A5CF5' },
+                      activePlan === 'ENTERPRISE' && { backgroundColor: 'rgba(245, 158, 11, 0.08)', borderColor: '#F59E0B' },
+                    ]}>
+                      <Ionicons
+                        name={activePlan === 'FREE' ? "person-outline" : activePlan === 'ENTERPRISE' ? "crown-outline" : "star-outline"}
+                        size={10}
+                        color={
+                          activePlan === 'FREE' ? '#64748B' :
+                          activePlan === 'STARTER' ? '#3B82F6' :
+                          activePlan === 'PROFESSIONAL' ? '#8A5CF5' : '#F59E0B'
+                        }
+                        style={{ marginRight: 3 }}
+                      />
+                      <Text style={[
+                        styles.membershipText,
+                        activePlan === 'FREE' && { color: '#64748B' },
+                        activePlan === 'STARTER' && { color: '#3B82F6' },
+                        activePlan === 'PROFESSIONAL' && { color: '#8A5CF5' },
+                        activePlan === 'ENTERPRISE' && { color: '#F59E0B' },
+                      ]}>
+                        {activePlan === 'FREE' ? 'FREE' : activePlan === 'PROFESSIONAL' ? 'PRO' : activePlan}
+                      </Text>
+                    </View>
                   </View>
 
                   <Text style={[styles.creditsText, { color: theme.primary }]}>{t('profile.credits')}: {profile?.credits ?? 0}</Text>
@@ -583,8 +600,70 @@ export default function ProfileScreen() {
               </View>
             </Animated.View>
 
-            {/* CARD 1: Personal Information */}
-            <Animated.View style={[styles.card, getCardStyle(1), { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* AI Legal Pro Membership Card */}
+            {!isEditing && (
+              <Pressable
+                onPress={() => router.push('/profile/billing' as any)}
+                style={[
+                  styles.membershipCard,
+                  {
+                    backgroundColor: theme.primary,
+                    shadowColor: theme.primary,
+                  }
+                ]}
+              >
+                <View style={styles.membershipCardHeader}>
+                  <Text style={styles.membershipCrown}>👑 AI Legal Pro</Text>
+                  <View style={styles.membershipBadgeWrapper}>
+                    <Text style={styles.membershipBadgeText}>
+                      {activePlan}
+                    </Text>
+                  </View>
+                </View>
+
+                {activePlan === 'FREE' ? (
+                  <View style={styles.membershipCardBody}>
+                    <Text style={styles.membershipUpgradeText}>Upgrade to AI Legal Pro</Text>
+                    <Text style={styles.membershipUpgradeSub}>Unlock premium legal intelligence.</Text>
+                    <Pressable
+                      style={styles.membershipUpgradeBtn}
+                      onPress={() => router.push('/profile/billing' as any)}
+                    >
+                      <Text style={styles.membershipUpgradeBtnText}>Upgrade</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.membershipCardBodyPaid}>
+                    <View style={styles.membershipDetailRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.membershipDetailLabel}>Current Plan</Text>
+                        <Text style={styles.membershipDetailVal}>
+                          {activePlan}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.membershipDetailLabel}>Expires</Text>
+                        <Text style={styles.membershipDetailVal}>
+                          {profile?.subscription?.expiryDate
+                            ? new Date(profile.subscription.expiryDate).toLocaleDateString('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })
+                            : 'N/A'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.manageSubscriptionLink}>Manage Subscription →</Text>
+                  </View>
+                )}
+              </Pressable>
+            )}
+
+            {isEditing && (
+              <>
+                {/* CARD 1: Personal Information */}
+                <Animated.View style={[styles.card, getCardStyle(1), { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.sectionHeading, { color: theme.primary, borderBottomColor: theme.divider }]}>{t('profile.personalInfo')}</Text>
 
               {isEditing ? (
@@ -745,6 +824,8 @@ export default function ProfileScreen() {
                 </View>
               )}
             </Animated.View>
+          </>
+        )}
 
             {/* CARD 4: Completeness Checklist */}
             <Animated.View style={[styles.card, getCardStyle(4), { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1499,5 +1580,89 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6D5DFC',
     fontWeight: '600',
+  },
+  membershipCard: {
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    marginBottom: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  membershipCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  membershipCrown: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  membershipBadgeWrapper: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  membershipBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  membershipCardBody: {
+    marginTop: 4,
+  },
+  membershipUpgradeText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  membershipUpgradeSub: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 4,
+  },
+  membershipUpgradeBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  membershipUpgradeBtnText: {
+    color: '#8A5CF5',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  membershipCardBodyPaid: {
+    marginTop: 4,
+  },
+  membershipDetailRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  membershipDetailLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  membershipDetailVal: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  manageSubscriptionLink: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    textAlign: 'right',
   },
 });
